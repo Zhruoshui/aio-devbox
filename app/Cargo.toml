@@ -1,0 +1,25 @@
+[package]
+name = "aio-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "aio-app"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tower-http = { version = "0.5", features = ["fs"] }
+# Phase E: terminal pty bridge. portable-pty spawns a login shell in a pty;
+# futures-util drives the split WebSocket sink/stream.
+portable-pty = "0.8"
+futures-util = "0.3"
+
+[profile.release]
+opt-level = 2

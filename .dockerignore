@@ -1,0 +1,25 @@
+# Repo-root .dockerignore.
+#
+# Applies to every build whose context is `.` (the `app` image via
+# app/Dockerfile, and the `base` image via Dockerfile.base). The `app` image
+# needs only `app/` (Rust) and `web/` (React) source; the `base` image COPYs
+# no local files at all. Keep the context small and free of secrets/build state.
+
+# VCS + agent/tooling metadata
+.git
+.trellis
+.agents
+.claude
+.codex
+.opencode
+
+# Secrets / env (never send to the builder)
+.env
+gateway/secrets
+
+# Build artifacts (rebuilt inside the image; never send stale copies)
+node_modules
+**/node_modules
+app/target
+app/static
+web/dist

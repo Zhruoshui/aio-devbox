@@ -1,0 +1,105 @@
+services:
+  gateway:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./gateway/entrypoint.sh:/entrypoint.sh:ro
+      - ./gateway/secrets/hash:/run/secrets/hash:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    depends_on:
+      - app
+    networks:
+      - sandbox-net
+
+  app:
+    build:
+      # Repo-root context so app/Dockerfile can reach both app/ (Rust) and web/
+      # (React SPA). See app/Dockerfile's web-builder stage.
+      context: .
+      dockerfile: app/Dockerfile
+    image: sandbox-app
+    restart: unless-stopped
+    expose:
+      - "8088"
+    environment:
+      # Agent-pane gates (type=agent services in services.toml). Default true;
+      # set to "false" / "0" to hide a pane. Web panes (code-server, vnc) are
+      # gated by compose profiles and auto-detected via TCP reachability.
+      ENABLE_TERMINAL: "true"
+      ENABLE_OPENCODE: "true"
+    volumes:
+      - workspace:/home/gem
+    networks:
+      - sandbox-net
+
+  # code-server (VSCode in the browser). Gated behind the `code-server` profile
+  # so it only starts with `docker compose --profile code-server ... up` (or
+  # `make up PROFILES=code-server`). The manifest auto-detects it via TCP
+  # reachability to code-server:8200 (config.rs), so the UI hides the pane when
+  # this container is absent (R8 / AC4). Mounts the shared workspace volume so
+  # edits/extensions persist (R6 / AC3). Runs as uid 1000 (gem) from sandbox-base.
+  code-server:
+    build:
+      context: .
+      dockerfile: code-server/Dockerfile
+    image: sandbox-code-server
+    restart: unless-stopped
+    profiles:
+      - code-server
+    expose:
+      - "8200"
+    environment:
+      # code-server's own port preview (only reaches dev servers started in
+      # code-server's integrated terminal - cross-container preview is out of
+      # scope per design §11). Behind the /code-server/ subpath this absolute
+      # path routes to the gateway root, not code-server; kept per design §6.
+      VSCODE_PROXY_URI: "/proxy/{port}/"
+    volumes:
+      - workspace:/home/gem
+    networks:
+      - sandbox-net
+
+  # VNC / Chromium container (Phase G). Gated behind the `vnc` profile so it
+  # only starts with `docker compose --profile vnc ... up` (or
+  # `make up PROFILES=vnc`). The manifest auto-detects it via TCP reachability
+  # to vnc:6080 (config.rs), so the UI hides the pane when this container is
+  # absent (R8 / AC4). Mounts the shared workspace volume so the Chromium
+  # profile persists at /home/gem/.config/chromium (R6 / AC3). Runs as uid 1000
+  # (gem) from sandbox-base. shm_size 2gb because Chromium needs shared memory.
+  vnc:
+    build:
+      context: .
+      dockerfile: vnc/Dockerfile
+    image: sandbox-vnc
+    restart: unless-stopped
+    profiles:
+      - vnc
+    expose:
+      - "6080"
+    volumes:
+      - workspace:/home/gem
+    shm_size: "2gb"
+    networks:
+      - sandbox-net
+
+  # Base image build, gated behind the `build` profile so it never starts as a
+  # runtime container. `docker compose --profile build build base` tags
+  # `sandbox-base`, which `app/Dockerfile` (FROM sandbox-base) depends on.
+  # The canonical path is `make build` / `make up` (builds sandbox-base first).
+  base:
+    image: sandbox-base
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+    profiles:
+      - build
+
+volumes:
+  workspace:
+
+networks:
+  sandbox-net:

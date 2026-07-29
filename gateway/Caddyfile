@@ -1,0 +1,38 @@
+# Caddyfile - Phase D/G gateway.
+# basicauth over everything (HTTP + WS); reverse-proxies to the axum app and to
+# the pluggable web services (code-server, vnc). Adding a web service = one more
+# `handle_path <prefix>/*` block before the catch-all (design §3 / §14B).
+#
+# {$SANDBOX_USER} and {$SANDBOX_PASSWORD_HASH} are resolved by caddy from its
+# process environment. See gateway/entrypoint.sh for how the hash is delivered
+# (a mounted file, because docker-compose mangles '$' in env values).
+#
+# code-server subpath: code-server has no --prefix flag and 404s on /code-server/
+# (it is not subpath-aware). It is served behind /code-server/ via `handle_path`,
+# which STRIPS the /code-server prefix before proxying to code-server:8200. This
+# works because code-server emits all-relative asset URLs (./_static/...,
+# stable-<hash>/...) and computes its base URL from window.location: the browser
+# resolves them against /code-server/, and each sub-request is stripped by caddy
+# back to / on the code-server side. WebSocket upgrades are handled automatically.
+#
+# vnc subpath: same `handle_path` strip-prefix pattern. noVNC 1.3.0's vnc.html
+# emits RELATIVE asset URLs (src="app/ui.js", href="app/styles/base.css") and
+# connects its WebSocket to `websockify` relative to the page, so the browser
+# resolves them against /vnc/ and caddy strips /vnc back to / on the websockify
+# side. basicauth applies to the WS upgrade too (browser caches the challenge).
+# `handle` + `handle_path` are evaluated in source order, so both web-service
+# routes must precede the catch-all (design §3).
+:8080 {
+	basicauth {
+		{$SANDBOX_USER} {$SANDBOX_PASSWORD_HASH}
+	}
+	handle_path /code-server/* {
+		reverse_proxy code-server:8200
+	}
+	handle_path /vnc/* {
+		reverse_proxy vnc:6080
+	}
+	handle {
+		reverse_proxy app:8088
+	}
+}

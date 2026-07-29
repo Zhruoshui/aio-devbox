@@ -1,0 +1,28 @@
+{
+  "name": "aio-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AIO Sandbox workspace UI (React SPA baked into the axum app image).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "golden-layout": "^2.6.0",
+    "puppeteer-core": "^23.11.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

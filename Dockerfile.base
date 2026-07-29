@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1
+#
+# sandbox-base: shared dev-environment layer that the `app`, `code-server`,
+# and `vnc` images derive from. Built and tagged as `sandbox-base` before any
+# downstream image builds (see Makefile `build-base`, or
+# `docker compose --profile build build base`).
+#
+# Network note: this sandbox's network policy blocks plain HTTP (port 80) and
+# the NodeSource / opencode.ai hosts. apt is therefore pointed at HTTPS, and
+# Node / opencode are installed from the official nodejs.org tarball and the
+# GitHub release respectively.
+
+FROM debian:bookworm-slim
+
+ARG NODE_VERSION=20.18.0
+ARG OPENCODE_VERSION=v1.18.7
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    TZ=UTC \
+    PYTHONUNBUFFERED=1
+
+# The proxy blocks HTTP (port 80); force HTTPS for apt sources (deb822 + legacy).
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' \
+        /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+ && sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' \
+        /etc/apt/sources.list 2>/dev/null || true
+
+# Bootstrap ca-certificates over HTTPS without peer verification (chicken-and-
+# egg: HTTPS apt needs certs to verify, certs come from apt). Once installed,
+# update-ca-certificates provisions the standard CA bundle and all subsequent
+# HTTPS fetches verify normally.
+RUN apt-get -o Acquire::https::Verify-Peer=false update \
+ && apt-get -o Acquire::https::Verify-Peer=false install -y --no-install-recommends ca-certificates \
+ && update-ca-certificates \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        curl git gnupg2 xz-utils \
+        python3 python3-pip python3-venv \
+        build-essential pkg-config libssl-dev \
+        locales tzdata sudo \
+ && rm -rf /var/lib/apt/lists/* \
+ && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+
+# Node 20 LTS from the official tarball (NodeSource is blocked in this env).
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        -o /tmp/node.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.xz \
+ && node --version && npm --version
+
+# opencode CLI (the opencode.ai installer is blocked; fetch the release binary
+# from GitHub instead). Installed system-wide on /usr/local/bin for all users.
+RUN mkdir -p /tmp/oc \
+ && curl -fsSL "https://github.com/sst/opencode/releases/download/${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+        -o /tmp/oc.tar.gz \
+ && tar -xzf /tmp/oc.tar.gz -C /tmp/oc \
+ && install -m 0755 /tmp/oc/opencode /usr/local/bin/opencode \
+ && rm -rf /tmp/oc /tmp/oc.tar.gz \
+ && opencode --version
+
+# Workspace user `gem` (uid 1000), aligned across every container that touches
+# the shared workspace volume (R6 / R9).
+RUN groupadd --system --gid 1000 gem \
+ && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
+ && mkdir -p /home/gem \
+ && chown 1000:1000 /home/gem
+
+USER gem
+WORKDIR /home/gem
