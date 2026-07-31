@@ -30,6 +30,20 @@
 		reverse_proxy code-server:8200
 	}
 	handle_path /vnc/* {
+		# noVNC 1.3.0 serves UNVERSIONED relative asset URLs (app/ui.js,
+		# app/styles/base.css) with no Cache-Control, so browsers heuristically
+		# cache them for months (10% of the 2021 Last-Modified age ~= 174 days)
+		# and never revalidate. A cached HTML/JS version mismatch (left over from
+		# an earlier noVNC build) makes ui.js getElementById return null -> crash
+		# in addConnectionControlHandlers. Incognito works only because it has no
+		# cache. Force no-store so the browser always refetches a matching HTML/JS
+		# pair. code-server needs no such fix - it emits versioned asset URLs
+		# (_static/stable-<hash>/...) that self-bust. Route-level `header` (not
+		# reverse_proxy `header_down`): the latter did not apply to the proxied
+		# response under caddy 2.x here.
+		header {
+			Cache-Control no-store
+		}
 		reverse_proxy vnc:6080
 	}
 	handle {
