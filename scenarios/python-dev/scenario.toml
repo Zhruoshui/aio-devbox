@@ -1,0 +1,3 @@
+id = "python-dev"
+name = "Python 开发增强"
+description = "uv + ruff 单二进制,装 /usr/local/bin(系统路径,base 已有 python3/pip/venv)"

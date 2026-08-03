@@ -1,0 +1,21 @@
+[package]
+name = "aio-config"
+version = "0.1.0"
+edition = "2021"
+description = "AIO sandbox scenario configurator: TUI selection + Dockerfile.base generator"
+
+# Build/host-side tool, not part of the running stack. Built into the
+# `aio-config` image (see config/Dockerfile) and run via `docker run` from the
+# Makefile (`make config` / `make build-base`). Independent of the `app` crate.
+[[bin]]
+name = "aio-config"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+# ratatui + crossterm versions are paired; 0.28/0.28 are mutually compatible.
+ratatui = "0.28"
+crossterm = "0.28"

@@ -1,0 +1,7 @@
+# Scenario selection written by `aio-config tui` (interactive) and read by
+# `aio-config gen` (build-time). Copy to .aio/enabled.toml to seed a default,
+# or just run `make config`. An empty/absent list = no scenarios (the built
+# Dockerfile.base is just head + tail, equivalent to the pre-scenario image).
+#
+# scenarios are applied in alphabetical order for reproducible builds.
+scenarios = []

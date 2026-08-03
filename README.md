@@ -61,13 +61,44 @@ curl http://localhost:8080/                  # -> 401
 make down
 ```
 
+## Scenario presets (build-time toolchains)
+
+`make config` opens a TUI (ratatui) to pick dev scenarios (`rust`, `python-dev`,
+…). The selection is written to `.aio/enabled.toml`. `make build-base` then runs
+`aio-config gen`, which assembles `Dockerfile.base` from `Dockerfile.base.head`
++ the enabled `scenarios/<id>/fragment.Dockerfile` files (alphabetical order)
++ `Dockerfile.base.tail`, and builds `sandbox-base`. So a chosen toolchain is
+baked into the image at build time — after `make up` it is ready with no manual
+install.
+
+```sh
+make config                       # TUI: pick scenarios -> .aio/enabled.toml
+make up                           # gen + build sandbox-base + compose up
+docker exec aio-app-1 bash -lc 'cargo --version'   # rust ready, no manual install
+```
+
+Adding a scenario = drop `scenarios/<id>/{scenario.toml,fragment.Dockerfile}`
+(+ rebuild); no change to the configurator. Scenario tools install to **system
+paths** (`/opt`, `/usr/local`) as root before `USER gem` — never `/home/gem/*`,
+which the workspace named volume masks. Changing the selection rebuilds the
+image (the `docker save`/`load` offline path is unchanged).
+
+Offline: build on an online machine, `docker save` the images, `docker load` on
+the offline machine, then `make up NOBUILD=1` (skips `build-base`/gen). The
+`aio-config` image itself also fetches crates from crates.io at build time, so
+it is built online and loaded offline like the rest.
+
 ## Layout
 
 ```
-Dockerfile.base        sandbox-base image (shared dev-env layer)
+Dockerfile.base        sandbox-base image (generated: head + scenarios + tail)
+Dockerfile.base.head   sandbox-base head (root bootstrap: apt/node/opencode/user)
+Dockerfile.base.tail   sandbox-base tail (USER gem + WORKDIR)
+scenarios/             scenario library (<id>/{scenario.toml,fragment.Dockerfile})
+config/                aio-config crate (Rust): TUI picker + Dockerfile.base generator
 app/                   axum app (Cargo.toml, src/main.rs, Dockerfile)
 gateway/               Caddyfile + entrypoint.sh (+ secrets/hash, generated)
 docker-compose.yml     gateway + app (+ base under build profile)
-Makefile               build-base / build / up / hash / down / clean
+Makefile               build-config / config / build-base / build / up / hash / down / clean
 .env / .env.example    SANDBOX_USER (hash is generated, not env-delivered)
 ```

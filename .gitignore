@@ -26,6 +26,9 @@ gateway/secrets/
 # NOTE: app/Cargo.lock IS committed (this is a binary crate, not a library).
 app/target/
 
+# --- Rust build output (config/, the aio-config build/host-side tool) ---
+config/target/
+
 # --- Generated static assets ---
 # app/static/ is produced by the app image's web-builder stage (Phase C) from
 # web/; it is a build artifact, not source.
@@ -37,3 +40,7 @@ web/dist/
 
 # --- Test artifacts ---
 vnc-screenshot.png
+
+# --- Scenario selection (machine-local; written by `make config`) ---
+# The .example is committed as a seed; the real selection is per-machine.
+.aio/enabled.toml

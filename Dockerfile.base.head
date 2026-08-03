@@ -71,11 +71,3 @@ RUN groupadd --system --gid 1000 gem \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
  && mkdir -p /home/gem \
  && chown 1000:1000 /home/gem
-
-# sandbox-base TAIL fragment. `aio-config gen` appends this AFTER all enabled
-# scenario fragments. Everything above (head + scenarios) ran as root; this
-# switches to the workspace user `gem`. Kept separate so scenarios can insert
-# root-context install steps before the user switch.
-
-USER gem
-WORKDIR /home/gem

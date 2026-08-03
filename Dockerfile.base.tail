@@ -1,0 +1,7 @@
+# sandbox-base TAIL fragment. `aio-config gen` appends this AFTER all enabled
+# scenario fragments. Everything above (head + scenarios) ran as root; this
+# switches to the workspace user `gem`. Kept separate so scenarios can insert
+# root-context install steps before the user switch.
+
+USER gem
+WORKDIR /home/gem
