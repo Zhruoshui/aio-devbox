@@ -69,7 +69,11 @@ services:
   # to vnc:6080 (config.rs), so the UI hides the pane when this container is
   # absent (R8 / AC4). Mounts the shared workspace volume so the Chromium
   # profile persists at /home/gem/.config/chromium (R6 / AC3). Runs as uid 1000
-  # (gem) from sandbox-base. shm_size 2gb because Chromium needs shared memory.
+  # (gem) - decoupled from sandbox-base: vnc/Dockerfile is FROM
+  # debian:bookworm-slim (vnc is a pure browser surface and does not need the
+  # dev tooling / scenario fragments; dev work done in code-server/app is
+  # reached via the shared volume + sandbox-net DNS). shm_size 2gb because
+  # Chromium needs shared memory.
   vnc:
     build:
       context: .
