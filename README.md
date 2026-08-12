@@ -18,8 +18,8 @@ host :8080 -> caddy gateway (basicauth) --reverse_proxy--> app (axum) :8088
 ```
 
 - `sandbox-base` (Dockerfile.base): Debian slim + node 20 + python3 + git +
-  opencode + user `gem` (uid 1000). Shared base image for `app`, `code-server`,
-  and (later) `vnc`.
+  user `gem` (uid 1000). Shared base image for `app`, `code-server`,
+  and (later) `vnc`. (opencode moved to the L4 `opencode` scenario.)
 - `app` (app/Dockerfile, multi-stage): axum server, `FROM sandbox-base`.
 - `gateway` (caddy:2): basicauth + reverse proxy to `app:8088`.
 
@@ -63,25 +63,65 @@ make down
 
 ## Scenario presets (build-time toolchains)
 
-`make config` opens a TUI (ratatui) to pick dev scenarios (`rust`, `python-dev`,
-…). The selection is written to `.aio/enabled.toml`. `make build-base` then runs
-`aio-config gen`, which assembles `Dockerfile.base` from `Dockerfile.base.head`
-+ the enabled `scenarios/<id>/fragment.Dockerfile` files (alphabetical order)
-+ `Dockerfile.base.tail`, and builds `sandbox-base`. So a chosen toolchain is
-baked into the image at build time — after `make up` it is ready with no manual
+Dev environments are organized into **profile layers**. Each scenario is a
+build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
+`category` so the TUI can group scenarios by layer:
+
+| Layer | `category` | What lives here | Selectable? |
+|-------|-----------|------------------|-------------|
+| L1 OS packages | `os` | apt packages, node 20, user `gem` | no - hardcoded in `Dockerfile.base.head` |
+| L2 Shell conveniences | `shell` | CLI tools (fzf/rg/bat/fd) | yes |
+| L3 Language toolchains | `lang` | rust / go / python-dev (toolchain + LSP/formatter/linter) | yes |
+| L4 Applications | `app` | CLI apps / AI agent CLIs (opencode) | yes |
+| L5 External services | `service` | _(future, not yet implemented)_ | - |
+
+L1 is the foundation every compose service `FROM sandbox-base` inherits (curl
+for L3, node for code-server, build-essential for compilers), so it stays in
+`Dockerfile.base.head` and is **never selectable** - unchecking it would break
+derived containers. L2-L4 are the selectable personal preferences.
+
+Current scenarios:
+
+- `shell-utils` (L2 - `shell`): fzf / ripgrep / bat / fd-find (with Debian
+  `bat`->`batcat`, `fd`->`fdfind` symlinks into `/usr/local/bin` so the
+  conventional names work). Tools only - no shell aliases (alias coverage is
+  inconsistent across login/non-login shells; this layer ships binaries that
+  work in every shell PATH).
+- `rust` (L3 - `lang`): rustup stable + rustfmt + clippy + rust-analyzer,
+  installed under `/opt/rust` (avoids the workspace volume masking
+  `/home/gem`), with proxies symlinked into `/usr/local/bin` so every shell
+  finds `cargo`/`rustc` regardless of PATH.
+- `python-dev` (L3 - `lang`): Python development enhancements.
+- `go` (L3 - `lang`): Go toolchain.
+- `opencode` (L4 - `app`): opencode AI agent CLI (GitHub release binary to `/usr/local/bin`). Moved out of L1/head into L4 (AI agents belong in L4). **MVP caveat:** the Web opencode pane is gated by `ENABLE_OPENCODE` (compose, hardcoded `true`), decoupled from whether opencode is baked - so disabling this scenario leaves a dead pane ("command not found") until the future "auto-detect L4 agents -> Web buttons" feature.
+
+`make config` opens a TUI (ratatui) that lists scenarios **grouped by layer**
+(L2 - Shell / L3 - Language / ...). Space toggles, `s` saves the selection to
+`.aio/enabled.toml`. `make build-base` then runs `aio-config gen`, which
+assembles `Dockerfile.base` from `Dockerfile.base.head` + the enabled
+`scenarios/<id>/fragment.Dockerfile` files (layer order: by `category` then id) +
+`Dockerfile.base.tail`, and builds `sandbox-base`. A chosen toolchain is baked
+into the image at build time - after `make up` it is ready with no manual
 install.
 
 ```sh
-make config                       # TUI: pick scenarios -> .aio/enabled.toml
+make config                       # TUI: pick scenarios (grouped by layer) -> .aio/enabled.toml
 make up                           # gen + build sandbox-base + compose up
 docker exec aio-app-1 bash -lc 'cargo --version'   # rust ready, no manual install
 ```
 
 Adding a scenario = drop `scenarios/<id>/{scenario.toml,fragment.Dockerfile}`
-(+ rebuild); no change to the configurator. Scenario tools install to **system
-paths** (`/opt`, `/usr/local`) as root before `USER gem` — never `/home/gem/*`,
-which the workspace named volume masks. Changing the selection rebuilds the
-image (the `docker save`/`load` offline path is unchanged).
+and set `category` in `scenario.toml` (`os`/`shell`/`lang`/`app`/`service`;
+defaults to `lang` for back-compat) - no change to the configurator. Scenario
+tools install to **system paths** (`/opt`, `/usr/local`, `/etc/profile.d`) as
+root before `USER gem`, never `/home/gem/*` (the workspace named volume masks
+it). Changing the selection rebuilds the image (the `docker save`/`load`
+offline path is unchanged).
+
+> **Rebuild after reselecting.** `make up` rebuilds the `sandbox-base` image but
+> does not recreate already-running containers. After changing the selection,
+> run `make down && make up` (or `docker compose up -d --force-recreate`) so
+> `app`/`code-server` pick up the new base image.
 
 Offline: build on an online machine, `docker save` the images, `docker load` on
 the offline machine, then `make up NOBUILD=1` (skips `build-base`/gen). The
@@ -92,9 +132,9 @@ it is built online and loaded offline like the rest.
 
 ```
 Dockerfile.base        sandbox-base image (generated: head + scenarios + tail)
-Dockerfile.base.head   sandbox-base head (root bootstrap: apt/node/opencode/user)
+Dockerfile.base.head   sandbox-base head (root bootstrap: apt/node/user)
 Dockerfile.base.tail   sandbox-base tail (USER gem + WORKDIR)
-scenarios/             scenario library (<id>/{scenario.toml,fragment.Dockerfile})
+scenarios/             scenario library, layered by category; <id>/{scenario.toml,fragment.Dockerfile}
 config/                aio-config crate (Rust): TUI picker + Dockerfile.base generator
 app/                   axum app (Cargo.toml, src/main.rs, Dockerfile)
 gateway/               Caddyfile + entrypoint.sh (+ secrets/hash, generated)

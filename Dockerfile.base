@@ -3,22 +3,22 @@
 # sandbox-base HEAD fragment. `aio-config gen` assembles the final
 # Dockerfile.base as: this head + the enabled scenario fragments + the tail.
 # This file holds the root-context bootstrap every derived image shares:
-# HTTPS apt, ca-cert self-bootstrap, node, opencode, user `gem`. Scenario
-# fragments insert AFTER this (still root, before the tail's `USER gem`).
+# HTTPS apt, ca-cert self-bootstrap, node, user `gem`. Scenario fragments
+# insert AFTER this (still root, before the tail's `USER gem`).
 #
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
 # `make build-base` (which runs `gen`).
 #
 # Network note: this sandbox's network policy blocks plain HTTP (port 80) and
-# the NodeSource / opencode.ai hosts. apt is therefore pointed at HTTPS, and
-# Node / opencode are installed from the official nodejs.org tarball and the
-# GitHub release respectively.
+# the NodeSource host. apt is therefore pointed at HTTPS, and Node is installed
+# from the official nodejs.org tarball. (opencode was previously baked here but
+# moved to the L4 `opencode` scenario - AI agents belong in L4, not the L1 base.
+# Its GitHub-release fetch lives in scenarios/opencode/fragment.Dockerfile.)
 
 FROM debian:bookworm-slim
 
 ARG NODE_VERSION=20.18.0
-ARG OPENCODE_VERSION=v1.18.7
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -55,8 +55,78 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
  && rm /tmp/node.tar.xz \
  && node --version && npm --version
 
-# opencode CLI (the opencode.ai installer is blocked; fetch the release binary
-# from GitHub instead). Installed system-wide on /usr/local/bin for all users.
+# Workspace user `gem` (uid 1000), aligned across every container that touches
+# the shared workspace volume (R6 / R9).
+RUN groupadd --system --gid 1000 gem \
+ && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
+ && mkdir -p /home/gem \
+ && chown 1000:1000 /home/gem
+
+# >>> scenario: python-dev >>>
+# uv + ruff as single static-ish binaries to /usr/local/bin (system path, NOT
+# /home/gem -> not masked by the workspace volume; on PATH for all users/shells
+# without a ~/.bashrc block). base already ships python3/pip/venv; this only
+# adds the uv/ruff tooling on top. Versions pinned via ARG for reproducible
+# builds; bump when updating.
+
+ARG UV_VERSION=0.5.11
+ARG RUFF_VERSION=0.8.4
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/uv.tgz \
+ && tar -xzf /tmp/uv.tgz -C /tmp \
+ && install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+ && curl -fsSL "https://github.com/astral-sh/ruff/releases/download/${RUFF_VERSION}/ruff-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/ruff.tgz \
+ && tar -xzf /tmp/ruff.tgz -C /tmp \
+ && install -m 0755 /tmp/ruff-x86_64-unknown-linux-gnu/ruff /usr/local/bin/ruff \
+ && rm -rf /tmp/uv.tgz /tmp/uv-x86_64-unknown-linux-gnu /tmp/ruff.tgz /tmp/ruff-x86_64-unknown-linux-gnu \
+ && uv --version && ruff --version
+# <<< scenario: python-dev <<<
+
+# >>> scenario: rust >>>
+# Rust toolchain via online rustup (build machine has network; offline is
+# handled by whole-image `docker save/load`, NOT by vendoring rustup here).
+#
+# Lands in /opt/rust (system path), NOT ~/.cargo: the workspace volume mounts
+# over /home/gem, so anything baked into /home/gem/.cargo would be masked /
+# go stale (卷遮盖). /opt/rust is in the image layer, visible in every
+# container derived from sandbox-base, and RUSTUP_HOME/CARGO_HOME point there.
+# chown to gem so the dev can `cargo install` / `rustup` freely.
+
+ARG RUST_VERSION=stable
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile default --default-toolchain ${RUST_VERSION} \
+                 --component rust-analyzer \
+ && rustup default ${RUST_VERSION} \
+ && rustc --version && cargo --version && rustfmt --version && cargo clippy --version \
+ && chown -R 1000:1000 /opt/rust \
+# rustup puts its proxies in /opt/rust/cargo/bin (custom PATH). The ENV PATH
+# above is inherited by non-login shells, but LOGIN shells (bash -l, e.g. the
+# AIO terminal panel's pty) source /etc/profile which RESETS PATH to the
+# standard set, dropping /opt/rust/cargo/bin -> `cargo` not found there.
+# Symlink the proxies into /usr/local/bin, which is on PATH in EVERY shell
+# (login / non-login / interactive / non-interactive), so cargo/rustc/rustup/
+# rustfmt are universally findable with zero per-shell PATH management. The
+# proxies are stable paths; rustup updates the toolchain behind them, so the
+# symlinks stay valid across `rustup update`.
+ && for b in /opt/rust/cargo/bin/*; do ln -sf "$b" /usr/local/bin/"$(basename "$b")"; done
+# <<< scenario: rust <<<
+
+# >>> scenario: opencode >>>
+# L4 示例:opencode AI agent CLI。原烘在 Dockerfile.base.head,按四层模型
+# (AI agent 归 L4)迁出到此。GitHub release 单二进制,装 /usr/local/bin(系统
+# 路径,不被共享卷 aio_workspace 遮盖)。opencode.ai 官方 installer 被沙箱网络
+# 策略封锁,故走 GitHub release(同 head 的 node 模式)。
+#
+# Web 面板耦合(已知 MVP 限制,见 prd 发现 6/7):app/services.toml 把 opencode
+# 注册为 type=agent 服务(enable=ENABLE_OPENCODE, cmd=opencode),面板可见性由
+# compose 的 ENABLE_OPENCODE env(硬编码 true)控制,与"是否烘进镜像"解耦。
+# 故若取消勾选本场景:opencode 不烘,但面板仍显示 -> 点开 `opencode: command
+# not found` 后关闭(死面板,非崩溃)。待未来"自动检测 L4 AI -> Web 动态按钮"
+# 特性修(运行时 command_exists 探测,面板跟随勾选状态)。
+
+ARG OPENCODE_VERSION=v1.18.7
 RUN mkdir -p /tmp/oc \
  && curl -fsSL "https://github.com/sst/opencode/releases/download/${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
         -o /tmp/oc.tar.gz \
@@ -64,13 +134,7 @@ RUN mkdir -p /tmp/oc \
  && install -m 0755 /tmp/oc/opencode /usr/local/bin/opencode \
  && rm -rf /tmp/oc /tmp/oc.tar.gz \
  && opencode --version
-
-# Workspace user `gem` (uid 1000), aligned across every container that touches
-# the shared workspace volume (R6 / R9).
-RUN groupadd --system --gid 1000 gem \
- && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
- && mkdir -p /home/gem \
- && chown 1000:1000 /home/gem
+# <<< scenario: opencode <<<
 
 # sandbox-base TAIL fragment. `aio-config gen` appends this AFTER all enabled
 # scenario fragments. Everything above (head + scenarios) ran as root; this

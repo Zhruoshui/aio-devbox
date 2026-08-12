@@ -1,7 +1,14 @@
 // Interactive scenario picker (ratatui). Lists every scenario discovered under
-// scenarios/ as a checkbox; Space toggles, `s` saves the selection to
-// .aio/enabled.toml and quits, `q` quits without saving. Pre-checks the ids
-// already in the manifest. No search/category (MVP: few scenarios; design §7).
+// scenarios/ grouped by its profile layer (`category` in scenario.toml):
+// L2 shell / L3 lang / L4 app (L5 service future). L1 ("os") lives in
+// Dockerfile.base.head and is NOT a selectable scenario, so it never appears
+// here. Space toggles, `s` saves the selection to .aio/enabled.toml and quits,
+// `q` quits without saving. Pre-checks the ids already in the manifest.
+//
+// Rows are a flat list interleaving non-selectable category headers and
+// selectable item checkboxes. Navigation (Up/Down) walks all rows; Space is a
+// no-op on header rows. `checked` (Vec<bool>) stays indexed by scenario, so
+// inserting header rows never shifts checkbox state.
 
 use std::io;
 use std::path::Path;
@@ -20,6 +27,14 @@ use ratatui::Terminal;
 use crate::manifest;
 use crate::scenario;
 
+/// A renderable list row: either a category header (non-selectable) or a
+/// scenario item (checkbox). `scenario_idx` indexes the `scenarios` Vec and the
+/// parallel `checked` Vec, independent of where headers fall in the row list.
+enum Row {
+    Header { category: String },
+    Item { scenario_idx: usize },
+}
+
 pub fn run(repo: &Path) -> Result<()> {
     let scenarios = scenario::scan(&repo.join("scenarios"))?;
     let manifest_path = repo.join(".aio/enabled.toml");
@@ -29,8 +44,28 @@ pub fn run(repo: &Path) -> Result<()> {
         .map(|s| enabled.scenarios.iter().any(|e| e == &s.meta.id))
         .collect();
 
+    // Order scenarios by (category_rank, id), then build the interleaved row
+    // list: a header row before each new category, followed by its items.
+    let mut order: Vec<usize> = (0..scenarios.len()).collect();
+    order.sort_by_key(|&i| {
+        (
+            scenario::category_rank(&scenarios[i].meta.category),
+            scenarios[i].meta.id.clone(),
+        )
+    });
+    let mut rows: Vec<Row> = Vec::new();
+    let mut last_cat: Option<String> = None;
+    for &i in &order {
+        let cat = scenarios[i].meta.category.clone();
+        if last_cat.as_deref() != Some(cat.as_str()) {
+            rows.push(Row::Header { category: cat.clone() });
+            last_cat = Some(cat);
+        }
+        rows.push(Row::Item { scenario_idx: i });
+    }
+
     let mut state = ListState::default();
-    if !scenarios.is_empty() {
+    if !rows.is_empty() {
         state.select(Some(0));
     }
 
@@ -51,25 +86,31 @@ pub fn run(repo: &Path) -> Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(1), Constraint::Length(3)])
                 .split(f.area());
-            let items: Vec<ListItem> = scenarios
+            let items: Vec<ListItem> = rows
                 .iter()
-                .enumerate()
-                .map(|(i, s)| {
-                    let mark = if checked[i] { "[x]" } else { "[ ]" };
-                    ListItem::new(Line::from(vec![
-                        Span::raw(format!("{} {}  ", mark, s.meta.name)),
-                        Span::styled(
-                            s.meta.description.clone(),
-                            Style::default().add_modifier(Modifier::DIM),
-                        ),
-                    ]))
+                .map(|r| match r {
+                    Row::Header { category } => ListItem::new(Line::from(vec![Span::styled(
+                        format!("  {}", scenario::category_title(category)),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    )])),
+                    Row::Item { scenario_idx } => {
+                        let s = &scenarios[*scenario_idx];
+                        let mark = if checked[*scenario_idx] { "[x]" } else { "[ ]" };
+                        ListItem::new(Line::from(vec![
+                            Span::raw(format!("    {} {}  ", mark, s.meta.name)),
+                            Span::styled(
+                                s.meta.description.clone(),
+                                Style::default().add_modifier(Modifier::DIM),
+                            ),
+                        ]))
+                    }
                 })
                 .collect();
             let list = List::new(items)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("AIO 开发场景  (空格=切换  s=保存退出  q=不存退出  ↑↓=移动)"),
+                        .title("AIO 开发场景 · 分层  (空格=切换  s=保存退出  q=不存退出  ↑↓=移动)"),
                 )
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
             f.render_stateful_widget(list, chunks[0], &mut state);
@@ -89,24 +130,27 @@ pub fn run(repo: &Path) -> Result<()> {
             if k.kind != KeyEventKind::Press {
                 continue;
             }
-            let len = scenarios.len();
+            let nrows = rows.len();
             match k.code {
                 KeyCode::Char('q') => break,
                 KeyCode::Char('s') => {
                     saved = true;
                     break;
                 }
-                KeyCode::Down if len > 0 => {
+                KeyCode::Down if nrows > 0 => {
                     let i = state.selected().unwrap_or(0);
-                    state.select(Some((i + 1) % len));
+                    state.select(Some((i + 1) % nrows));
                 }
-                KeyCode::Up if len > 0 => {
+                KeyCode::Up if nrows > 0 => {
                     let i = state.selected().unwrap_or(0);
-                    state.select(Some((i + len - 1) % len));
+                    state.select(Some((i + nrows - 1) % nrows));
                 }
                 KeyCode::Char(' ') => {
                     if let Some(i) = state.selected() {
-                        checked[i] = !checked[i];
+                        // Space is a no-op on header rows (only items toggle).
+                        if let Row::Item { scenario_idx } = rows[i] {
+                            checked[scenario_idx] = !checked[scenario_idx];
+                        }
                     }
                 }
                 _ => {}

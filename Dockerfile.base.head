@@ -3,22 +3,22 @@
 # sandbox-base HEAD fragment. `aio-config gen` assembles the final
 # Dockerfile.base as: this head + the enabled scenario fragments + the tail.
 # This file holds the root-context bootstrap every derived image shares:
-# HTTPS apt, ca-cert self-bootstrap, node, opencode, user `gem`. Scenario
-# fragments insert AFTER this (still root, before the tail's `USER gem`).
+# HTTPS apt, ca-cert self-bootstrap, node, user `gem`. Scenario fragments
+# insert AFTER this (still root, before the tail's `USER gem`).
 #
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
 # `make build-base` (which runs `gen`).
 #
 # Network note: this sandbox's network policy blocks plain HTTP (port 80) and
-# the NodeSource / opencode.ai hosts. apt is therefore pointed at HTTPS, and
-# Node / opencode are installed from the official nodejs.org tarball and the
-# GitHub release respectively.
+# the NodeSource host. apt is therefore pointed at HTTPS, and Node is installed
+# from the official nodejs.org tarball. (opencode was previously baked here but
+# moved to the L4 `opencode` scenario - AI agents belong in L4, not the L1 base.
+# Its GitHub-release fetch lives in scenarios/opencode/fragment.Dockerfile.)
 
 FROM debian:bookworm-slim
 
 ARG NODE_VERSION=20.18.0
-ARG OPENCODE_VERSION=v1.18.7
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -54,16 +54,6 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
  && rm /tmp/node.tar.xz \
  && node --version && npm --version
-
-# opencode CLI (the opencode.ai installer is blocked; fetch the release binary
-# from GitHub instead). Installed system-wide on /usr/local/bin for all users.
-RUN mkdir -p /tmp/oc \
- && curl -fsSL "https://github.com/sst/opencode/releases/download/${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
-        -o /tmp/oc.tar.gz \
- && tar -xzf /tmp/oc.tar.gz -C /tmp/oc \
- && install -m 0755 /tmp/oc/opencode /usr/local/bin/opencode \
- && rm -rf /tmp/oc /tmp/oc.tar.gz \
- && opencode --version
 
 # Workspace user `gem` (uid 1000), aligned across every container that touches
 # the shared workspace volume (R6 / R9).

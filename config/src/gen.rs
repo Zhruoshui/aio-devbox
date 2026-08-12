@@ -45,9 +45,25 @@ pub fn run(repo: &Path) -> Result<()> {
         .map(|s| (s.meta.id.as_str(), s))
         .collect();
 
-    // Deterministic order: sort enabled ids alphabetically + dedup (design §2.4).
-    let mut ids = enabled.scenarios.clone();
-    ids.sort();
+    // Deterministic order: by profile LAYER (category_rank) then id, then dedup.
+    // Layer order (L2 shell -> L3 lang -> L4 app; L1 os is the always-on head,
+    // baked first; L5 service future) makes the assembled Dockerfile.base read
+    // head -> L2 -> L3 -> L4 -> tail and match the TUI grouping. Layer order is
+    // for readability only - fragments are independent RUN layers with no
+    // cross-layer build-time dependency, so no dependency graph is introduced.
+    let mut keyed: Vec<(String, String)> = enabled
+        .scenarios
+        .iter()
+        .map(|id| {
+            let cat = by_id
+                .get(id.as_str())
+                .map(|s| s.meta.category.clone())
+                .unwrap_or_default();
+            (id.clone(), cat)
+        })
+        .collect();
+    sort_by_layer(&mut keyed);
+    let mut ids: Vec<String> = keyed.into_iter().map(|(id, _)| id).collect();
     ids.dedup();
 
     let head = fs::read_to_string(&p.head)
@@ -84,6 +100,17 @@ pub fn run(repo: &Path) -> Result<()> {
         }
     );
     Ok(())
+}
+
+/// Sort (id, category) pairs by profile layer (`category_rank`) then id, for
+/// layer-ordered assembly. Pure (no IO) so the ordering contract is
+/// unit-testable without touching the filesystem.
+fn sort_by_layer(pairs: &mut [(String, String)]) {
+    pairs.sort_by(|a, b| {
+        scenario::category_rank(&a.1)
+            .cmp(&scenario::category_rank(&b.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
 }
 
 /// Pure assembly: head + (blank-line + fragment) per enabled scenario + blank
@@ -138,5 +165,36 @@ mod tests {
         let ai = out.find("# a").unwrap();
         let bi = out.find("# b").unwrap();
         assert!(ai < bi, "fragments must keep their given order");
+    }
+
+    #[test]
+    fn sort_by_layer_orders_by_layer_then_id() {
+        // Enabled out of layer order: a lang (L3) toolchain, a shell (L2)
+        // bundle, an app (L4) CLI, and a second lang. After sorting: shell
+        // (L2) before lang (L3) before app (L4); within a layer, by id.
+        let mut pairs = vec![
+            ("rust".to_string(), "lang".to_string()),
+            ("shell-utils".to_string(), "shell".to_string()),
+            ("aichat".to_string(), "app".to_string()),
+            ("python-dev".to_string(), "lang".to_string()),
+        ];
+        sort_by_layer(&mut pairs);
+        let ids: Vec<&str> = pairs.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["shell-utils", "python-dev", "rust", "aichat"]
+        );
+    }
+
+    #[test]
+    fn sort_by_layer_unknown_category_sorts_last() {
+        // A category not in CATEGORY_ORDER ranks after every known layer.
+        let mut pairs = vec![
+            ("known".to_string(), "lang".to_string()),
+            ("mystery".to_string(), "future-layer".to_string()),
+        ];
+        sort_by_layer(&mut pairs);
+        let ids: Vec<&str> = pairs.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["known", "mystery"]);
     }
 }

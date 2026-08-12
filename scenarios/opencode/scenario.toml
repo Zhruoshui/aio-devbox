@@ -1,0 +1,4 @@
+id = "opencode"
+name = "opencode AI agent"
+description = "opencode CLI(GitHub release),装 /usr/local/bin;Web 面板按 services.toml 起 pty"
+category = "app"

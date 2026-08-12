@@ -1,0 +1,4 @@
+id = "shell-utils"
+name = "Shell 便利工具"
+description = "fzf/ripgrep/bat/fd 便利工具(Debian 改名软链 fd/bat),装系统路径,不被共享卷遮盖"
+category = "shell"

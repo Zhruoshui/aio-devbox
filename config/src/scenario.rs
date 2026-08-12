@@ -14,6 +14,42 @@ pub struct ScenarioMeta {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// Profile layer this scenario belongs to: "os" (L1) / "shell" (L2) /
+    /// "lang" (L3) / "app" (L4) / "service" (L5, future). Free-form string so
+    /// the TUI/gen never break on a category they don't know yet; the TUI
+    /// groups rows by `category_rank` and renders unknown categories last.
+    /// L1 ("os") lives in Dockerfile.base.head and is NOT a selectable
+    /// scenario, so it never reaches the TUI. Defaults to "lang" so
+    /// scenario.toml files predating the layer field still parse.
+    #[serde(default = "default_category")]
+    pub category: String,
+}
+
+/// Default category when a scenario.toml omits `category` (back-compat with
+/// pre-layer scenario files, which are all language toolchains).
+fn default_category() -> String {
+    "lang".to_string()
+}
+
+/// Canonical display order of profile layers. Categories not listed here sort
+/// last (by `category` then id) so adding a new layer never reorders known ones.
+const CATEGORY_ORDER: &[&str] = &["os", "shell", "lang", "app", "service"];
+
+/// Sort key for a category. Lower = earlier in the TUI. Unknown -> usize::MAX.
+pub fn category_rank(category: &str) -> usize {
+    CATEGORY_ORDER.iter().position(|c| *c == category).unwrap_or(usize::MAX)
+}
+
+/// Human-readable header for a category group in the TUI.
+pub fn category_title(category: &str) -> String {
+    match category {
+        "os" => "L1 · 操作系统 / 基础环境".to_string(),
+        "shell" => "L2 · Shell 命令".to_string(),
+        "lang" => "L3 · 语言开发链路".to_string(),
+        "app" => "L4 · 应用 / AI agent".to_string(),
+        "service" => "L5 · 外部服务".to_string(),
+        other => format!("· {}", other),
+    }
 }
 
 /// A discovered scenario: its metadata plus the path to its fragment.
@@ -66,4 +102,43 @@ pub fn scan(dir: &Path) -> Result<Vec<Scenario>> {
     }
     out.sort_by(|a, b| a.meta.id.cmp(&b.meta.id));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_defaults_to_lang_when_omitted() {
+        // A pre-layer scenario.toml (no `category` field) must still parse and
+        // default to "lang" so existing files survive the layer rollout.
+        let raw = r#"
+            id = "rust"
+            name = "Rust"
+            description = "rust toolchain"
+        "#;
+        let meta: ScenarioMeta = toml::from_str(raw).unwrap();
+        assert_eq!(meta.category, "lang");
+    }
+
+    #[test]
+    fn category_field_is_honored() {
+        let raw = r#"
+            id = "shell-utils"
+            name = "Shell"
+            description = "shell layer"
+            category = "shell"
+        "#;
+        let meta: ScenarioMeta = toml::from_str(raw).unwrap();
+        assert_eq!(meta.category, "shell");
+    }
+
+    #[test]
+    fn category_rank_orders_known_layers_and_pushes_unknown_last() {
+        assert!(category_rank("shell") < category_rank("lang"));
+        assert!(category_rank("lang") < category_rank("app"));
+        assert_eq!(category_rank("os"), 0);
+        // Unknown categories sort after every known layer.
+        assert!(category_rank("lang") < category_rank("future-layer"));
+    }
 }
