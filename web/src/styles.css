@@ -1,4 +1,4 @@
-/* AIO Sandbox workspace UI. */
+/* AIO Sandbox workspace UI: collapsible sidebar + tab-stack main area. */
 
 * {
   box-sizing: border-box;
@@ -16,13 +16,208 @@ body {
   overflow: hidden;
 }
 
-/* golden-layout fills the viewport. */
-.gl-root {
+/* App shell: sidebar on the left, main area fills the rest. */
+.app {
+  display: flex;
   width: 100vw;
   height: 100vh;
 }
+.main {
+  flex: 1;
+  min-width: 0; /* let the pane area shrink instead of overflowing */
+  display: flex;
+  flex-direction: column;
+}
 
-/* Loading / error / empty states. */
+/* ---------- Sidebar ---------- */
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #24292f;
+  color: #e6edf3;
+  transition: width 0.15s ease;
+}
+.sidebar.collapsed {
+  width: 48px;
+}
+
+.sb-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid #30363d;
+}
+
+.sb-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #e6edf3;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.sb-icon:hover {
+  background: #30363d;
+}
+
+.sb-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sb-empty {
+  font-size: 12px;
+  color: #8b949e;
+  padding: 8px 4px;
+}
+
+.sb-btn-row {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.sb-btn-row:hover {
+  background: #30363d;
+}
+.sb-btn-row.open {
+  background: #1f6feb33;
+}
+
+.sb-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-btn[aria-pressed="true"] .sb-label {
+  font-weight: 600;
+}
+
+.sb-glyph {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #30363d;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+.sb-btn-row.open .sb-glyph {
+  background: #1f6feb;
+}
+
+.sb-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-del {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #8b949e;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sb-btn-row:hover .sb-del {
+  display: inline-flex;
+}
+.sb-del:hover {
+  color: #f85149;
+}
+
+/* Collapsed rail: center the glyphs. */
+.sidebar.collapsed .sb-btn {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+/* ---------- Register-button form ---------- */
+.sb-foot {
+  padding: 6px;
+  border-top: 1px solid #30363d;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar.collapsed .sb-foot {
+  align-items: center;
+}
+
+.sb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sb-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: #0d1117;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.sb-input:focus {
+  outline: none;
+  border-color: #1f6feb;
+}
+.sb-err {
+  font-size: 11px;
+  color: #f85149;
+}
+.sb-add {
+  padding: 6px 8px;
+  background: #238636;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sb-add:hover {
+  background: #2ea043;
+}
+.sb-add-btn {
+  align-self: flex-start;
+}
+.sidebar.collapsed .sb-add-btn {
+  align-self: center;
+}
+
+/* ---------- Loading / error states ---------- */
 .status {
   display: flex;
   align-items: center;
@@ -36,20 +231,95 @@ body {
 .status.error {
   color: #cf222e;
 }
-.status code {
-  background: #eaeef2;
-  padding: 0.05rem 0.35rem;
-  border-radius: 0.3rem;
-  font-size: 0.9em;
+
+/* ---------- Tab stack ---------- */
+.stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Panes fill their golden-layout container. */
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  flex-shrink: 0;
+  background: #eaeef2;
+  border-bottom: 1px solid #d0d7de;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 14px;
+  font-size: 13px;
+  color: #57606a;
+  border-right: 1px solid #d0d7de;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.tab:hover {
+  background: #f6f8fa;
+}
+.tab.active {
+  background: #fff;
+  color: #1f2328;
+  font-weight: 600;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.tab-close:hover {
+  background: #d0d7de;
+}
+
+.tabbar-empty {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 13px;
+  color: #8b949e;
+}
+
+.pane-area {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #fff;
+}
+
+/* Every open tab stays mounted; inactive ones are hidden so their WS/iframe
+ * sessions survive tab switches. */
+.pane-slot {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+.pane-slot.visible {
+  display: block;
+}
+
+/* ---------- Panes ---------- */
 .pane {
   width: 100%;
   height: 100%;
 }
 
-/* Iframe pane + drag-capture overlay. */
 .pane-iframe-wrap {
   position: relative;
 }
@@ -60,26 +330,7 @@ body {
   display: block;
   background: #fff;
 }
-/* Transparent overlay over iframes while a golden-layout drag/resize is in
- * progress, so the iframe cannot swallow the pointer events needed to
- * rearrange panes. Hidden by default; revealed by .is-dragging on the root. */
-.drag-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  display: none;
-  background: transparent;
-}
-.gl-root.is-dragging .drag-overlay {
-  display: block;
-}
-/* Also disable iframe pointer events directly during drag as a belt-and-
- * braces measure (covers iframes whose overlay has not painted yet). */
-.gl-root.is-dragging .pane-iframe {
-  pointer-events: none;
-}
 
-/* xterm pane. */
 .pane-xterm {
   padding: 4px;
   background: #000;

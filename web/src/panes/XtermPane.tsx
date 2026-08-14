@@ -1,15 +1,17 @@
 // XtermPane - generic pane for type === "agent" services (terminal, opencode,
-// future codex, ...). Opens an xterm.js Terminal and a WebSocket pty bridge to
-// /api/term/ws?cmd=<service.cmd>.
+// user-registered buttons, ...). Opens an xterm.js Terminal and a WebSocket
+// pty bridge to /api/term/ws?cmd=<service.cmd>.
 //
-// Phase C note: the backend /api/term/ws route does NOT exist yet (it is a 502
-// reserved seam until Phase E). So the WebSocket upgrade fails immediately.
-// This pane must degrade gracefully: write a clear "backend available in
-// Phase E" line, attempt at most ONE reconnect, then stop - no crash, no
-// retry-spam. Once Phase E wires the pty WS, this pane works unchanged.
+// Closing = unmount: App removes the tab from the list, React unmounts this
+// pane, and the effect cleanup below closes the WS - the backend pty process
+// exits on WS close. Reopening the button mounts a fresh pane = fresh session
+// (the "close kills, reopen restarts" toggle contract).
 //
-// A new agent service only needs a services.toml entry - no new React component
-// (design §14A).
+// If the WS drops mid-session the pane writes a notice and attempts at most
+// ONE reconnect, then stops - no crash, no retry-spam.
+//
+// A new agent button only needs a manifest entry (services.toml built-in or a
+// user-registered buttons.toml entry) - no new React component.
 
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
@@ -93,9 +95,7 @@ export function XtermPane({ service }: { service: ServiceEntry }): JSX.Element {
       };
       ws.onclose = () => {
         if (disposed) return;
-        term.writeln(
-          "\r\n\x1b[33m● Terminal backend will be available in Phase E.\x1b[0m",
-        );
+        term.writeln("\r\n\x1b[33m● Terminal disconnected.\x1b[0m");
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts += 1;
           window.setTimeout(connect, 1000);
@@ -104,7 +104,9 @@ export function XtermPane({ service }: { service: ServiceEntry }): JSX.Element {
     };
     connect();
 
-    // Refit on container resize (golden-layout splitter drags, window resize).
+    // Refit on container resize (window resize, sidebar collapse, tab shown).
+    // A hidden tab (inactive, display:none) reports size 0; safeFit tolerates
+    // that and the observer fires again once the tab is visible.
     const resizeObserver = new ResizeObserver(() => safeFit(fitAddon));
     resizeObserver.observe(el);
 

@@ -1,59 +1,60 @@
 // App - workspace shell.
 //
-// Fetches GET /api/manifest, filters to enabled services, and renders one
-// generic pane per service in a golden-layout tiling workspace:
+// Fetches GET /api/manifest and renders a collapsible left sidebar of toggle
+// buttons + a tab-stack main area. Each button toggles a single tab
+// (open/close); the active tab fills the main area.
 //   type === "web"   -> IframePane (iframe embedding a containerized service)
 //   type === "agent" -> XtermPane  (xterm.js over the /api/term/ws pty WS)
 //
-// golden-layout is imperative; this component owns ONE GoldenLayout instance in
-// a ref, mounted into a container <div>. Component items are registered with a
-// single factory that mounts a React root (createRoot) into the
-// golden-layout-provided container.element, rendering the pane for that
-// service. Roots are unmounted on golden-layout's `beforeComponentRelease`
-// event so panes torn down by drag/close are cleaned up.
-//
-// The service payload travels as componentState (opaque JsonValue); it is
-// decoded back to a typed ServiceEntry through ONE type guard
-// (readServiceState) rather than inline casts - the manifest contract has a
-// single owner on each side of the boundary (cross-layer-thinking-guide).
+// Button visibility is server-driven by `enabled` (web: TCP-reachable;
+// agent: command_exists on PATH), so a button only appears when the capability
+// is actually present - no dead panes. User-registered buttons are created via
+// POST /api/buttons (persisted in buttons.toml on the workspace volume).
 
-import { createRoot, type Root } from "react-dom/client";
-import { useEffect, useRef, useState } from "react";
-import {
-  GoldenLayout,
-  type ComponentContainer,
-  type JsonValue,
-  type LayoutConfig,
-} from "golden-layout";
-import "golden-layout/dist/css/goldenlayout-base.css";
-import "golden-layout/dist/css/themes/goldenlayout-light-theme.css";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Manifest, ServiceEntry } from "./types";
-import { PANE_COMPONENT_TYPE, buildLayoutConfig } from "./layout";
-import { IframePane } from "./panes/IframePane";
-import { XtermPane } from "./panes/XtermPane";
+import { Sidebar } from "./Sidebar";
+import { TabStack } from "./TabStack";
 import "./styles.css";
 
 type Status = "loading" | "error" | "ready";
 
+const TERMINAL_ID = "terminal";
+const COLLAPSE_KEY = "aio.sidebar.collapsed";
+
 export function App(): JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const glRef = useRef<GoldenLayout | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
-  const [enabledServices, setEnabledServices] = useState<ServiceEntry[]>([]);
+  const [services, setServices] = useState<ServiceEntry[]>([]);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => localStorage.getItem(COLLAPSE_KEY) === "1",
+  );
 
-  // Fetch the manifest once.
+  // Persist sidebar collapse state.
+  useEffect(() => {
+    localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  const fetchManifest = useCallback(async (): Promise<ServiceEntry[]> => {
+    const r = await fetch("/api/manifest");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return (await r.json() as Manifest).services;
+  }, []);
+
+  // Initial load: fetch + open the terminal tab by default (it is always
+  // enabled - bash exists).
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/manifest")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json() as Promise<Manifest>;
-      })
-      .then((data) => {
+    fetchManifest()
+      .then((svcs) => {
         if (cancelled) return;
-        setEnabledServices(data.services.filter((s) => s.enabled));
+        setServices(svcs);
+        const term = svcs.find((s) => s.id === TERMINAL_ID && s.enabled);
+        setOpenTabs(term ? [TERMINAL_ID] : []);
+        setActiveTab(term ? TERMINAL_ID : null);
         setStatus("ready");
       })
       .catch((e) => {
@@ -64,113 +65,132 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchManifest]);
 
-  // Build golden-layout once the manifest is ready and there is at least one
-  // enabled service.
-  useEffect(() => {
-    if (status !== "ready") return;
-    if (enabledServices.length === 0) return;
-    const el = containerRef.current;
-    if (!el || glRef.current) return;
-
-    const gl = new GoldenLayout(el);
-    gl.resizeWithContainerAutomatically = true;
-
-    // Track React roots so we never leak one when a pane is released.
-    const roots = new WeakMap<ComponentContainer, Root>();
-
-    gl.registerComponentFactoryFunction(
-      PANE_COMPONENT_TYPE,
-      (container: ComponentContainer, state: JsonValue | undefined) => {
-        const service = readServiceState(state);
-        if (!service) return undefined;
-        const root = createRoot(container.element);
-        roots.set(container, root);
-        root.render(<PaneForService service={service} />);
-
-        // golden-layout emits beforeComponentRelease before tearing down a
-        // component (close / drag-out / layout destroy). Unmount the React
-        // tree so its effects (xterm, ws, observers) are cleaned up.
-        container.on("beforeComponentRelease", () => {
-          const r = roots.get(container);
-          if (r) {
-            r.unmount();
-            roots.delete(container);
-          }
+  // Refresh: re-fetch and reconcile open tabs (drop ones no longer enabled).
+  const refresh = useCallback(() => {
+    fetchManifest()
+      .then((svcs) => {
+        setServices(svcs);
+        setOpenTabs((prev) => {
+          const enabledIds = new Set(svcs.filter((s) => s.enabled).map((s) => s.id));
+          const kept = prev.filter((id) => enabledIds.has(id));
+          setActiveTab((act) => (act && kept.includes(act) ? act : kept[kept.length - 1] ?? null));
+          return kept;
         });
-        return undefined;
-      },
-    );
+      })
+      .catch(() => {
+        /* keep current state on refresh failure */
+      });
+  }, [fetchManifest]);
 
-    const config: LayoutConfig = buildLayoutConfig(enabledServices);
-    gl.loadLayout(config);
-    glRef.current = gl;
-
-    // iframe drag-capture: while a splitter or tab/header drag is in progress,
-    // set an `is-dragging` class on the layout root so CSS reveals the
-    // transparent overlay over iframes (IframePane) and they stop swallowing
-    // pointer events. pointerup anywhere ends the drag.
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest(".lm_splitter, .lm_header, .lm_tab")) {
-        el.classList.add("is-dragging");
+  // Re-fetch when the window regains focus (catches runtime tool installs /
+  // profile changes without a manual refresh). Ignore very rapid refocuses.
+  const lastRefresh = useRef(0);
+  useEffect(() => {
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastRefresh.current > 2000) {
+        lastRefresh.current = now;
+        refresh();
       }
     };
-    const onPointerUp = () => {
-      el.classList.remove("is-dragging");
-    };
-    el.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
 
-    return () => {
-      el.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp);
-      gl.destroy();
-      glRef.current = null;
-    };
-  }, [status, enabledServices]);
+  const toggleTab = useCallback((id: string) => {
+    setOpenTabs((prev) => {
+      if (prev.includes(id)) {
+        const next = prev.filter((x) => x !== id);
+        setActiveTab((act) => (act === id ? next[next.length - 1] ?? null : act));
+        return next;
+      }
+      const next = [...prev, id];
+      setActiveTab(id);
+      return next;
+    });
+  }, []);
 
-  if (status === "loading") {
-    return <div className="status">Loading workspace…</div>;
-  }
-  if (status === "error") {
+  const activateTab = useCallback((id: string) => setActiveTab(id), []);
+
+  const closeTab = useCallback((id: string) => {
+    setOpenTabs((prev) => {
+      const next = prev.filter((x) => x !== id);
+      setActiveTab((act) => (act === id ? next[next.length - 1] ?? null : act));
+      return next;
+    });
+  }, []);
+
+  // Register a user button via POST /api/buttons, then refresh so it appears
+  // (command_exists is probed on the next manifest fetch).
+  const registerButton = useCallback(
+    async (label: string, cmd: string): Promise<boolean> => {
+      try {
+        const r = await fetch("/api/buttons", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, cmd }),
+        });
+        if (!r.ok) return false;
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [refresh],
+  );
+
+  const deleteButton = useCallback(
+    async (id: string): Promise<void> => {
+      try {
+        const r = await fetch(`/api/buttons/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        });
+        if (!r.ok && r.status !== 404) return;
+      } catch {
+        return;
+      }
+      setOpenTabs((prev) => {
+        if (!prev.includes(id)) return prev;
+        const next = prev.filter((x) => x !== id);
+        setActiveTab((act) => (act === id ? next[next.length - 1] ?? null : act));
+        return next;
+      });
+      refresh();
+    },
+    [refresh],
+  );
+
+  if (status === "loading") return <div className="status">Loading workspace…</div>;
+  if (status === "error")
     return <div className="status error">Failed to load manifest: {errorMsg}</div>;
-  }
-  if (enabledServices.length === 0) {
-    return (
-      <div className="status">
-        No services enabled. Start a compose profile (e.g.{" "}
-        <code>--profile code-server</code>) to add panes.
-      </div>
-    );
-  }
-  return <div className="gl-root" ref={containerRef} />;
-}
 
-/** Render the generic pane for a service by its type. */
-function PaneForService({ service }: { service: ServiceEntry }): JSX.Element {
-  if (service.type === "web") return <IframePane service={service} />;
-  return <XtermPane service={service} />;
-}
+  const openServices = openTabs
+    .map((id) => services.find((s) => s.id === id))
+    .filter((s): s is ServiceEntry => Boolean(s));
 
-/**
- * Decode the golden-layout componentState back to a typed ServiceEntry.
- * Single decoder for the manifest payload on the pane side - callers must not
- * cast `state.service` inline (cross-layer-thinking-guide: one owner).
- */
-function readServiceState(state: JsonValue | undefined): ServiceEntry | undefined {
-  if (!state || typeof state !== "object") return undefined;
-  const maybe = state as { service?: unknown };
-  return isServiceEntry(maybe.service) ? maybe.service : undefined;
-}
-
-function isServiceEntry(v: unknown): v is ServiceEntry {
-  if (typeof v !== "object" || v === null) return false;
-  const s = v as Record<string, unknown>;
   return (
-    typeof s.id === "string" &&
-    (s.type === "web" || s.type === "agent") &&
-    typeof s.enabled === "boolean"
+    <div className="app">
+      <Sidebar
+        services={services}
+        openTabs={openTabs}
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((c) => !c)}
+        onToggle={toggleTab}
+        onRefresh={refresh}
+        onRegister={registerButton}
+        onDelete={deleteButton}
+      />
+      <main className="main">
+        <TabStack
+          tabs={openServices}
+          activeId={activeTab}
+          onActivate={activateTab}
+          onClose={closeTab}
+        />
+      </main>
+    </div>
   );
 }

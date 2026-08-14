@@ -1,8 +1,16 @@
-// Headless smoke test for the workspace UI.
-// Manifest-driven: fetches GET /api/manifest, then asserts the SPA renders one
-// generic pane per enabled service (IframePane for type=web, XtermPane for
-// type=agent). For type=web panes it additionally verifies the iframe actually
-// loads its service's UI (not just that an <iframe> tag exists).
+// Headless smoke test for the workspace UI (sidebar + tab stack).
+//
+// Manifest-driven: fetches GET /api/manifest, then asserts:
+//   1. the sidebar shows exactly the enabled services (no dead buttons - a
+//      service with enabled=false must NOT appear, e.g. opencode when the
+//      binary is not baked into the image);
+//   2. the terminal tab opens by default and its pty WS connects;
+//   3. each enabled web service's button opens a tab whose iframe actually
+//      loads the service UI;
+//   4. sidebar buttons toggle their tab open/closed;
+//   5. a user button can be registered via the UI form (POST /api/buttons),
+//      appears in the sidebar, launches its command in a pty, and can be
+//      deleted (DELETE /api/buttons/:id) after which it disappears.
 //
 // Run inside a node:20-bookworm container with chromium installed, --network
 // host so localhost:8080 reaches the gateway. Uses puppeteer-core against the
@@ -16,25 +24,35 @@ const puppeteer = require("puppeteer-core");
 const URL = "http://localhost:8080/";
 const USER = "admin";
 const PASS = "admin";
+const AUTH = { Authorization: "Basic " + Buffer.from(`${USER}:${PASS}`).toString("base64") };
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
-  // Fetch the manifest first (via curl-equivalent) so we know exactly which
-  // panes to expect - this makes the test correct for any profile combination
-  // (no profiles => terminal+opencode only; --profile code-server => +codeServer).
-  const manifest = await fetch(`${URL}api/manifest`, {
-    headers: { Authorization: "Basic " + Buffer.from(`${USER}:${PASS}`).toString("base64") },
-  }).then((r) => r.json());
-
+  // Fetch the manifest first so we know exactly which buttons to expect -
+  // correct for any profile combination (no profiles => terminal only;
+  // --profile code-server => +codeServer; opencode only if baked in).
+  const manifest = await fetch(`${URL}api/manifest`, { headers: AUTH }).then((r) => r.json());
   const enabled = manifest.services.filter((s) => s.enabled);
+  const disabled = manifest.services.filter((s) => !s.enabled);
   const expectedWeb = enabled.filter((s) => s.type === "web");
-  const expectedAgent = enabled.filter((s) => s.type === "agent");
   console.log(
-    "manifest enabled services:",
-    enabled.map((s) => `${s.id}(${s.type})`).join(", "),
+    "manifest enabled:",
+    enabled.map((s) => `${s.id}(${s.type})`).join(", ") || "(none)",
+    "| disabled (must NOT appear):",
+    disabled.map((s) => s.id).join(", ") || "(none)",
   );
 
+  const fs = require("fs");
+  const executablePath =
+    process.env.CHROMIUM_PATH ||
+    ["/usr/bin/chromium", "/usr/bin/chromium-browser"].find((p) => fs.existsSync(p));
+  if (!executablePath) {
+    console.error("no chromium found; set CHROMIUM_PATH or install chromium");
+    process.exit(1);
+  }
   const browser = await puppeteer.launch({
-    executablePath: "/usr/bin/chromium",
+    executablePath,
     headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
   });
@@ -44,120 +62,167 @@ const PASS = "admin";
   const errors = [];
   const failedReqs = [];
   const badResponses = [];
-  // Track the /api/term/ws WebSocket upgrade status (Phase E). The pty WS
-  // should now return 101 (not 502). We record it explicitly rather than
-  // tolerating its failure.
-  let termWsStatus = null;
-  // Tolerate known-irrelevant request/response failures:
-  //  - /api: reserved seam stub (502 by design, Phase B) on bare /api and
-  //    non-terminal sub-paths.
-  //  - vsda (vsda.js / vsda_bg.wasm): an optional VS Code digital-signature
-  //    module that does not ship in code-server's open builds (harmless 404).
+  // Tolerate known-irrelevant failures:
+  //  - /api: reserved seam stub (502 by design) on bare /api and non-real
+  //    sub-paths.
+  //  - vsda (vsda.js / vsda_bg.wasm): optional VS Code digital-signature
+  //    module not shipped in code-server's open builds (harmless 404).
   //  - open-vsx.org: code-server's extension marketplace, blocked by this
-  //    sandbox's network policy (network-level, not a gateway/subpath issue).
+  //    sandbox's network policy (network-level, not a gateway issue).
+  //  - /vnc/package.json: noVNC's vnc.html fetches it for a version display;
+  //    websockify does not serve it (harmless 404, present since Phase G).
   const isTolerable = (url) =>
     url.includes("vsda") ||
-    url.includes("open-vsx.org");
+    url.includes("open-vsx.org") ||
+    url.endsWith("/vnc/package.json");
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push("console.error: " + msg.text());
   });
   page.on("requestfailed", (req) => {
-    const url = req.url();
-    if (isTolerable(url)) return;
-    failedReqs.push(`${url} :: ${req.failure()?.errorText}`);
+    if (isTolerable(req.url())) return;
+    failedReqs.push(`${req.url()} :: ${req.failure()?.errorText}`);
   });
   page.on("response", (res) => {
-    const url = res.url();
-    // Track the terminal pty WS upgrade (Phase E): expect 101, not 502.
-    // (puppeteer does not fire this for WS upgrades, so termWsStatus stays
-    // null in practice - the DOM text assertion is authoritative.)
-    if (url.includes("/api/term/ws")) {
-      termWsStatus = res.status();
-      return;
-    }
-    const status = res.status();
-    if (status < 400) return;
-    if (isTolerable(url)) return;
-    badResponses.push(`${status} ${url}`);
+    if (res.status() < 400 || isTolerable(res.url())) return;
+    badResponses.push(`${res.status()} ${res.url()}`);
   });
 
-  // Use domcontentloaded (not networkidle0): with Phase E the terminal pty
-  // WebSockets stay open, which would prevent networkidle0 from ever settling.
-  // The explicit waitForSelector calls below handle the rest.
+  // domcontentloaded (not networkidle0): the terminal pty WebSocket stays open
+  // and would prevent networkidle0 from ever settling.
   await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-  // Wait for golden-layout root to mount.
-  await page.waitForSelector(".lm_root", { timeout: 10000 });
-  const glPresent = await page.$(".lm_root");
-
-  const xtermPanes = await page.$$eval(".pane-xterm", (els) => els.length);
-  const iframePanes = await page.$$eval(".pane-iframe", (els) => els.length);
-  const tabTitles = await page.$$eval(".lm_tab", (els) =>
-    els.map((e) => (e.textContent || "").trim()),
+  // --- 1. Sidebar reflects the manifest exactly -----------------------------
+  await page.waitForSelector(".sidebar", { timeout: 10000 });
+  const sidebarTitles = await page.$$eval(".sb-btn", (els) =>
+    els.map((e) => e.getAttribute("title") || ""),
   );
+  const expectedTitles = enabled.map((s) => s.label);
+  const sidebarOk =
+    sidebarTitles.length === expectedTitles.length &&
+    expectedTitles.every((t) => sidebarTitles.includes(t)) &&
+    disabled.every((s) => !sidebarTitles.includes(s.label));
+  console.log("sidebar buttons:", JSON.stringify(sidebarTitles), "| sidebarOk:", sidebarOk);
 
-  // Phase E: assert the terminal pty WS connected and the xterm pane shows the
-  // "Terminal connected." message (not the old "Phase E" placeholder). xterm.js
-  // uses a DOM renderer here (xterm-rows) so the buffer text is in the DOM.
-  // The "Terminal connected." line is written by XtermPane's onopen handler,
-  // which only fires when the WebSocket successfully upgrades - so its presence
-  // is the authoritative proof that the pty WS works. (puppeteer's `response`
-  // event does not capture WS 101 upgrades, so termWsStatus stays null; we
-  // track it for diagnostics only.)
-  if (expectedAgent.length > 0) {
-    // Give the WS time to connect and the onopen handler to write the line.
-    await new Promise((r) => setTimeout(r, 3000));
-  }
+  // --- 2. Terminal tab opens by default + pty WS connects -------------------
+  await sleep(3000); // let the pty WS connect and onopen write its line
+  const defaultTabs = await page.$$eval(".tab", (els) =>
+    els.map((e) => (e.textContent || "").replace("✕", "").trim()),
+  );
+  const terminalDefaultOk = defaultTabs.includes("Terminal");
   const xtermText = await page
     .$$eval(".pane-xterm .xterm-rows", (els) => els.map((e) => e.textContent || "").join("\n"))
     .catch(() => "");
   const terminalConnected = xtermText.includes("Terminal connected");
-  const phaseEPlaceholder = xtermText.includes("Phase E");
+  console.log("default tabs:", JSON.stringify(defaultTabs), "| terminalConnected:", terminalConnected);
 
-  // For each expected web pane, verify its iframe actually loaded the service
-  // UI: find the iframe whose src starts with the service url, then check its
-  // content frame navigated and contains a service-specific DOM marker. For
-  // code-server that is the workbench <script> / .monaco-workbench.
+  // --- 3. Each enabled web service opens a tab whose iframe loads -----------
   const iframeResults = [];
   for (const svc of expectedWeb) {
-    const frame = page
-      .frames()
-      .find((f) => f.url().includes(svc.url));
+    const srcPrefix = svc.url.split("?")[0];
+    await page.click(`.sb-btn[title="${svc.label}"]`);
+    await page.waitForSelector(`.pane-slot.visible .pane-iframe[src^="${srcPrefix}"]`, {
+      timeout: 10000,
+    });
+    // The iframe element exists immediately, but its frame starts at
+    // about:blank and navigates asynchronously - wait for the real URL.
+    const frame = await page
+      .waitForFrame((f) => f.url().includes(srcPrefix), { timeout: 15000 })
+      .catch(() => null);
     let loaded = false;
-    let detail = "frame not found";
+    let detail = "frame not found (timeout)";
     if (frame) {
       try {
-        // code-server's initial HTML always contains the workbench script;
-        // .monaco-workbench appears once the editor boots (may need a wait).
-        await frame.waitForSelector('script[src*="workbench.js"]', { timeout: 10000 });
-        const hasWorkbench = await frame
-          .waitForSelector(".monaco-workbench", { timeout: 15000 })
-          .then(() => true)
-          .catch(() => false);
-        loaded = true;
-        detail = hasWorkbench ? "workbench.js + .monaco-workbench present" : "workbench.js present (workbench still booting)";
+        if (svc.id === "codeServer") {
+          await frame.waitForSelector('script[src*="workbench.js"]', { timeout: 10000 });
+          const hasWorkbench = await frame
+            .waitForSelector(".monaco-workbench", { timeout: 15000 })
+            .then(() => true)
+            .catch(() => false);
+          loaded = true;
+          detail = hasWorkbench
+            ? "workbench.js + .monaco-workbench present"
+            : "workbench.js present (workbench still booting)";
+        } else {
+          await frame.waitForSelector("body", { timeout: 10000 });
+          loaded = true;
+          detail = "frame body loaded";
+        }
       } catch (e) {
         detail = "timeout: " + (e instanceof Error ? e.message : String(e));
       }
     }
-    iframeResults.push({ id: svc.id, url: svc.url, frameUrl: frame?.url(), loaded, detail });
+    iframeResults.push({ id: svc.id, loaded, detail });
   }
+  const iframesOk = iframeResults.every((r) => r.loaded);
+  console.log("iframeResults:", JSON.stringify(iframeResults));
 
+  // --- 4. Toggle: click the terminal button -> tab closes; again -> reopens -
+  await page.click('.sb-btn[title="Terminal"]');
+  await sleep(300);
+  const tabsAfterClose = await page.$$eval(".tab", (els) => els.length);
+  await page.click('.sb-btn[title="Terminal"]');
+  await sleep(300);
+  const tabsAfterReopen = await page.$$eval(".tab", (els) => els.length);
+  const toggleOk = tabsAfterClose === expectedWeb.length && tabsAfterReopen === expectedWeb.length + 1;
+  console.log("toggle:", { tabsAfterClose, tabsAfterReopen, toggleOk });
+
+  // --- 5. Register a user button via the UI form, run it, delete it ---------
+  await page.click(".sb-add-btn");
+  await page.waitForSelector(".sb-form", { timeout: 5000 });
+  await page.type('.sb-input[placeholder="name"]', "smokebtn");
+  await page.type('.sb-input[placeholder="command"]', "echo smokeok-marker");
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/buttons") && r.request().method() === "POST"),
+    page.click(".sb-add"),
+  ]);
+  // The SPA refreshes the manifest after a successful POST; the new button is
+  // visible once command_exists finds the command (echo: bash builtin - note
+  // command_exists checks PATH executables, and /usr/bin/echo exists on the
+  // base image, so `echo` resolves).
+  await page.waitForSelector('.sb-btn[title="smokebtn"]', { timeout: 10000 });
+  const registeredOk = true;
+  await page.click('.sb-btn[title="smokebtn"]');
+  await sleep(2500); // pty runs the cmd; output lands in the xterm buffer
+  const allXtermText = await page
+    .$$eval(".pane-xterm .xterm-rows", (els) => els.map((e) => e.textContent || "").join("\n"))
+    .catch(() => "");
+  const userCmdRan = allXtermText.includes("smokeok-marker");
+
+  // Delete via the API (the UI ✕ is hover-revealed; the API is the contract),
+  // then refresh via the UI and assert the button is gone.
+  const delRes = await fetch(`${URL}api/buttons/smokebtn`, { method: "DELETE", headers: AUTH });
+  await page.click('.sb-icon[title="Refresh"]');
+  await sleep(1000);
+  const titlesAfterDelete = await page.$$eval(".sb-btn", (els) =>
+    els.map((e) => e.getAttribute("title") || ""),
+  );
+  const deletedOk = delRes.ok && !titlesAfterDelete.includes("smokebtn");
+  console.log("register/run/delete:", { registeredOk, userCmdRan, deletedOk, titlesAfterDelete });
+
+  await browser.close();
+
+  const ok =
+    sidebarOk &&
+    terminalDefaultOk &&
+    terminalConnected &&
+    iframesOk &&
+    toggleOk &&
+    userCmdRan &&
+    deletedOk &&
+    failedReqs.length === 0 &&
+    badResponses.length === 0;
   console.log(
     JSON.stringify(
       {
-        goldenLayoutMounted: !!glPresent,
-        xtermPanes,
-        iframePanes,
-        expectedXterm: expectedAgent.length,
-        expectedIframe: expectedWeb.length,
-        tabTitles,
-        iframeResults,
-        termWsStatus,
+        ok,
+        sidebarOk,
+        terminalDefaultOk,
         terminalConnected,
-        phaseEPlaceholder,
-        xtermPreview: xtermText.slice(0, 300),
+        iframesOk,
+        toggleOk,
+        userCmdRan,
+        deletedOk,
         failedReqs,
         badResponses,
         pageErrors: errors,
@@ -166,33 +231,7 @@ const PASS = "admin";
       2,
     ),
   );
-
-  await browser.close();
-
-  // Console errors are informational only - they echo the request/response
-  // failures already tracked precisely above (and include noisy extension-
-  // marketplace messages). The hard gates are the precise trackers.
-  const paneCountsOk =
-    !!glPresent &&
-    xtermPanes === expectedAgent.length &&
-    iframePanes === expectedWeb.length;
-  const tabsOk = expectedWeb.every((s) => tabTitles.includes(s.id)) &&
-    expectedAgent.every((s) => tabTitles.includes(s.id));
-  const iframesOk = iframeResults.every((r) => r.loaded);
-  // Phase E: when agent panes are expected, the xterm pane must show
-  // "Terminal connected." (written by onopen, proving the pty WS upgraded)
-  // and must NOT show the old "Phase E" placeholder.
-  const terminalOk =
-    expectedAgent.length === 0 || (terminalConnected && !phaseEPlaceholder);
-  const ok =
-    paneCountsOk && tabsOk && iframesOk && terminalOk &&
-    failedReqs.length === 0 && badResponses.length === 0;
-  if (!ok) {
-    console.error("ASSERTION FAILED;", {
-      paneCountsOk, tabsOk, iframesOk, terminalOk,
-      terminalConnected, phaseEPlaceholder, failedReqs, badResponses,
-    });
-  }
+  if (!ok) console.error("ASSERTION FAILED");
   process.exit(ok ? 0 : 2);
 })().catch((e) => {
   console.error("SMOKE TEST FAILED:", e);

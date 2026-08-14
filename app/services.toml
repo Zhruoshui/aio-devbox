@@ -1,32 +1,37 @@
 # Service registry for the AIO sandbox workspace UI.
 #
-# Single source of truth for what panes exist. The axum app parses this at
-# build time (include_str!) and exposes it via GET /api/manifest; the React
-# frontend (Phase C) renders one generic pane per entry by `type`.
+# Built-in buttons. The axum app parses this at build time (include_str!) and
+# exposes it via GET /api/manifest; the React frontend renders one button per
+# entry by `type`. User-registered buttons live separately in
+# /home/gem/.aio/buttons.toml (written via POST/DELETE /api/buttons).
 #
-# Adding a service = add an entry here (+ container/profile/caddy route for
-# type=web). See design.md §14.
+# Adding a built-in service = add an entry here (+ container/profile/caddy route
+# for type=web) and rebuild the app image. See design.md §14.
 #
 # Fields:
-#   id     - pane identifier (frontend key)
+#   id     - button identifier (frontend key; stable for toggle state)
 #   type   - "web" (iframe pane, containerized) | "agent" (xterm pane, pty-launched CLI)
 #   target - host:port to TCP-probe for liveness (type=web only). `enabled` in the
 #            manifest = whether this is currently reachable (reflects compose profiles).
 #   url    - gateway path the iframe opens (type=web only)
-#   enable - env-var name gating the pane (type=agent only). Absent / not "false" /
-#            not "0" => enabled (default true).
+#   label  - display name (optional; falls back to a friendly form of `id`)
 #   cmd    - command launched in the pty (type=agent only). "" = default shell.
+#            `enabled` for type=agent = command_exists(cmd) on the login-shell
+#            PATH, so a button only shows when the tool is actually installed
+#            (replaces the old ENABLE_* env that produced dead panes).
 
 [[service]]
 id = "codeServer"
 type = "web"
 target = "code-server:8200"
 url = "/code-server/"
+label = "code-server"
 
 [[service]]
 id = "vnc"
 type = "web"
 target = "vnc:6080"
+label = "Chromium"
 # `path=vnc/websockify` is REQUIRED: noVNC's ui.js builds the WS URL as
 # `ws://<host>:<port>/<path>` (absolute, it does NOT keep the /vnc/ subpath the
 # page was served from). With the default `path=websockify` it connects to
@@ -40,11 +45,11 @@ url = "/vnc/vnc.html?autoconnect=1&resize=scale&path=vnc/websockify"
 [[service]]
 id = "terminal"
 type = "agent"
-enable = "ENABLE_TERMINAL"   # default true
-cmd = ""                      # empty = default shell
+cmd = ""                      # empty = default login shell; always present (bash)
+label = "Terminal"
 
 [[service]]
 id = "opencode"
 type = "agent"
-enable = "ENABLE_OPENCODE"
-cmd = "opencode"
+cmd = "opencode"              # button shows only if `opencode` is on PATH
+label = "opencode"

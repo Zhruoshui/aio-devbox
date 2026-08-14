@@ -26,9 +26,10 @@
 // higher than the `/api/*rest` catch-all, so they are never swallowed.
 
 use axum::{
-    routing::{any, get},
+    routing::{any, delete, get, post},
     Router,
 };
+use std::path::PathBuf;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod config;
@@ -36,18 +37,27 @@ mod pty;
 mod routes;
 mod state;
 
-use routes::{manifest::manifest, seam::seam, terminal::terminal_ws};
+use routes::{
+    buttons::{create_button, delete_button}, manifest::manifest, seam::seam, terminal::terminal_ws,
+};
 use state::AppState;
 
 /// Where the static SPA tree lives in the image. Must be outside `/home/gem`
 /// (that path is the persistent workspace volume mount point).
 const STATIC_DIR: &str = "/app/static";
 
+/// Default location of the user-registered buttons file (on the workspace
+/// volume, so it persists across recreate and is shared across browsers).
+/// Override with `AIO_BUTTONS_FILE`.
+const BUTTONS_FILE: &str = "/home/gem/.aio/buttons.toml";
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let state = AppState::new(config::load_services());
+    let buttons_file =
+        PathBuf::from(std::env::var("AIO_BUTTONS_FILE").unwrap_or_else(|_| BUTTONS_FILE.to_string()));
+    let state = AppState::new(config::load_services(), buttons_file);
 
     // Static SPA tree. `/` serves index.html (dir index); unknown paths fall
     // back to index.html (SPA client-side routing, used from Phase C onward).
@@ -64,6 +74,11 @@ async fn main() {
         // mechanism as `/api/manifest`). Sibling `/api/term/*` still hits the
         // seam.
         .route("/api/term/ws", get(terminal_ws))
+        // User-registered buttons: create/delete in buttons.toml on the volume.
+        // Static segments win over the `/api/*rest` catch-all. `:id` is axum
+        // 0.7 / matchit path-param syntax.
+        .route("/api/buttons", post(create_button))
+        .route("/api/buttons/:id", delete(delete_button))
         // Reserved seams (design §13/§14C): 502 stub on any method. The bare
         // prefix, the trailing slash, and every sub-path are each covered.
         // `/api/manifest` and `/api/term/ws` above are static segments so they

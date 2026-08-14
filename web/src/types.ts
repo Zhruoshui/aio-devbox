@@ -5,6 +5,7 @@
 //
 // Backend serialization (config.rs):
 //   #[serde(rename = "type")] service_type: ServiceType   -> "web" | "agent"
+//   label: String, deletable: bool                          -> always present
 //   #[serde(skip_serializing_if = "Option::is_none")] url -> omitted when None
 //   #[serde(skip_serializing_if = "Option::is_none")] cmd -> omitted when None
 
@@ -13,7 +14,12 @@ export type ServiceType = "web" | "agent";
 export interface ServiceEntry {
   id: string;
   type: ServiceType;
+  /** Button visible? (web: TCP-reachable; agent: command_exists on PATH). */
   enabled: boolean;
+  /** Display name in the sidebar / tab. */
+  label: string;
+  /** True for user-registered buttons (deletable in the UI). */
+  deletable: boolean;
   /** Gateway path the iframe opens. Present only for type === "web". */
   url?: string;
   /** Command launched in the pty ("" = default shell). Present only for type === "agent". */

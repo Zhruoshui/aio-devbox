@@ -3,9 +3,9 @@
 # AIO 开发沙箱
 
 一个自托管的 all-in-one 远程开发环境。一条 `docker compose up` 拉起 Caddy 网关
-和若干可插拔服务容器,浏览器里呈现一个平铺式(tiling)工作区,把各面板摆好:
-浏览器版 VSCode(code-server)、VNC 里的 Chromium、终端、以及 opencode AI agent
-面板。个人项目。
+和若干可插拔服务容器,浏览器里呈现一个带可折叠侧边栏按钮的工作区:浏览器版
+VSCode(code-server)、VNC 里的 Chromium、终端、以及按需打开的 opencode 等 AI
+agent TUI——每个按钮点开一个标签页,只有镜像里真实存在的能力才会有按钮。个人项目。
 
 各种工具链(Node、Python、Rust、Go、nvm、uv……)是**构建期场景预置**——你在
 TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器共享的
@@ -15,10 +15,14 @@ TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
 ## 特性
 
 - **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`(HTTP
-  basic auth)。golden-layout 平铺式工作区自动排布各面板。
-- **可插拔面板,自动探测。** Web 面板(code-server、VNC)由 compose profile 控制,
-  UI 会隐藏未运行容器的面板——需要哪个起哪个。Agent 面板(终端、opencode)通过
-  xterm.js + WebSocket pty 桥跑在 `app` 容器内。
+  basic auth)。左侧可折叠侧边栏列出按钮,点击在主区开标签页(终端默认打开)。
+- **可插拔按钮,自动探测。** Web 按钮(code-server、VNC)由 compose profile 控制——
+  容器没跑就没有按钮。Agent/TUI 按钮(终端、opencode……)只在命令真实存在于登录
+  shell PATH 时才出现,点击即用 xterm.js + WebSocket pty 桥在 `app` 容器内启动。
+  没有死面板。
+- **自定义按钮。** 侧边栏底部 `+` 表单可注册“终端+命令”按钮(经
+  `POST/DELETE /api/buttons` 持久化到工作区卷的 `/home/gem/.aio/buttons.toml`),
+  扛得过容器重建。
 - **构建期场景预置。** 一个 Rust TUI(`aio-config`)按层分组列出场景;勾选结果
   被组装进 `Dockerfile.base` 并构建进 `sandbox-base`。工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node(18 / 20 / 22)与 CPython(3.11 / 3.12 / 3.13)是
@@ -33,12 +37,13 @@ TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
 ```sh
 make hash                              # 网关密码(默认 admin)
 make config                            # (可选)TUI:勾场景 + 选 Node/Python 版本
-make up PROFILES="code-server vnc"      # 带 Web 面板启动(终端/opencode 始终启用)
+make up PROFILES="code-server vnc"      # 带 Web 按钮启动(终端始终启用)
 # → 打开 http://localhost:8080   (admin / admin)
 ```
 
-不带 `PROFILES` 时,只启动常驻服务(`gateway` + `app`),工作区显示终端和 opencode
-面板;加上 `code-server` / `vnc` profile 才会点亮浏览器 IDE 和 Chromium 面板。
+不带 `PROFILES` 时,只启动常驻服务(`gateway` + `app`),侧边栏显示终端按钮(及
+已烘进的 opencode 等 agent TUI);加上 `code-server` / `vnc` profile 才会点亮
+浏览器 IDE 和 Chromium 按钮。
 
 ```sh
 make down                              # 停止(保留镜像和工作区卷)
@@ -78,7 +83,7 @@ make clean                             # 停止、删卷、删已构建镜像
 | 容器 | 镜像 | 职责 |
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + 反向代理到 `app`、`code-server`、`vnc`,也转发 WS 升级。 |
-| `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些面板在线)、`/api/term/ws` pty WebSocket 桥。`FROM sandbox-base`。 |
+| `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些按钮在线)、`/api/term/ws` pty WebSocket 桥、`POST/DELETE /api/buttons`(用户自注册按钮,存卷上)。`FROM sandbox-base`。 |
 | `code-server` | `sandbox-code-server`(构建) | 浏览器版 VSCode。profile 控制(`--profile code-server`),通过 TCP 探测 `code-server:8200` 自动探测。`FROM sandbox-base`。 |
 | `vnc` | `sandbox-vnc`(构建) | Xvnc + Chromium + noVNC Web 客户端。profile 控制(`--profile vnc`),通过 TCP 探测 `vnc:6080` 自动探测。`FROM debian:bookworm-slim`(与 `sandbox-base` 解耦)。`shm_size 2gb` 供 Chromium。 |
 | `base` | `sandbox-base`(构建) | 共享基础镜像。挂在 `build` profile 下,故**绝不**作为运行时容器启动。 |
@@ -119,7 +124,7 @@ L1 分两部分。**非版本化基础设施**(HTTPS apt 源、ca-certs 自举�
 | `go` | L3 `lang` | — | — | Go 1.23 tarball → `/usr/local/go` |
 | `nvm` | L3 `lang` | — | — | nvm.sh → `/opt/nvm`;运行时 `NVM_DIR=~/.nvm`(在卷上)使 `nvm install` 扛重建。仅 login shell。 |
 | `uv` | L3 `lang` | — | — | uv → `/usr/local/bin`;运行时 `uv python install` → 卷(与 `python-dev` 重叠) |
-| `opencode` | L4 `app` | — | — | opencode AI agent CLI → `/usr/local/bin`。Web 面板由 `ENABLE_OPENCODE` 控制(默认 `true`)。 |
+| `opencode` | L4 `app` | — | — | opencode AI agent CLI → `/usr/local/bin`。侧边栏按钮仅在烘进镜像时出现(命令存在探测),点击在 pty 中启动。 |
 
 **工作流。** `make config` 打开 TUI(ratatui):场景按层分组列出。用**空格**勾选可
 选场景;L1 `always_on` 行显示 `[*]`、带版本 `[label]`,用**左/右方向键**循环(不可
@@ -200,8 +205,8 @@ Dockerfile.base.tail     sandbox-base 尾(USER gem + WORKDIR)
 scenarios/               场景库,按 category 分层;<id>/{scenario.toml,fragment.Dockerfile}
 config/                  aio-config crate(Rust):TUI 勾选器 + Dockerfile.base 生成器
 app/                     axum 应用(Cargo.toml、src/、Dockerfile、services.toml)
-  └ services.toml        工作区面板的唯一真相源(id/type/target/url/enable/cmd)
-web/                     React SPA(Vite + TS + golden-layout + xterm.js),烘进 app 镜像
+  └ services.toml        内置工作区按钮(id/type/target/url/label/cmd)
+web/                     React SPA(Vite + TS + 侧边栏/标签栈 + xterm.js),烘进 app 镜像
 gateway/                 Caddyfile + entrypoint.sh(+ secrets/hash,生成)
 vnc/                     Xvnc + Chromium + noVNC(FROM debian:bookworm-slim)
 code-server/             浏览器版 VSCode 镜像(FROM sandbox-base)
@@ -215,6 +220,6 @@ docs/                    offline-install-guide.md(+ offline-tool-install.md 实�
 ## 状态
 
 分阶段构建。MVP 已完成:gateway + app(axum + React SPA)+ code-server + vnc,带四
-层与版本化 L1 运行时的场景预置系统,以及离线支持。尚未做:L5 外部服务;自动探测
-已烘进的 L4 agent(如 opencode)来驱动 Web 按钮——opencode 的 Web 面板目前由
-`ENABLE_OPENCODE` 硬编码开启。
+层与版本化 L1 运行时的场景预置系统、离线支持,以及侧边栏按钮化工作区(自动探测
+按钮、按需启动 agent TUI、用户自注册按钮)。尚未做:按需 TUI 按钮之外的 L5 外部
+服务、自定义 web 型按钮(需跨容器端口预览)、终端多实例。

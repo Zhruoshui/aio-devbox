@@ -4,8 +4,10 @@
 
 A self-hosted, all-in-one remote development environment. One `docker compose up`
 brings up a Caddy gateway plus pluggable service containers, and a browser-served
-tiling workspace presents your panes: VSCode in the browser (code-server),
-Chromium over VNC, a terminal, and an opencode AI-agent pane. Personal project.
+workspace presents them behind a collapsible sidebar of buttons: VSCode in the
+browser (code-server), Chromium over VNC, a terminal, and on-demand AI-agent TUIs
+like opencode — each button opens a tab, and only capabilities actually present
+in the image get a button. Personal project.
 
 Toolchains (Node, Python, Rust, Go, nvm, uv, …) are **build-time scenario
 presets** — you pick them (and Node/Python versions) in a TUI, and they are baked
@@ -16,11 +18,16 @@ the images, and run air-gapped.
 ## Features
 
 - **One command to a browser IDE.** `make up` → open `http://localhost:8080`
-  (HTTP basic auth). A golden-layout tiling workspace arranges your panes.
-- **Pluggable panes, auto-detected.** Web panes (code-server, VNC) are gated by
-  compose profiles and the UI hides a pane whose container isn't running — start
-  only what you need. Agent panes (terminal, opencode) run over an xterm.js +
-  WebSocket pty bridge inside the `app` container.
+  (HTTP basic auth). A collapsible left sidebar lists your buttons; clicking one
+  opens a tab in the main area (terminal opens by default).
+- **Pluggable buttons, auto-detected.** Web buttons (code-server, VNC) are gated
+  by compose profiles — no running container, no button. Agent/TUI buttons
+  (terminal, opencode, …) appear only when their command actually exists on the
+  login-shell PATH, and launch on click in an xterm.js + WebSocket pty bridge
+  inside the `app` container. No dead panes.
+- **Register your own buttons.** The sidebar's `+` form registers a
+  "terminal + command" button (persisted in `/home/gem/.aio/buttons.toml` on the
+  workspace volume via `POST/DELETE /api/buttons`), surviving container recreate.
 - **Build-time scenario presets.** A Rust TUI (`aio-config`) lists scenarios
   grouped by layer; the selection is assembled into `Dockerfile.base` and built
   into `sandbox-base`. No per-container Dockerfiles for toolchains.
@@ -39,13 +46,13 @@ the images, and run air-gapped.
 ```sh
 make hash                              # gateway password (default: admin)
 make config                            # (optional) TUI: pick scenarios + Node/Python versions
-make up PROFILES="code-server vnc"     # start with web panes (terminal+opencode always on)
+make up PROFILES="code-server vnc"     # start with web buttons (terminal always on)
 # → open http://localhost:8080   (admin / admin)
 ```
 
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so the
-workspace shows the terminal and opencode panes; add `code-server` / `vnc` profiles
-to light up the browser-IDE and Chromium panes.
+sidebar shows the terminal button (plus any baked-in agent TUI like opencode);
+add `code-server` / `vnc` profiles to light up the browser-IDE and Chromium buttons.
 
 ```sh
 make down                              # stop (keeps images + workspace volume)
@@ -85,7 +92,7 @@ make clean                             # stop, drop the volume, remove built ima
 | Container | Image | Role |
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + reverse proxy to `app`, `code-server`, `vnc`. Serves the WS upgrades too. |
-| `app` | `sandbox-app` (built) | Axum server: serves the React SPA, `GET /api/manifest` (which panes are live), and the `/api/term/ws` pty WebSocket bridge. `FROM sandbox-base`. |
+| `app` | `sandbox-app` (built) | Axum server: serves the React SPA, `GET /api/manifest` (which buttons are live), the `/api/term/ws` pty WebSocket bridge, and `POST/DELETE /api/buttons` (user-registered buttons on the volume). `FROM sandbox-base`. |
 | `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated (`--profile code-server`), auto-detected by TCP probe to `code-server:8200`. `FROM sandbox-base`. |
 | `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated (`--profile vnc`), auto-detected by TCP probe to `vnc:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
 | `base` | `sandbox-base` (built) | The shared base image. Gated behind the `build` profile so it **never** starts as a runtime container. |
@@ -128,7 +135,7 @@ Current scenarios:
 | `go` | L3 `lang` | — | — | Go 1.23 tarball → `/usr/local/go` |
 | `nvm` | L3 `lang` | — | — | nvm.sh → `/opt/nvm`; runtime `NVM_DIR=~/.nvm` (on the volume) so `nvm install` survives recreate. Login shells only. |
 | `uv` | L3 `lang` | — | — | uv → `/usr/local/bin`; runtime `uv python install` → volume (overlaps with `python-dev`) |
-| `opencode` | L4 `app` | — | — | opencode AI-agent CLI → `/usr/local/bin`. Web pane gated by `ENABLE_OPENCODE` (default `true`). |
+| `opencode` | L4 `app` | — | — | opencode AI-agent CLI → `/usr/local/bin`. Sidebar button appears only when baked in (command-exists detection) and launches on click in a pty. |
 
 **Workflow.** `make config` opens the TUI (ratatui): scenarios are listed grouped
 by layer. Toggle selectable scenarios with **Space**; L1 `always_on` rows show
@@ -218,8 +225,8 @@ Dockerfile.base.tail     sandbox-base tail (USER gem + WORKDIR)
 scenarios/               scenario library, layered by category; <id>/{scenario.toml,fragment.Dockerfile}
 config/                  aio-config crate (Rust): TUI picker + Dockerfile.base generator
 app/                     axum app (Cargo.toml, src/, Dockerfile, services.toml)
-  └ services.toml        single source of truth for workspace panes (id/type/target/url/enable/cmd)
-web/                     React SPA (Vite + TS + golden-layout + xterm.js), baked into the app image
+  └ services.toml        built-in workspace buttons (id/type/target/url/label/cmd)
+web/                     React SPA (Vite + TS + sidebar/tab-stack + xterm.js), baked into the app image
 gateway/                 Caddyfile + entrypoint.sh (+ secrets/hash, generated)
 vnc/                     Xvnc + Chromium + noVNC (FROM debian:bookworm-slim)
 code-server/             VSCode-in-browser image (FROM sandbox-base)
@@ -234,6 +241,7 @@ docs/                    offline-install-guide.md (+ offline-tool-install.md tes
 
 Built phase by phase. The MVP is complete: gateway + app (axum + React SPA) +
 code-server + vnc, the scenario-preset system with four layers and versioned L1
-runtimes, and offline support. Not yet done: L5 external services, and
-auto-detecting baked L4 agents (e.g. opencode) to drive Web buttons — the
-opencode Web pane is currently hardcoded on via `ENABLE_OPENCODE`.
+runtimes, offline support, and the sidebar-button workspace (auto-detected
+buttons, on-demand agent TUIs, user-registered buttons). Not yet done: L5
+external services beyond on-demand TUI buttons, custom web-type user buttons
+(needs cross-container port preview), and multi-instance terminals.

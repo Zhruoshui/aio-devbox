@@ -25,12 +25,6 @@ services:
     restart: unless-stopped
     expose:
       - "8088"
-    environment:
-      # Agent-pane gates (type=agent services in services.toml). Default true;
-      # set to "false" / "0" to hide a pane. Web panes (code-server, vnc) are
-      # gated by compose profiles and auto-detected via TCP reachability.
-      ENABLE_TERMINAL: "true"
-      ENABLE_OPENCODE: "true"
     volumes:
       - workspace:/home/gem
     networks:

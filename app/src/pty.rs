@@ -103,5 +103,5 @@ pub fn spawn_pty(cmd: Option<String>) -> io::Result<PtySession> {
 /// so we take any `Display` error and string-wrap it - no direct dependency on
 /// the concrete error type.
 fn pty_err<E: std::fmt::Display>(e: E) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, e.to_string())
+    io::Error::other(e.to_string())
 }
