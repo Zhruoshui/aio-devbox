@@ -1,24 +1,26 @@
-// Headless smoke test for the workspace UI (sidebar + tab stack).
+// Headless smoke test for the workspace UI (sidebar + golden-layout).
 //
 // Manifest-driven: fetches GET /api/manifest, then asserts:
 //   1. the sidebar shows exactly the enabled services (no dead buttons - a
 //      service with enabled=false must NOT appear, e.g. opencode when the
 //      binary is not baked into the image);
-//   2. the terminal tab opens by default and its pty WS connects;
-//   3. each enabled web service's button opens a tab whose iframe actually
-//      loads the service UI;
-//   4. sidebar buttons toggle their tab open/closed;
-//   5. a user button can be registered via the UI form (POST /api/buttons),
-//      appears in the sidebar, launches its command in a pty, and can be
-//      deleted (DELETE /api/buttons/:id) after which it disappears.
+//   2. the terminal opens by default (single stack) and its pty WS connects;
+//   3. sidebar buttons are LAUNCHERS: each click creates a NEW instance
+//      (click twice -> two more tabs, numbered titles);
+//   4. each enabled web service's button opens an instance whose iframe
+//      actually loads the service UI;
+//   5. instances close via the golden-layout tab close icon;
+//   6. a user button can be registered via the UI form (POST /api/buttons),
+//      launched, and deleted (DELETE /api/buttons/:id).
 //
 // Run inside a node:20-bookworm container with chromium installed, --network
 // host so localhost:8080 reaches the gateway. Uses puppeteer-core against the
-// system chromium (no browser download). See README / Makefile.
+// system chromium (no browser download). A prebuilt image `aio-smoke`
+// (node:20-bookworm + chromium) speeds up reruns:
 //
-//   docker run --rm --network host -v "$PWD/web":/web -w /web \
-//     node:20-bookworm sh -c 'apt-get update && apt-get install -y chromium &&
-//       npm i puppeteer-core@23 && node smoke-test.cjs'
+//   docker run --rm --network host -v "$PWD/web":/web -w /web aio-smoke \
+//     node smoke-test.cjs
+
 const puppeteer = require("puppeteer-core");
 
 const URL = "http://localhost:8080/";
@@ -71,9 +73,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   //    sandbox's network policy (network-level, not a gateway issue).
   //  - /vnc/package.json: noVNC's vnc.html fetches it for a version display;
   //    websockify does not serve it (harmless 404, present since Phase G).
+  //  - code-server vscode-remote-resource: aborted (ERR_ABORTED) when a
+  //    code-server tab/iframe is torn down mid-fetch - benign teardown noise.
   const isTolerable = (url) =>
     url.includes("vsda") ||
     url.includes("open-vsx.org") ||
+    url.includes("vscode-remote-resource") ||
     url.endsWith("/vnc/package.json");
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
   page.on("console", (msg) => {
@@ -92,10 +97,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // and would prevent networkidle0 from ever settling.
   await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-  // --- 1. Sidebar reflects the manifest exactly -----------------------------
+  // --- 1. Sidebar reflects the manifest exactly ------------------------------
   await page.waitForSelector(".sidebar", { timeout: 10000 });
-  const sidebarTitles = await page.$$eval(".sb-btn", (els) =>
-    els.map((e) => e.getAttribute("title") || ""),
+  const sidebarTitles = await page.$$eval(".sb-btn .sb-label", (els) =>
+    els.map((e) => (e.textContent || "").trim()),
   );
   const expectedTitles = enabled.map((s) => s.label);
   const sidebarOk =
@@ -104,26 +109,45 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     disabled.every((s) => !sidebarTitles.includes(s.label));
   console.log("sidebar buttons:", JSON.stringify(sidebarTitles), "| sidebarOk:", sidebarOk);
 
-  // --- 2. Terminal tab opens by default + pty WS connects -------------------
+  // --- 2. Terminal opens by default (single stack) + pty WS connects --------
+  await page.waitForSelector(".lm_root", { timeout: 10000 });
   await sleep(3000); // let the pty WS connect and onopen write its line
-  const defaultTabs = await page.$$eval(".tab", (els) =>
-    els.map((e) => (e.textContent || "").replace("✕", "").trim()),
+  const defaultTabCount = await page.$$eval(".lm_tab", (els) => els.length);
+  const defaultTabTitles = await page.$$eval(".lm_tab .lm_title", (els) =>
+    els.map((e) => (e.textContent || "").trim()),
   );
-  const terminalDefaultOk = defaultTabs.includes("Terminal");
   const xtermText = await page
     .$$eval(".pane-xterm .xterm-rows", (els) => els.map((e) => e.textContent || "").join("\n"))
     .catch(() => "");
-  const terminalConnected = xtermText.includes("Terminal connected");
-  console.log("default tabs:", JSON.stringify(defaultTabs), "| terminalConnected:", terminalConnected);
+  const terminalDefaultOk =
+    defaultTabCount === 1 &&
+    defaultTabTitles[0] === "Terminal" &&
+    xtermText.includes("Terminal connected");
+  console.log("default tabs:", JSON.stringify(defaultTabTitles), "| terminalDefaultOk:", terminalDefaultOk);
 
-  // --- 3. Each enabled web service opens a tab whose iframe loads -----------
+  // --- 3. Launcher semantics: each click creates a NEW instance -------------
+  await page.click('.sb-btn[title^="Terminal"]');
+  await sleep(500);
+  await page.click('.sb-btn[title^="Terminal"]');
+  await sleep(500);
+  const launcherTitles = await page.$$eval(".lm_tab .lm_title", (els) =>
+    els.map((e) => (e.textContent || "").trim()),
+  );
+  const xtermCount = await page.$$eval(".pane-xterm", (els) => els.length);
+  const launcherOk =
+    launcherTitles.length === 3 &&
+    launcherTitles.includes("Terminal") &&
+    launcherTitles.includes("Terminal (2)") &&
+    launcherTitles.includes("Terminal (3)") &&
+    xtermCount === 3;
+  console.log("launcher tabs:", JSON.stringify(launcherTitles), "| launcherOk:", launcherOk);
+
+  // --- 4. Each enabled web service button opens a loading iframe ------------
   const iframeResults = [];
   for (const svc of expectedWeb) {
     const srcPrefix = svc.url.split("?")[0];
-    await page.click(`.sb-btn[title="${svc.label}"]`);
-    await page.waitForSelector(`.pane-slot.visible .pane-iframe[src^="${srcPrefix}"]`, {
-      timeout: 10000,
-    });
+    await page.click(`.sb-btn[title^="${svc.label}"]`);
+    await page.waitForSelector(`.pane-iframe[src^="${srcPrefix}"]`, { timeout: 10000 });
     // The iframe element exists immediately, but its frame starts at
     // about:blank and navigates asynchronously - wait for the real URL.
     const frame = await page
@@ -157,17 +181,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const iframesOk = iframeResults.every((r) => r.loaded);
   console.log("iframeResults:", JSON.stringify(iframeResults));
 
-  // --- 4. Toggle: click the terminal button -> tab closes; again -> reopens -
-  await page.click('.sb-btn[title="Terminal"]');
-  await sleep(300);
-  const tabsAfterClose = await page.$$eval(".tab", (els) => els.length);
-  await page.click('.sb-btn[title="Terminal"]');
-  await sleep(300);
-  const tabsAfterReopen = await page.$$eval(".tab", (els) => els.length);
-  const toggleOk = tabsAfterClose === expectedWeb.length && tabsAfterReopen === expectedWeb.length + 1;
-  console.log("toggle:", { tabsAfterClose, tabsAfterReopen, toggleOk });
+  // --- 5. Close via the tab's close icon ------------------------------------
+  // NB: golden-layout 2.6 renders the per-tab close icon as `.lm_close_tab`
+  // inside `.lm_tab`; `.lm_close` is a header-level control that would close
+  // the WHOLE stack - do not target it.
+  const beforeClose = await page.$$eval(".lm_tab", (els) => els.length);
+  const closeBtns = await page.$$(".lm_tab.lm_active .lm_close_tab");
+  const closeTarget = closeBtns[0] ?? (await page.$(".lm_close_tab"));
+  if (closeTarget) {
+    await closeTarget.click();
+    await sleep(500);
+  }
+  const afterClose = await page.$$eval(".lm_tab", (els) => els.length);
+  const closeOk = closeTarget !== null && afterClose === beforeClose - 1;
+  console.log("close:", { beforeClose, afterClose, closeOk });
 
-  // --- 5. Register a user button via the UI form, run it, delete it ---------
+  // --- 6. Register a user button, launch it, delete it ----------------------
   await page.click(".sb-add-btn");
   await page.waitForSelector(".sb-form", { timeout: 5000 });
   await page.type('.sb-input[placeholder="name"]', "smokebtn");
@@ -177,12 +206,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     page.click(".sb-add"),
   ]);
   // The SPA refreshes the manifest after a successful POST; the new button is
-  // visible once command_exists finds the command (echo: bash builtin - note
-  // command_exists checks PATH executables, and /usr/bin/echo exists on the
-  // base image, so `echo` resolves).
-  await page.waitForSelector('.sb-btn[title="smokebtn"]', { timeout: 10000 });
-  const registeredOk = true;
-  await page.click('.sb-btn[title="smokebtn"]');
+  // visible once command_exists finds `echo` (/usr/bin/echo on the base image).
+  await page.waitForSelector('.sb-btn[title^="smokebtn"]', { timeout: 10000 });
+  await page.click('.sb-btn[title^="smokebtn"]');
   await sleep(2500); // pty runs the cmd; output lands in the xterm buffer
   const allXtermText = await page
     .$$eval(".pane-xterm .xterm-rows", (els) => els.map((e) => e.textContent || "").join("\n"))
@@ -194,20 +220,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const delRes = await fetch(`${URL}api/buttons/smokebtn`, { method: "DELETE", headers: AUTH });
   await page.click('.sb-icon[title="Refresh"]');
   await sleep(1000);
-  const titlesAfterDelete = await page.$$eval(".sb-btn", (els) =>
-    els.map((e) => e.getAttribute("title") || ""),
+  const titlesAfterDelete = await page.$$eval(".sb-btn .sb-label", (els) =>
+    els.map((e) => (e.textContent || "").trim()),
   );
   const deletedOk = delRes.ok && !titlesAfterDelete.includes("smokebtn");
-  console.log("register/run/delete:", { registeredOk, userCmdRan, deletedOk, titlesAfterDelete });
+  console.log("register/run/delete:", { userCmdRan, deletedOk, titlesAfterDelete });
 
   await browser.close();
 
   const ok =
     sidebarOk &&
     terminalDefaultOk &&
-    terminalConnected &&
+    launcherOk &&
     iframesOk &&
-    toggleOk &&
+    closeOk &&
     userCmdRan &&
     deletedOk &&
     failedReqs.length === 0 &&
@@ -218,9 +244,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         ok,
         sidebarOk,
         terminalDefaultOk,
-        terminalConnected,
+        launcherOk,
         iframesOk,
-        toggleOk,
+        closeOk,
         userCmdRan,
         deletedOk,
         failedReqs,

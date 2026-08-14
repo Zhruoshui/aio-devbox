@@ -15,11 +15,12 @@ TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
 ## 特性
 
 - **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`(HTTP
-  basic auth)。左侧可折叠侧边栏列出按钮,点击在主区开标签页(终端默认打开)。
+  basic auth)。左侧可折叠侧边栏列出按钮,每次点击在主区启动一个**新实例**标签页
+  (终端默认打开),标签页可拖拽拆分/平铺(golden-layout),也可用 tab 上的 ✕ 关闭。
 - **可插拔按钮,自动探测。** Web 按钮(code-server、VNC)由 compose profile 控制——
   容器没跑就没有按钮。Agent/TUI 按钮(终端、opencode……)只在命令真实存在于登录
-  shell PATH 时才出现,点击即用 xterm.js + WebSocket pty 桥在 `app` 容器内启动。
-  没有死面板。
+  shell PATH 时才出现,点击即用 xterm.js + WebSocket pty 桥在 `app` 容器内启动
+  (可多开)。没有死面板。
 - **自定义按钮。** 侧边栏底部 `+` 表单可注册“终端+命令”按钮(经
   `POST/DELETE /api/buttons` 持久化到工作区卷的 `/home/gem/.aio/buttons.toml`),
   扛得过容器重建。

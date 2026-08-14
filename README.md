@@ -18,13 +18,14 @@ the images, and run air-gapped.
 ## Features
 
 - **One command to a browser IDE.** `make up` → open `http://localhost:8080`
-  (HTTP basic auth). A collapsible left sidebar lists your buttons; clicking one
-  opens a tab in the main area (terminal opens by default).
+  (HTTP basic auth). A collapsible left sidebar lists your buttons; every click
+  launches a NEW instance as a tab (terminal opens by default), and tabs can be
+  dragged into split/tiled layouts (golden-layout) or closed via their ✕.
 - **Pluggable buttons, auto-detected.** Web buttons (code-server, VNC) are gated
   by compose profiles — no running container, no button. Agent/TUI buttons
   (terminal, opencode, …) appear only when their command actually exists on the
   login-shell PATH, and launch on click in an xterm.js + WebSocket pty bridge
-  inside the `app` container. No dead panes.
+  inside the `app` container (multiple instances allowed). No dead panes.
 - **Register your own buttons.** The sidebar's `+` form registers a
   "terminal + command" button (persisted in `/home/gem/.aio/buttons.toml` on the
   workspace volume via `POST/DELETE /api/buttons`), surviving container recreate.

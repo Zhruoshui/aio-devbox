@@ -232,86 +232,11 @@ body {
   color: #cf222e;
 }
 
-/* ---------- Tab stack ---------- */
-.stack {
+/* ---------- golden-layout workspace ---------- */
+.gl-root {
   flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.tabbar {
-  display: flex;
-  align-items: stretch;
-  height: 36px;
-  flex-shrink: 0;
-  background: #eaeef2;
-  border-bottom: 1px solid #d0d7de;
-  overflow-x: auto;
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 14px;
-  font-size: 13px;
-  color: #57606a;
-  border-right: 1px solid #d0d7de;
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-}
-.tab:hover {
-  background: #f6f8fa;
-}
-.tab.active {
-  background: #fff;
-  color: #1f2328;
-  font-weight: 600;
-}
-
-.tab-close {
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: inherit;
-  border: 0;
-  border-radius: 4px;
-  font-size: 10px;
-  cursor: pointer;
-}
-.tab-close:hover {
-  background: #d0d7de;
-}
-
-.tabbar-empty {
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-  font-size: 13px;
-  color: #8b949e;
-}
-
-.pane-area {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  background: #fff;
-}
-
-/* Every open tab stays mounted; inactive ones are hidden so their WS/iframe
- * sessions survive tab switches. */
-.pane-slot {
-  position: absolute;
-  inset: 0;
-  display: none;
-}
-.pane-slot.visible {
-  display: block;
+  min-width: 0;
+  height: 100%;
 }
 
 /* ---------- Panes ---------- */
@@ -320,6 +245,7 @@ body {
   height: 100%;
 }
 
+/* Iframe pane + drag-capture overlay. */
 .pane-iframe-wrap {
   position: relative;
 }
@@ -329,6 +255,24 @@ body {
   border: 0;
   display: block;
   background: #fff;
+}
+/* Transparent overlay over iframes while a golden-layout drag/resize is in
+ * progress, so the iframe cannot swallow the pointer events needed to
+ * rearrange panes. Hidden by default; revealed by .is-dragging on the root. */
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  background: transparent;
+}
+.gl-root.is-dragging .drag-overlay {
+  display: block;
+}
+/* Also disable iframe pointer events directly during drag as a belt-and-
+ * braces measure (covers iframes whose overlay has not painted yet). */
+.gl-root.is-dragging .pane-iframe {
+  pointer-events: none;
 }
 
 .pane-xterm {

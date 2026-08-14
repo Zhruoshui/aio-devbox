@@ -1,5 +1,9 @@
-// Sidebar - left rail of toggle buttons for each enabled service, plus a
+// Sidebar - left rail of LAUNCHER buttons for each enabled service, plus a
 // "register button" form and a manual refresh. Collapsible to an icon rail.
+//
+// Buttons are launchers: every click creates a NEW instance (tab) in the
+// workspace; clicking again creates another. Closing instances happens via
+// the tab's close icon, not the sidebar.
 
 import { useState } from "react";
 
@@ -7,10 +11,9 @@ import type { ServiceEntry } from "./types";
 
 interface Props {
   services: ServiceEntry[];
-  openTabs: string[];
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onToggle: (id: string) => void;
+  onLaunch: (service: ServiceEntry) => void;
   onRefresh: () => void;
   onRegister: (label: string, cmd: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<void>;
@@ -18,10 +21,9 @@ interface Props {
 
 export function Sidebar({
   services,
-  openTabs,
   collapsed,
   onToggleCollapse,
-  onToggle,
+  onLaunch,
   onRefresh,
   onRegister,
   onDelete,
@@ -62,31 +64,27 @@ export function Sidebar({
       </div>
 
       <nav className="sb-list">
-        {enabled.map((s) => {
-          const open = openTabs.includes(s.id);
-          return (
-            <div key={s.id} className={`sb-btn-row${open ? " open" : ""}`}>
+        {enabled.map((s) => (
+          <div key={s.id} className="sb-btn-row">
+            <button
+              className="sb-btn"
+              title={`${s.label} — click to open a new instance`}
+              onClick={() => onLaunch(s)}
+            >
+              <span className="sb-glyph">{glyph(s)}</span>
+              {!collapsed && <span className="sb-label">{s.label}</span>}
+            </button>
+            {!collapsed && s.deletable && (
               <button
-                className="sb-btn"
-                title={s.label}
-                onClick={() => onToggle(s.id)}
-                aria-pressed={open}
+                className="sb-del"
+                title={`Remove ${s.label}`}
+                onClick={() => onDelete(s.id)}
               >
-                <span className="sb-glyph">{glyph(s)}</span>
-                {!collapsed && <span className="sb-label">{s.label}</span>}
+                ✕
               </button>
-              {!collapsed && s.deletable && (
-                <button
-                  className="sb-del"
-                  title={`Remove ${s.label}`}
-                  onClick={() => onDelete(s.id)}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          );
-        })}
+            )}
+          </div>
+        ))}
         {enabled.length === 0 && !collapsed && (
           <p className="sb-empty">No buttons. Start a profile or install a tool.</p>
         )}
