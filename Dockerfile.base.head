@@ -2,23 +2,25 @@
 #
 # sandbox-base HEAD fragment. `aio-config gen` assembles the final
 # Dockerfile.base as: this head + the enabled scenario fragments + the tail.
-# This file holds the root-context bootstrap every derived image shares:
-# HTTPS apt, ca-cert self-bootstrap, node, user `gem`. Scenario fragments
-# insert AFTER this (still root, before the tail's `USER gem`).
+# This file holds the non-versioned root-context bootstrap every derived image
+# shares: HTTPS apt, ca-cert self-bootstrap, build-essential, user `gem`.
+# Versioned L1 runtimes (node, python) are `always_on` scenarios (baked
+# unconditionally, version-selectable in the TUI) - they assemble right after
+# this head. Scenario fragments insert AFTER this (still root, before the
+# tail's `USER gem`).
 #
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
 # `make build-base` (which runs `gen`).
 #
 # Network note: this sandbox's network policy blocks plain HTTP (port 80) and
-# the NodeSource host. apt is therefore pointed at HTTPS, and Node is installed
-# from the official nodejs.org tarball. (opencode was previously baked here but
-# moved to the L4 `opencode` scenario - AI agents belong in L4, not the L1 base.
-# Its GitHub-release fetch lives in scenarios/opencode/fragment.Dockerfile.)
+# the NodeSource host. apt is therefore pointed at HTTPS. Node and Python are
+# NOT baked here anymore - they are `always_on` L1 scenarios (scenarios/node,
+# scenarios/python) that fetch from nodejs.org / GitHub releases
+# (python-build-standalone) over HTTPS. (opencode was previously baked here
+# but moved to the L4 `opencode` scenario - AI agents belong in L4.)
 
 FROM debian:bookworm-slim
-
-ARG NODE_VERSION=20.18.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -42,18 +44,10 @@ RUN apt-get -o Acquire::https::Verify-Peer=false update \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         curl git gnupg2 xz-utils \
-        python3 python3-pip python3-venv \
         build-essential pkg-config libssl-dev \
         locales tzdata sudo \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
-
-# Node 20 LTS from the official tarball (NodeSource is blocked in this env).
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-        -o /tmp/node.tar.xz \
- && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
- && rm /tmp/node.tar.xz \
- && node --version && npm --version
 
 # Workspace user `gem` (uid 1000), aligned across every container that touches
 # the shared workspace volume (R6 / R9).

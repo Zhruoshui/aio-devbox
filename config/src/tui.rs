@@ -1,14 +1,17 @@
 // Interactive scenario picker (ratatui). Lists every scenario discovered under
 // scenarios/ grouped by its profile layer (`category` in scenario.toml):
-// L2 shell / L3 lang / L4 app (L5 service future). L1 ("os") lives in
-// Dockerfile.base.head and is NOT a selectable scenario, so it never appears
-// here. Space toggles, `s` saves the selection to .aio/enabled.toml and quits,
-// `q` quits without saving. Pre-checks the ids already in the manifest.
+// L1 os / L2 shell / L3 lang / L4 app (L5 service future). L1's version-
+// selectable parts (node, python) are `always_on` scenarios shown as locked
+// rows `[*]` with a version [label] cyclable via Left/Right; the non-versioned
+// L1 infra stays in Dockerfile.base.head and never appears here. Space toggles
+// selectable items (no-op on headers and always_on rows); `s` saves the
+// selection to .aio/enabled.toml and quits, `q` quits without saving.
+// Pre-checks the ids already in the manifest.
 //
-// Rows are a flat list interleaving non-selectable category headers and
-// selectable item checkboxes. Navigation (Up/Down) walks all rows; Space is a
-// no-op on header rows. `checked` (Vec<bool>) stays indexed by scenario, so
-// inserting header rows never shifts checkbox state.
+// Rows are a flat list interleaving non-selectable category headers and item
+// rows. Navigation (Up/Down) walks all rows. `checked` (Vec<bool>) and
+// `version_sel` (Vec<Option<String>>) stay indexed by scenario, so inserting
+// header rows never shifts their state.
 
 use std::io;
 use std::path::Path;
@@ -42,6 +45,27 @@ pub fn run(repo: &Path) -> Result<()> {
     let mut checked: Vec<bool> = scenarios
         .iter()
         .map(|s| enabled.scenarios.iter().any(|e| e == &s.meta.id))
+        .collect();
+
+    // Per-scenario selected version label (None for non-versioned). Initialized
+    // from the manifest's version selection, else default_version, else the
+    // first version. Left/Right cycles this for the selected versioned row.
+    let mut version_sel: Vec<Option<String>> = scenarios
+        .iter()
+        .map(|s| {
+            if s.meta.versions.is_empty() {
+                None
+            } else {
+                let label = enabled
+                    .versions
+                    .iter()
+                    .find(|vs| vs.id == s.meta.id)
+                    .map(|vs| vs.label.clone())
+                    .or_else(|| s.meta.default_version.clone())
+                    .unwrap_or_else(|| s.meta.versions[0].label.clone());
+                Some(label)
+            }
+        })
         .collect();
 
     // Order scenarios by (category_rank, id), then build the interleaved row
@@ -95,14 +119,31 @@ pub fn run(repo: &Path) -> Result<()> {
                     )])),
                     Row::Item { scenario_idx } => {
                         let s = &scenarios[*scenario_idx];
-                        let mark = if checked[*scenario_idx] { "[x]" } else { "[ ]" };
-                        ListItem::new(Line::from(vec![
-                            Span::raw(format!("    {} {}  ", mark, s.meta.name)),
-                            Span::styled(
-                                s.meta.description.clone(),
-                                Style::default().add_modifier(Modifier::DIM),
-                            ),
-                        ]))
+                        if s.meta.always_on {
+                            // Locked row ([*]): always baked, Space is a no-op.
+                            // Versioned => show the current version [label],
+                            // cyclable with Left/Right.
+                            let mut head = format!("    [*] {}  ", s.meta.name);
+                            if let Some(label) = &version_sel[*scenario_idx] {
+                                head.push_str(&format!("[{}]  ", label));
+                            }
+                            ListItem::new(Line::from(vec![
+                                Span::raw(head),
+                                Span::styled(
+                                    s.meta.description.clone(),
+                                    Style::default().add_modifier(Modifier::DIM),
+                                ),
+                            ]))
+                        } else {
+                            let mark = if checked[*scenario_idx] { "[x]" } else { "[ ]" };
+                            ListItem::new(Line::from(vec![
+                                Span::raw(format!("    {} {}  ", mark, s.meta.name)),
+                                Span::styled(
+                                    s.meta.description.clone(),
+                                    Style::default().add_modifier(Modifier::DIM),
+                                ),
+                            ]))
+                        }
                     }
                 })
                 .collect();
@@ -110,14 +151,20 @@ pub fn run(repo: &Path) -> Result<()> {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("AIO 开发场景 · 分层  (空格=切换  s=保存退出  q=不存退出  ↑↓=移动)"),
+                        .title("AIO 开发场景 · 分层  (空格=切换  ←->=改版本  s=保存退出  q=不存退出  ↑↓=移动)"),
                 )
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
             f.render_stateful_widget(list, chunks[0], &mut state);
+            let selectable = scenarios.iter().filter(|s| !s.meta.always_on).count();
+            let always_on_n = scenarios.len() - selectable;
+            let checked_sel = scenarios
+                .iter()
+                .enumerate()
+                .filter(|(i, s)| !s.meta.always_on && checked[*i])
+                .count();
             let help = Paragraph::new(format!(
-                "已选 {} / 共 {}",
-                checked.iter().filter(|&&c| c).count(),
-                scenarios.len()
+                "已选 {} / 可选 {}（必装 {}）",
+                checked_sel, selectable, always_on_n
             ));
             f.render_widget(help, chunks[1]);
         })?;
@@ -147,12 +194,30 @@ pub fn run(repo: &Path) -> Result<()> {
                 }
                 KeyCode::Char(' ') => {
                     if let Some(i) = state.selected() {
-                        // Space is a no-op on header rows (only items toggle).
+                        // Space toggles selectable items only; no-op on header
+                        // rows and always_on rows (L1 node/python can't be
+                        // unchecked - only their version is chosen).
                         if let Row::Item { scenario_idx } = rows[i] {
-                            checked[scenario_idx] = !checked[scenario_idx];
+                            if !scenarios[scenario_idx].meta.always_on {
+                                checked[scenario_idx] = !checked[scenario_idx];
+                            }
                         }
                     }
                 }
+                KeyCode::Left => cycle_version(
+                    &scenarios,
+                    &mut version_sel,
+                    &rows,
+                    state.selected(),
+                    -1,
+                ),
+                KeyCode::Right => cycle_version(
+                    &scenarios,
+                    &mut version_sel,
+                    &rows,
+                    state.selected(),
+                    1,
+                ),
                 _ => {}
             }
         }
@@ -161,17 +226,74 @@ pub fn run(repo: &Path) -> Result<()> {
     // terminal + _guard drop here, restoring the screen / raw mode.
     drop(terminal);
     if saved {
+        // Selectable checked scenarios (always_on excluded - always baked).
+        let scenarios_out: Vec<String> = scenarios
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                if !s.meta.always_on && checked[i] {
+                    Some(s.meta.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Version selections for every versioned scenario (always_on or not).
+        let versions_out: Vec<manifest::VersionSelect> = scenarios
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                if s.meta.versions.is_empty() {
+                    return None;
+                }
+                version_sel[i].clone().map(|label| manifest::VersionSelect {
+                    id: s.meta.id.clone(),
+                    label,
+                })
+            })
+            .collect();
         let new = manifest::Enabled {
-            scenarios: scenarios
-                .iter()
-                .enumerate()
-                .filter_map(|(i, s)| if checked[i] { Some(s.meta.id.clone()) } else { None })
-                .collect(),
+            scenarios: scenarios_out,
+            versions: versions_out,
         };
         manifest::save(&manifest_path, &new)?;
-        println!("saved {} scenario(s)", new.scenarios.len());
+        println!(
+            "saved {} scenario(s), {} version(s)",
+            new.scenarios.len(),
+            new.versions.len()
+        );
     }
     Ok(())
+}
+
+/// Cycle the selected version of the currently-selected versioned row by `dir`
+/// (+1 = next, -1 = prev). No-op on headers, non-versioned items, or items with
+/// fewer than 2 versions.
+fn cycle_version(
+    scenarios: &[scenario::Scenario],
+    version_sel: &mut [Option<String>],
+    rows: &[Row],
+    selected: Option<usize>,
+    dir: i32,
+) {
+    let Some(i) = selected else { return };
+    let Row::Item { scenario_idx } = rows[i] else { return };
+    let s = &scenarios[scenario_idx];
+    if s.meta.versions.len() < 2 {
+        return;
+    }
+    let cur = version_sel[scenario_idx]
+        .clone()
+        .unwrap_or_else(|| s.meta.versions[0].label.clone());
+    let pos = s
+        .meta
+        .versions
+        .iter()
+        .position(|v| v.label == cur)
+        .unwrap_or(0);
+    let n = s.meta.versions.len();
+    let next = ((pos as i32 + dir + n as i32) % n as i32) as usize;
+    version_sel[scenario_idx] = Some(s.meta.versions[next].label.clone());
 }
 
 /// Restores the terminal (disable raw mode + leave alternate screen) on drop.

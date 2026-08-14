@@ -12,7 +12,28 @@ use serde::{Deserialize, Serialize};
 pub struct Enabled {
     /// Scenario ids to bake in. Applied in alphabetical order by `gen`
     /// (design §2.4) for reproducible output regardless of selection order.
+    /// Always-on scenarios (L1 node/python) are NOT listed here - `gen`
+    /// includes them unconditionally; only their version selection lives in
+    /// `versions` below.
     pub scenarios: Vec<String>,
+
+    /// Version selections for versioned scenarios (always_on or not). Each
+    /// entry picks a version `label` for a scenario id; `gen` resolves the
+    /// label back to the full version entry (with template vars) in
+    /// scenario.toml. Default empty: a manifest predating versioning, or a
+    /// fresh checkout, makes `gen` fall back to each scenario's
+    /// `default_version` (then `versions[0]`).
+    #[serde(default)]
+    pub versions: Vec<VersionSelect>,
+}
+
+/// A version selection in the manifest: which `label` is chosen for a given
+/// scenario id. The TUI writes one per versioned scenario; `gen` reads them to
+/// substitute `{{key}}` placeholders in the scenario's fragment.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VersionSelect {
+    pub id: String,
+    pub label: String,
 }
 
 /// Load the manifest. A missing file = no scenarios enabled (default), NOT an

@@ -293,7 +293,8 @@ docker exec aio-app-1 bash -lc '
 curl -L -o uv.tgz https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz
 tar -xzf uv.tgz
 # 2) wheelhouse:用与离线目标同基的 python 容器建,保证 ABI 匹配
-docker run --rm -v "$PWD/wheels":/out python:3.11-slim-bookworm sh -c '
+#    base python 现在是 L1 可选(默认 3.12.7;可选 3.11/3.12/3.13),按所选版本选镜像
+docker run --rm -v "$PWD/wheels":/out python:3.12-slim-bookworm sh -c '
   pip download -d /out --only-binary :all: --no-cache-dir <pkg1> <pkg2> ...'
 ```
 
@@ -309,7 +310,7 @@ docker exec aio-app-1 bash -lc '
       --no-index --find-links /tmp/wheels --offline <pkg1> <pkg2> ...'
 ```
 
-**坑**:native wheel 要匹配 ABI(cp311 + manylinux + glibc),用**同镜像基** python 容器建 wheelhouse(`python:3.11-slim-bookworm` 对 sandbox-base 3.11.2)最稳;`--only-binary :all:` 强制预编译 wheel(离线免编译)。`uv venv` 默认不 seed pip(无网络),**别加 `--seed`**;建 venv 要 `--python /usr/bin/python3` 显式指定系统解释器。wheelhouse root 属主,清理用 `-u root`/`sudo`(§3.3)。
+**坑**:native wheel 要匹配 ABI(cp312 + manylinux + glibc;按所选 base python 版本,L1 默认 3.12.7,可选 3.11/3.12/3.13),用**同镜像基** python 容器建 wheelhouse(`python:3.12-slim-bookworm` 对 sandbox-base 默认 3.12.7)最稳;`--only-binary :all:` 强制预编译 wheel(离线免编译)。`uv venv` 默认不 seed pip(无网络),**别加 `--seed`**;建 venv 要 `--python /usr/bin/python3` 显式指定系统解释器。wheelhouse root 属主,清理用 `-u root`/`sudo`(§3.3)。
 
 ## 4.7 方法 G:单文件脚本 / 数据资源
 

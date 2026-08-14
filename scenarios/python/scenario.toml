@@ -1,0 +1,25 @@
+id = "python"
+name = "Python"
+description = "CPython(python-build-standalone tarball /usr/local;版本可选,必装)"
+category = "os"
+always_on = true
+default_version = "3.12.7"
+
+# python-build-standalone release tag 与 python 版本耦合:每个版本条目带自己的
+# tag(gen 注入 {{version}}+{{tag}})。tag/版本须与上游 release 对齐(仓库已从
+# indygreg 迁到 astral-sh;见 https://github.com/astral-sh/python-build-standalone/releases)。
+# asset 形如 cpython-<ver>+<tag>-x86_64-unknown-linux-gnu-install_only.tar.gz。
+[[versions]]
+label = "3.12.7"
+version = "3.12.7"
+tag = "20241002"
+
+[[versions]]
+label = "3.11.10"
+version = "3.11.10"
+tag = "20241002"
+
+[[versions]]
+label = "3.13.0"
+version = "3.13.0"
+tag = "20241016"

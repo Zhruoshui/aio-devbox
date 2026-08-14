@@ -1,0 +1,18 @@
+id = "node"
+name = "Node.js"
+description = "Node 运行时(nodejs.org tarball /usr/local;code-server + app web-builder 依赖,必装)"
+category = "os"
+always_on = true
+default_version = "20.18.0"
+
+[[versions]]
+label = "20.18.0"
+version = "20.18.0"
+
+[[versions]]
+label = "22.11.0"
+version = "22.11.0"
+
+[[versions]]
+label = "18.20.4"
+version = "18.20.4"

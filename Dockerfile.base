@@ -2,23 +2,25 @@
 #
 # sandbox-base HEAD fragment. `aio-config gen` assembles the final
 # Dockerfile.base as: this head + the enabled scenario fragments + the tail.
-# This file holds the root-context bootstrap every derived image shares:
-# HTTPS apt, ca-cert self-bootstrap, node, user `gem`. Scenario fragments
-# insert AFTER this (still root, before the tail's `USER gem`).
+# This file holds the non-versioned root-context bootstrap every derived image
+# shares: HTTPS apt, ca-cert self-bootstrap, build-essential, user `gem`.
+# Versioned L1 runtimes (node, python) are `always_on` scenarios (baked
+# unconditionally, version-selectable in the TUI) - they assemble right after
+# this head. Scenario fragments insert AFTER this (still root, before the
+# tail's `USER gem`).
 #
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
 # `make build-base` (which runs `gen`).
 #
 # Network note: this sandbox's network policy blocks plain HTTP (port 80) and
-# the NodeSource host. apt is therefore pointed at HTTPS, and Node is installed
-# from the official nodejs.org tarball. (opencode was previously baked here but
-# moved to the L4 `opencode` scenario - AI agents belong in L4, not the L1 base.
-# Its GitHub-release fetch lives in scenarios/opencode/fragment.Dockerfile.)
+# the NodeSource host. apt is therefore pointed at HTTPS. Node and Python are
+# NOT baked here anymore - they are `always_on` L1 scenarios (scenarios/node,
+# scenarios/python) that fetch from nodejs.org / GitHub releases
+# (python-build-standalone) over HTTPS. (opencode was previously baked here
+# but moved to the L4 `opencode` scenario - AI agents belong in L4.)
 
 FROM debian:bookworm-slim
-
-ARG NODE_VERSION=20.18.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -42,18 +44,10 @@ RUN apt-get -o Acquire::https::Verify-Peer=false update \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         curl git gnupg2 xz-utils \
-        python3 python3-pip python3-venv \
         build-essential pkg-config libssl-dev \
         locales tzdata sudo \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
-
-# Node 20 LTS from the official tarball (NodeSource is blocked in this env).
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-        -o /tmp/node.tar.xz \
- && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
- && rm /tmp/node.tar.xz \
- && node --version && npm --version
 
 # Workspace user `gem` (uid 1000), aligned across every container that touches
 # the shared workspace volume (R6 / R9).
@@ -61,6 +55,58 @@ RUN groupadd --system --gid 1000 gem \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
  && mkdir -p /home/gem \
  && chown 1000:1000 /home/gem
+
+# >>> scenario: node >>>
+# L1 always_on:Node 运行时。nodejs.org 官方 tarball 装 /usr/local(系统路径,
+# 躲过共享卷 aio_workspace 对 /home/gem 的遮盖;在 PATH 上,code-server 与 app
+# web-builder 直接可用,无需 source)。版本由 TUI 下拉选,gen 把 22.11.0
+# 注入 ARG。NodeSource 被沙箱网络策略封锁,故走 nodejs.org(同 head 原 node 安装)。
+ARG NODE_VERSION=22.11.0
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        -o /tmp/node.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.xz \
+ && node --version && npm --version
+# <<< scenario: node <<<
+
+# >>> scenario: python >>>
+# L1 always_on:CPython。python-build-standalone 预编译 tarball,解压到 /usr/local
+# (系统路径,躲过共享卷;python3/pip3 在 PATH 上)。版本由 TUI 下拉选,gen 注入
+# 3.13.0+20241016。
+#
+# 风险点(实现期已标记):python-build-standalone 的 release tag 与 python 版本
+# 耦合,asset 命名 cpython-<ver>+<tag>-x86_64-unknown-linux-gnu-install_only.tar.gz。
+# scenario.toml 每个 [[versions]] 带 version+tag,须与上游 release 对齐;tag 错则
+# 404。仓库已从 indygreg 迁到 astral-sh(301)。见
+# https://github.com/astral-sh/python-build-standalone/releases。
+ARG PY_VERSION=3.13.0
+ARG PS_TAG=20241016
+RUN curl -fsSL "https://github.com/astral-sh/python-build-standalone/releases/download/${PS_TAG}/cpython-${PY_VERSION}+${PS_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz" \
+        -o /tmp/py.tgz \
+ && mkdir -p /tmp/py \
+ && tar -xzf /tmp/py.tgz -C /tmp/py \
+ && cp -a /tmp/py/python/. /usr/local/ \
+ && rm -rf /tmp/py /tmp/py.tgz \
+ && python3 --version && pip3 --version
+# <<< scenario: python <<<
+
+# >>> scenario: shell-utils >>>
+# L2 示例:便利 shell 工具(纯二进制,不含别名机制)。
+#   - 工具装系统路径(/usr/bin,/usr/local/bin),全 shell PATH 通用,不被共享卷
+#     aio_workspace 遮盖。
+#   - 不提供 shell 别名/函数:别名靠 source 加载、仅特定 shell 形态生效
+#     (login vs 非login 交互),覆盖不一致;故本场景只装二进制工具。
+# apt lists 在 head 末尾被 `rm -rf /var/lib/apt/lists/*` 清空,这里需重新 update。
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends fzf ripgrep bat fd-find \
+ && rm -rf /var/lib/apt/lists/* \
+# Debian renames fd->fdfind and bat->batcat to avoid conflicts; symlink the
+# conventional names into /usr/local/bin so scripts and shells can use fd/bat.
+ && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
+ && ln -sf "$(command -v batcat)" /usr/local/bin/bat \
+ && fzf --version && rg --version && bat --version && fd --version
+# <<< scenario: shell-utils <<<
 
 # >>> scenario: python-dev >>>
 # uv + ruff as single static-ish binaries to /usr/local/bin (system path, NOT
@@ -81,37 +127,20 @@ RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/
  && uv --version && ruff --version
 # <<< scenario: python-dev <<<
 
-# >>> scenario: rust >>>
-# Rust toolchain via online rustup (build machine has network; offline is
-# handled by whole-image `docker save/load`, NOT by vendoring rustup here).
-#
-# Lands in /opt/rust (system path), NOT ~/.cargo: the workspace volume mounts
-# over /home/gem, so anything baked into /home/gem/.cargo would be masked /
-# go stale (卷遮盖). /opt/rust is in the image layer, visible in every
-# container derived from sandbox-base, and RUSTUP_HOME/CARGO_HOME point there.
-# chown to gem so the dev can `cargo install` / `rustup` freely.
-
-ARG RUST_VERSION=stable
-ENV RUSTUP_HOME=/opt/rust/rustup \
-    CARGO_HOME=/opt/rust/cargo \
-    PATH=/opt/rust/cargo/bin:$PATH
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-      | sh -s -- -y --profile default --default-toolchain ${RUST_VERSION} \
-                 --component rust-analyzer \
- && rustup default ${RUST_VERSION} \
- && rustc --version && cargo --version && rustfmt --version && cargo clippy --version \
- && chown -R 1000:1000 /opt/rust \
-# rustup puts its proxies in /opt/rust/cargo/bin (custom PATH). The ENV PATH
-# above is inherited by non-login shells, but LOGIN shells (bash -l, e.g. the
-# AIO terminal panel's pty) source /etc/profile which RESETS PATH to the
-# standard set, dropping /opt/rust/cargo/bin -> `cargo` not found there.
-# Symlink the proxies into /usr/local/bin, which is on PATH in EVERY shell
-# (login / non-login / interactive / non-interactive), so cargo/rustc/rustup/
-# rustfmt are universally findable with zero per-shell PATH management. The
-# proxies are stable paths; rustup updates the toolchain behind them, so the
-# symlinks stay valid across `rustup update`.
- && for b in /opt/rust/cargo/bin/*; do ln -sf "$b" /usr/local/bin/"$(basename "$b")"; done
-# <<< scenario: rust <<<
+# >>> scenario: uv >>>
+# L3 可选:uv(astral-sh 的 Python 版本/包管理器)。单二进制装 /usr/local/bin
+# (系统路径,躲过共享卷 aio_workspace 对 /home/gem 的遮盖;在 PATH 上)。
+# 运行时 `uv python install <ver>` 装别的 CPython 到 ~/.local/share/uv/python
+# (卷上,抗 recreate);`uv venv`/`uv pip` 管理环境/包。与 L1 python 场景互补:
+# L1 提供默认 CPython(版本可选),uv 管额外版本/venv。
+ARG UV_VERSION=0.5.11
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+        -o /tmp/uv.tar.gz \
+ && tar -xzf /tmp/uv.tar.gz -C /tmp \
+ && install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+ && rm -rf /tmp/uv* \
+ && uv --version
+# <<< scenario: uv <<<
 
 # >>> scenario: opencode >>>
 # L4 示例:opencode AI agent CLI。原烘在 Dockerfile.base.head,按四层模型

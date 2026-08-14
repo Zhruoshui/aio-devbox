@@ -2,6 +2,7 @@
 // resolution) scan `scenarios/<id>/scenario.toml` through this single owner
 // (cross-layer-thinking-guide: one decoder for the scenario payload).
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -18,11 +19,46 @@ pub struct ScenarioMeta {
     /// "lang" (L3) / "app" (L4) / "service" (L5, future). Free-form string so
     /// the TUI/gen never break on a category they don't know yet; the TUI
     /// groups rows by `category_rank` and renders unknown categories last.
-    /// L1 ("os") lives in Dockerfile.base.head and is NOT a selectable
-    /// scenario, so it never reaches the TUI. Defaults to "lang" so
-    /// scenario.toml files predating the layer field still parse.
+    /// L1 ("os") is the always-on foundation; its version-selectable parts
+    /// (node, python) are `always_on` scenarios the TUI shows as locked
+    /// version rows, while the non-versioned L1 infra (apt, ca-certs, user
+    /// gem) stays hardcoded in Dockerfile.base.head and never reaches the TUI.
+    /// Defaults to "lang" so scenario.toml files predating the layer field
+    /// still parse.
     #[serde(default = "default_category")]
     pub category: String,
+
+    /// Always-on scenarios are baked into sandbox-base by `gen` regardless of
+    /// the selection manifest, and the TUI renders them as non-toggleable
+    /// (locked) rows. Used by L1 node/python: they MUST be present (code-server
+    /// and the app web-builder depend on node), so the user picks a version,
+    /// not whether to install. Defaults to false (normal selectable scenario).
+    #[serde(default)]
+    pub always_on: bool,
+
+    /// Selectable versions for this scenario. Non-empty => the TUI shows a
+    /// version dropdown (Left/Right cycles) and `gen` substitutes each
+    /// version's `vars` into the fragment's `{{key}}` placeholders. Empty
+    /// (default) => not versioned; fragment is assembled verbatim.
+    #[serde(default)]
+    pub versions: Vec<Version>,
+
+    /// Label (display string) of the version selected by default. `gen` uses
+    /// this when the manifest carries no version for this scenario; the TUI
+    /// pre-selects it. None => `gen` falls back to `versions[0]`.
+    #[serde(default)]
+    pub default_version: Option<String>,
+}
+
+/// One selectable version of a versioned scenario, declared in
+/// `scenario.toml` under `[[versions]]`. `label` is the dropdown display; the
+/// remaining fields (`vars`, flattened) are substituted into the fragment's
+/// `{{key}}` placeholders by `gen` (e.g. `{{version}}`, `{{tag}}`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Version {
+    pub label: String,
+    #[serde(flatten)]
+    pub vars: HashMap<String, String>,
 }
 
 /// Default category when a scenario.toml omits `category` (back-compat with
@@ -140,5 +176,63 @@ mod tests {
         assert_eq!(category_rank("os"), 0);
         // Unknown categories sort after every known layer.
         assert!(category_rank("lang") < category_rank("future-layer"));
+    }
+
+    #[test]
+    fn always_on_and_versions_default_when_omitted() {
+        let raw = r#"
+            id = "rust"
+            name = "Rust"
+            description = "rust toolchain"
+        "#;
+        let meta: ScenarioMeta = toml::from_str(raw).unwrap();
+        assert!(!meta.always_on);
+        assert!(meta.versions.is_empty());
+        assert_eq!(meta.default_version, None);
+    }
+
+    #[test]
+    fn versioned_always_on_scenario_parses() {
+        let raw = r#"
+id = "node"
+name = "Node"
+description = "node runtime"
+category = "os"
+always_on = true
+default_version = "20.18.0"
+[[versions]]
+label = "20.18.0"
+version = "20.18.0"
+[[versions]]
+label = "22.11.0"
+version = "22.11.0"
+"#;
+        let meta: ScenarioMeta = toml::from_str(raw).unwrap();
+        assert!(meta.always_on);
+        assert_eq!(meta.category, "os");
+        assert_eq!(meta.default_version.as_deref(), Some("20.18.0"));
+        assert_eq!(meta.versions.len(), 2);
+        assert_eq!(meta.versions[0].label, "20.18.0");
+        assert_eq!(meta.versions[0].vars.get("version").unwrap(), "20.18.0");
+        assert_eq!(meta.versions[1].label, "22.11.0");
+    }
+
+    #[test]
+    fn version_vars_flatten_extra_keys_as_template_vars() {
+        // python-build-standalone needs version + tag; both become {{}} vars.
+        let raw = r#"
+id = "python"
+name = "Python"
+description = "cpython"
+[[versions]]
+label = "3.12.7"
+version = "3.12.7"
+tag = "20241002"
+"#;
+        let meta: ScenarioMeta = toml::from_str(raw).unwrap();
+        let v = &meta.versions[0];
+        assert_eq!(v.label, "3.12.7");
+        assert_eq!(v.vars.get("version").unwrap(), "3.12.7");
+        assert_eq!(v.vars.get("tag").unwrap(), "20241002");
     }
 }

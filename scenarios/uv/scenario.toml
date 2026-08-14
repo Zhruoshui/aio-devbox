@@ -1,0 +1,4 @@
+id = "uv"
+name = "uv (Python 版本/包管理器)"
+description = "uv 单二进制装 /usr/local/bin;运行时 uv python install 装别的 CPython 到卷(~/.local,抗 recreate)"
+category = "lang"
