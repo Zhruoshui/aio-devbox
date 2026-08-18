@@ -14,7 +14,7 @@
 // user-registered buttons.toml entry) - no new React component.
 
 import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { ServiceEntry } from "../types";
@@ -35,9 +35,15 @@ export function XtermPane({ service }: { service: ServiceEntry }): JSX.Element {
     if (!el) return;
 
     const term = new Terminal({
-      fontFamily: "monospace",
+      fontFamily: "var(--font-mono)",
       fontSize: 13,
+      // Widens the inter-line gap above the font's intrinsic (tight on Linux
+      // `monospace` fallbacks) line box so glyphs don't crowd adjacent rows.
+      lineHeight: 1.25,
       cursorBlink: true,
+      // Colors follow the Kumo tokens in styles.css (--term-*), read at mount
+      // and re-read when the app switches light/dark (observer below).
+      theme: readTermTheme(),
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -110,9 +116,21 @@ export function XtermPane({ service }: { service: ServiceEntry }): JSX.Element {
     const resizeObserver = new ResizeObserver(() => safeFit(fitAddon));
     resizeObserver.observe(el);
 
+    // Live retint on theme switch: App flips <html data-mode=...>, the token
+    // values change, and the running terminal re-reads them - without
+    // reconnecting the pty (so the session survives a theme toggle).
+    const modeObserver = new MutationObserver(() => {
+      term.options.theme = readTermTheme();
+    });
+    modeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-mode"],
+    });
+
     return () => {
       disposed = true;
       resizeObserver.disconnect();
+      modeObserver.disconnect();
       currentWs?.close();
       term.dispose();
     };
@@ -127,4 +145,21 @@ function safeFit(fitAddon: FitAddon): void {
   } catch {
     // Element not yet visible/sized; the ResizeObserver will retry.
   }
+}
+
+/**
+ * Resolve the Kumo --term-* tokens (styles.css) into an xterm theme. Values
+ * stay CSS color strings (oklch / color-mix); xterm's DOM renderer applies
+ * them as CSS colors, so they follow [data-mode] for free.
+ */
+function readTermTheme(): ITheme {
+  const style = getComputedStyle(document.documentElement);
+  const v = (name: string): string => style.getPropertyValue(name).trim();
+  return {
+    background: v("--term-bg"),
+    foreground: v("--term-fg"),
+    cursor: v("--term-fg"),
+    cursorAccent: v("--term-bg"),
+    selectionBackground: v("--term-selection"),
+  };
 }
