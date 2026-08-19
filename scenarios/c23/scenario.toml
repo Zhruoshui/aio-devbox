@@ -1,0 +1,8 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "c23"
+name = "C23 开发环境"
+description = "clang-22 完整 C23 工具链(apt.llvm.org)+ gcc-12 复用 + C 配套(gdb/cmake/ninja/valgrind/cppcheck/strace),装系统路径"
+category = "lang"
