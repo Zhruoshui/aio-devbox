@@ -59,6 +59,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
   });
   const page = await browser.newPage();
+  // Desktop viewport: the UI's <=880px responsive guard collapses the sidebar
+  // and the smoke assertions target the expanded layout.
+  await page.setViewport({ width: 1440, height: 900 });
   await page.authenticate({ username: USER, password: PASS });
 
   const errors = [];
@@ -75,17 +78,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   //    websockify does not serve it (harmless 404, present since Phase G).
   //  - code-server vscode-remote-resource: aborted (ERR_ABORTED) when a
   //    code-server tab/iframe is torn down mid-fetch - benign teardown noise.
+  //  - /vnc/{vendor,core}/*.js: same teardown race when a noVNC iframe is
+  //    closed or re-shown while its module scripts are still loading
+  //    (ERR_ABORTED only - a 4xx on these paths is still a real failure).
   const isTolerable = (url) =>
     url.includes("vsda") ||
     url.includes("open-vsx.org") ||
     url.includes("vscode-remote-resource") ||
     url.endsWith("/vnc/package.json");
+  const isTolerableTeardownAbort = (url) =>
+    url.includes("/vnc/vendor/") || url.includes("/vnc/core/");
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push("console.error: " + msg.text());
   });
   page.on("requestfailed", (req) => {
     if (isTolerable(req.url())) return;
+    if (req.failure()?.errorText === "net::ERR_ABORTED" && isTolerableTeardownAbort(req.url())) return;
     failedReqs.push(`${req.url()} :: ${req.failure()?.errorText}`);
   });
   page.on("response", (res) => {
@@ -99,7 +108,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // --- 1. Sidebar reflects the manifest exactly ------------------------------
   await page.waitForSelector(".sidebar", { timeout: 10000 });
-  const sidebarTitles = await page.$$eval(".sb-btn .sb-label", (els) =>
+  const sidebarTitles = await page.$$eval(".launch-btn .launch-label", (els) =>
     els.map((e) => (e.textContent || "").trim()),
   );
   const expectedTitles = enabled.map((s) => s.label);
@@ -126,9 +135,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log("default tabs:", JSON.stringify(defaultTabTitles), "| terminalDefaultOk:", terminalDefaultOk);
 
   // --- 3. Launcher semantics: each click creates a NEW instance -------------
-  await page.click('.sb-btn[title^="Terminal"]');
+  await page.click('.launch-btn[title^="Terminal"]');
   await sleep(500);
-  await page.click('.sb-btn[title^="Terminal"]');
+  await page.click('.launch-btn[title^="Terminal"]');
   await sleep(500);
   const launcherTitles = await page.$$eval(".lm_tab .lm_title", (els) =>
     els.map((e) => (e.textContent || "").trim()),
@@ -146,7 +155,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const iframeResults = [];
   for (const svc of expectedWeb) {
     const srcPrefix = svc.url.split("?")[0];
-    await page.click(`.sb-btn[title^="${svc.label}"]`);
+    await page.click(`.launch-btn[title^="${svc.label}"]`);
     await page.waitForSelector(`.pane-iframe[src^="${srcPrefix}"]`, { timeout: 10000 });
     // The iframe element exists immediately, but its frame starts at
     // about:blank and navigates asynchronously - wait for the real URL.
@@ -197,18 +206,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log("close:", { beforeClose, afterClose, closeOk });
 
   // --- 6. Register a user button, launch it, delete it ----------------------
-  await page.click(".sb-add-btn");
-  await page.waitForSelector(".sb-form", { timeout: 5000 });
-  await page.type('.sb-input[placeholder="name"]', "smokebtn");
-  await page.type('.sb-input[placeholder="command"]', "echo smokeok-marker");
+  // RegisterButton now opens the Kumo-style modal dialog (register-btn in the
+  // sidebar footer -> .dialog with #f-label / #f-cmd fields -> .btn-primary).
+  await page.click(".register-btn");
+  await page.waitForSelector(".overlay.open .dialog", { timeout: 5000 });
+  await page.waitForSelector("#f-label", { visible: true, timeout: 5000 });
+  await page.type("#f-label", "smokebtn");
+  await page.type("#f-cmd", "echo smokeok-marker");
   await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/buttons") && r.request().method() === "POST"),
-    page.click(".sb-add"),
+    page.click(".btn-primary"),
   ]);
   // The SPA refreshes the manifest after a successful POST; the new button is
   // visible once command_exists finds `echo` (/usr/bin/echo on the base image).
-  await page.waitForSelector('.sb-btn[title^="smokebtn"]', { timeout: 10000 });
-  await page.click('.sb-btn[title^="smokebtn"]');
+  await page.waitForSelector('.launch-btn[title^="smokebtn"]', { timeout: 10000 });
+  await page.click('.launch-btn[title^="smokebtn"]');
   await sleep(2500); // pty runs the cmd; output lands in the xterm buffer
   const allXtermText = await page
     .$$eval(".pane-xterm .xterm-rows", (els) => els.map((e) => e.textContent || "").join("\n"))
@@ -218,9 +230,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Delete via the API (the UI ✕ is hover-revealed; the API is the contract),
   // then refresh via the UI and assert the button is gone.
   const delRes = await fetch(`${URL}api/buttons/smokebtn`, { method: "DELETE", headers: AUTH });
-  await page.click('.sb-icon[title="Refresh"]');
+  await page.click(".refresh-btn");
   await sleep(1000);
-  const titlesAfterDelete = await page.$$eval(".sb-btn .sb-label", (els) =>
+  const titlesAfterDelete = await page.$$eval(".launch-btn .launch-label", (els) =>
     els.map((e) => (e.textContent || "").trim()),
   );
   const deletedOk = delRes.ok && !titlesAfterDelete.includes("smokebtn");

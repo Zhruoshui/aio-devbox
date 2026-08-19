@@ -1,9 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-mode="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AIO Sandbox</title>
+    <title>AIO 沙箱</title>
+    <script>
+      // Pre-paint theme/lang restore (the Kumo default is dark; a stored
+      // "light"/"en" preference is applied before first paint so the app
+      // never flashes the wrong mode). App.tsx owns these values afterwards.
+      try {
+        var mode = localStorage.getItem("aio.theme");
+        if (mode === "light" || mode === "dark") {
+          document.documentElement.dataset.mode = mode;
+        }
+        var lang = localStorage.getItem("aio.lang");
+        if (lang === "zh-CN" || lang === "en") {
+          document.documentElement.lang = lang;
+        }
+      } catch (e) {
+        /* localStorage unavailable - keep dark default */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

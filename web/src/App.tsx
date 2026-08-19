@@ -30,24 +30,75 @@ import { createRoot, type Root } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GoldenLayout,
+  LayoutConfig,
+  ResolvedLayoutConfig,
   type ComponentContainer,
   type JsonValue,
-  type LayoutConfig,
 } from "golden-layout";
 import "golden-layout/dist/css/goldenlayout-base.css";
-import "golden-layout/dist/css/themes/goldenlayout-light-theme.css";
+import "./gl-kumo.css";
 
 import type { Manifest, ServiceEntry } from "./types";
+import { t, type Lang } from "./i18n";
+import { Icon, IconSprite, serviceIcon } from "./icons";
 import { Sidebar } from "./Sidebar";
+import { Statusbar } from "./Statusbar";
+import { RegisterDialog } from "./RegisterDialog";
 import { IframePane } from "./panes/IframePane";
 import { XtermPane } from "./panes/XtermPane";
 import "./styles.css";
 
 type Status = "loading" | "error" | "ready";
+type Theme = "dark" | "light";
 
 const PANE_COMPONENT_TYPE = "aio-pane";
 const TERMINAL_ID = "terminal";
 const COLLAPSE_KEY = "aio.sidebar.collapsed";
+const THEME_KEY = "aio.theme";
+const LANG_KEY = "aio.lang";
+const HEADER_HEIGHT = 40;
+const GL_WINDOW_PARAM = "gl-window";
+
+/**
+ * Popout child windows carry their layout in localStorage under the
+ * `gl-window` URL param (written by the parent's BrowserPopout). Consume it
+ * here, before any GoldenLayout is constructed: the library's built-in
+ * subwindow path would wipe document.body (killing the React root) and defer
+ * init() past our loadLayout call. Instead we strip the param, load the saved
+ * config ourselves and render a lone workspace (see the SUB_WINDOW branch in
+ * App's render).
+ */
+function consumeSubWindowLayout():
+  | { config: LayoutConfig; title?: string }
+  | undefined {
+  const params = new URLSearchParams(window.location.search);
+  const key = params.get(GL_WINDOW_PARAM);
+  if (key === null) return undefined;
+  const raw = localStorage.getItem(key);
+  localStorage.removeItem(key);
+  params.delete(GL_WINDOW_PARAM);
+  const search = params.toString();
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`,
+  );
+  if (raw === null) return undefined;
+  try {
+    const resolved = ResolvedLayoutConfig.unminifyConfig(JSON.parse(raw));
+    const config: LayoutConfig = {
+      ...LayoutConfig.fromResolved(resolved),
+      // gl-kumo.css lays out a 40px strip; golden-layout writes the header
+      // height as an inline style, so it must travel in the config.
+      dimensions: { headerHeight: HEADER_HEIGHT },
+    };
+    const root = config.root;
+    return { config, title: root?.type === "component" ? root.title : undefined };
+  } catch {
+    return undefined;
+  }
+}
+const SUB_WINDOW = consumeSubWindowLayout();
 
 export function App(): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,6 +107,8 @@ export function App(): JSX.Element {
   const rootsRef = useRef(new WeakMap<ComponentContainer, Root>());
   // Per-service instance counter for tab titles: "Terminal", "Terminal (2)", ...
   const seqRef = useRef<Record<string, number>>({});
+  // Latest manifest for the tab-icon observer (the gl effect runs once).
+  const servicesRef = useRef<ServiceEntry[]>([]);
 
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -63,11 +116,56 @@ export function App(): JSX.Element {
   const [collapsed, setCollapsed] = useState<boolean>(
     () => localStorage.getItem(COLLAPSE_KEY) === "1",
   );
+  // Kumo dark mode is the default; index.html applies the stored value
+  // pre-paint to avoid a light flash, and this state is its single owner.
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"),
+  );
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh-CN"),
+  );
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   // Persist sidebar collapse state.
   useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
   }, [collapsed]);
+
+  // Apply + persist theme (data-mode is Kumo's native mode hook).
+  useEffect(() => {
+    document.documentElement.dataset.mode = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  // Apply + persist language (html lang for assistive tech).
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    localStorage.setItem(LANG_KEY, lang);
+  }, [lang]);
+
+  // The tab-icon observer (gl effect below) reads the manifest through a ref
+  // because that effect runs exactly once.
+  useEffect(() => {
+    servicesRef.current = services;
+  }, [services]);
+
+  // Leading tab icons (the Kumo reference tabs carry a service glyph);
+  // gl-kumo.css draws them with masks off data-icon. Titles are "<label>" or
+  // "<label> (<n>)". Re-runs when the manifest lands - popout windows build
+  // their layout before the fetch resolves.
+  const patchTabs = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.querySelectorAll<HTMLElement>(".lm_tab").forEach((tab) => {
+      const title = tab.querySelector(".lm_title")?.textContent ?? "";
+      const label = title.replace(/ \(\d+\)$/, "");
+      const svc = servicesRef.current.find((s) => s.label === label);
+      tab.dataset.icon = svc ? serviceIcon(svc.id, svc.type) : "terminal";
+    });
+  }, []);
+  useEffect(() => {
+    patchTabs();
+  }, [services, patchTabs]);
 
   const fetchManifest = useCallback(async (): Promise<ServiceEntry[]> => {
     const r = await fetch("/api/manifest");
@@ -130,14 +228,19 @@ export function App(): JSX.Element {
     gl.newComponent(PANE_COMPONENT_TYPE, { service, seq: n }, title);
   }, []);
 
-  // Build golden-layout once the manifest is ready. Runs once (guarded by
-  // glRef) - manifest refreshes must NOT rebuild the layout.
+  // Build golden-layout once the manifest is ready (immediately in popout
+  // child windows, whose pane state is self-contained). Runs once (guarded by
+  // glRef) - manifest refreshes must NOT rebuild the layout. In popout
+  // children the dep is frozen: a status-driven rebuild would destroy the
+  // instance the parent's BrowserPopout already wired its popIn listener to.
+  const glStatus = SUB_WINDOW ? "ready" : status;
   useEffect(() => {
-    if (status !== "ready") return;
     const el = containerRef.current;
     if (!el || glRef.current) return;
-    const enabled = services.filter((s) => s.enabled);
-    if (enabled.length === 0) return; // empty-state message rendered instead
+    if (!SUB_WINDOW) {
+      if (glStatus !== "ready") return;
+      if (services.filter((s) => s.enabled).length === 0) return; // empty state
+    }
 
     const gl = new GoldenLayout(el);
     gl.resizeWithContainerAutomatically = true;
@@ -165,26 +268,56 @@ export function App(): JSX.Element {
       },
     );
 
-    // Default layout: a single stack (one page) holding one terminal instance
-    // when the terminal is enabled - which it always is (bash exists).
-    const terminal = enabled.find((s) => s.id === TERMINAL_ID) ?? enabled[0];
-    seqRef.current[terminal.id] = 1;
-    const config: LayoutConfig = {
-      root: {
-        type: "stack",
-        content: [
-          {
-            type: "component",
-            componentType: PANE_COMPONENT_TYPE,
-            componentState: { service: terminal, seq: 1 },
-            title: terminal.label,
-          },
-        ],
-      },
-      settings: { reorderEnabled: true },
-    };
-    gl.loadLayout(config);
+    if (SUB_WINDOW) {
+      // Popout child: load the popped component as the whole layout and join
+      // the parent's popIn protocol (BrowserPopout polls window.__glInstance).
+      gl.loadLayout(SUB_WINDOW.config);
+      if (SUB_WINDOW.title) document.title = SUB_WINDOW.title;
+      (window as unknown as { __glInstance?: unknown }).__glInstance = gl;
+    } else {
+      // Default layout: a single stack (one page) holding one terminal
+      // instance when the terminal is enabled - which it always is (bash
+      // exists).
+      const enabled = services.filter((s) => s.enabled);
+      const terminal = enabled.find((s) => s.id === TERMINAL_ID) ?? enabled[0];
+      seqRef.current[terminal.id] = 1;
+      const config: LayoutConfig = {
+        root: {
+          type: "stack",
+          content: [
+            {
+              type: "component",
+              componentType: PANE_COMPONENT_TYPE,
+              componentState: { service: terminal, seq: 1 },
+              title: terminal.label,
+            },
+          ],
+        },
+        settings: { reorderEnabled: true },
+        // golden-layout writes the header height as an INLINE style from this
+        // config value (CSS alone cannot override it); gl-kumo.css lays out
+        // the 40px strip to match the Kumo reference tab bar.
+        dimensions: { headerHeight: HEADER_HEIGHT },
+      };
+      gl.loadLayout(config);
+    }
     glRef.current = gl;
+
+    // golden-layout recreates .lm_tab nodes whenever a component moves
+    // between stacks, so re-patch data-icon through an observer (patchTabs
+    // itself is shared with the manifest effect above).
+    const tabObserver = new MutationObserver((records) => {
+      const tabAdded = records.some((r) =>
+        Array.from(r.addedNodes).some(
+          (n) =>
+            n instanceof HTMLElement &&
+            (n.classList.contains("lm_tab") || n.querySelector(".lm_tab") !== null),
+        ),
+      );
+      if (tabAdded) patchTabs();
+    });
+    tabObserver.observe(el, { childList: true, subtree: true });
+    patchTabs();
 
     // iframe drag-capture: while a splitter or tab/header drag is in progress,
     // set an `is-dragging` class on the layout root so CSS reveals the
@@ -205,42 +338,93 @@ export function App(): JSX.Element {
     return () => {
       el.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp);
+      tabObserver.disconnect();
       gl.destroy();
       glRef.current = null;
     };
     // `services` intentionally not a dep: the layout is built once from the
     // first manifest; refreshes only update the sidebar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [glStatus]);
 
   const enabledServices = services.filter((s) => s.enabled);
 
-  if (status === "loading") return <div className="status">Loading workspace…</div>;
-  if (status === "error")
-    return <div className="status error">Failed to load manifest: {errorMsg}</div>;
+  // Popout child window: a lone workspace plus a dock-back button that emits
+  // golden-layout's popIn event (the parent re-adds the pane and closes us).
+  if (SUB_WINDOW) {
+    return (
+      <div className="app app-popout">
+        <IconSprite />
+        <div className="gl-root" ref={containerRef} />
+        <button
+          className="icon-btn popin-btn"
+          title={t(lang, "popin")}
+          aria-label={t(lang, "popin")}
+          onClick={() => glRef.current?.emit("popIn")}
+        >
+          <Icon name="dock" />
+        </button>
+      </div>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <>
+        <IconSprite />
+        <div className="status">{t(lang, "loading")}</div>
+      </>
+    );
+  }
+  if (status === "error") {
+    return (
+      <>
+        <IconSprite />
+        <div className="status error">
+          {t(lang, "loadFailed")}
+          {errorMsg}
+        </div>
+      </>
+    );
+  }
   if (enabledServices.length === 0) {
     return (
-      <div className="status">
-        No buttons available. Start a compose profile (e.g.{" "}
-        <code>--profile code-server</code>) or bake a scenario into the image.
-      </div>
+      <>
+        <IconSprite />
+        <div className="status">{t(lang, "noButtons")}</div>
+      </>
     );
   }
 
   return (
     <div className="app">
+      <IconSprite />
       <Sidebar
         services={services}
         collapsed={collapsed}
+        lang={lang}
         onToggleCollapse={() => setCollapsed((c) => !c)}
         onLaunch={launch}
         onRefresh={refresh}
-        onRegister={registerButton}
-        onDelete={deleteButton}
+        onOpenRegister={() => setRegisterOpen(true)}
+        onDelete={(id) => void deleteButton(id)}
       />
       <main className="main">
         <div className="gl-root" ref={containerRef} />
+        <Statusbar
+          services={services}
+          lang={lang}
+          theme={theme}
+          onToggleTheme={() => setTheme((m) => (m === "dark" ? "light" : "dark"))}
+          onToggleLang={() => setLang((l) => (l === "zh-CN" ? "en" : "zh-CN"))}
+        />
       </main>
+      <RegisterDialog
+        open={registerOpen}
+        lang={lang}
+        onClose={() => setRegisterOpen(false)}
+        onRegister={registerButton}
+      />
     </div>
   );
 

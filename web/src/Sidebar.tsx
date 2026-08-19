@@ -1,138 +1,145 @@
-// Sidebar - left rail of LAUNCHER buttons for each enabled service, plus a
-// "register button" form and a manual refresh. Collapsible to an icon rail.
+// Sidebar - left rail of LAUNCHER buttons for each enabled service, grouped
+// (Web tools / Terminals & agents / Custom), plus theme + language toggles, a
+// manual refresh, and the register-button opener. Collapsible to an icon rail.
 //
 // Buttons are launchers: every click creates a NEW instance (tab) in the
 // workspace; clicking again creates another. Closing instances happens via
-// the tab's close icon, not the sidebar.
+// the tab's close icon, not the sidebar. Registration happens in the modal
+// RegisterDialog (App owns its open state).
 
 import { useState } from "react";
 
 import type { ServiceEntry } from "./types";
+import { t, type Lang } from "./i18n";
+import { Icon, serviceIcon } from "./icons";
 
 interface Props {
   services: ServiceEntry[];
   collapsed: boolean;
+  lang: Lang;
   onToggleCollapse: () => void;
   onLaunch: (service: ServiceEntry) => void;
   onRefresh: () => void;
-  onRegister: (label: string, cmd: string) => Promise<boolean>;
-  onDelete: (id: string) => Promise<void>;
+  onOpenRegister: () => void;
+  onDelete: (id: string) => void;
 }
 
 export function Sidebar({
   services,
   collapsed,
+  lang,
   onToggleCollapse,
   onLaunch,
   onRefresh,
-  onRegister,
+  onOpenRegister,
   onDelete,
 }: Props): JSX.Element {
-  const [formOpen, setFormOpen] = useState(false);
-  const [label, setLabel] = useState("");
-  const [cmd, setCmd] = useState("");
-  const [err, setErr] = useState("");
+  // Refresh affordance state: spin + disable for a short window (the manifest
+  // refetch is fire-and-forget upstream; this mirrors the Kumo reference's
+  // labeled-spinner guidance without a promise contract change).
+  const [refreshing, setRefreshing] = useState(false);
 
   const enabled = services.filter((s) => s.enabled);
+  const groups: Array<{ key: string; label: string; items: ServiceEntry[] }> = [
+    {
+      key: "web",
+      label: t(lang, "groupWeb"),
+      items: enabled.filter((s) => s.type === "web"),
+    },
+    {
+      key: "tui",
+      label: t(lang, "groupTui"),
+      items: enabled.filter((s) => s.type === "agent" && !s.deletable),
+    },
+    {
+      key: "custom",
+      label: t(lang, "groupCustom"),
+      items: enabled.filter((s) => s.deletable),
+    },
+  ];
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const l = label.trim();
-    const c = cmd.trim();
-    if (!l || !c) {
-      setErr("name and command required");
-      return;
-    }
-    const ok = await onRegister(l, c);
-    if (ok) {
-      setLabel("");
-      setCmd("");
-      setErr("");
-      setFormOpen(false);
-    } else {
-      setErr("registration failed");
-    }
+  const refresh = () => {
+    if (refreshing) return;
+    onRefresh();
+    setRefreshing(true);
+    window.setTimeout(() => setRefreshing(false), 900);
   };
 
   return (
-    <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
+    <aside
+      className={`sidebar${collapsed ? " collapsed" : ""}`}
+      aria-label={t(lang, "brand")}
+    >
       <div className="sb-head">
-        <button className="sb-icon" title={collapsed ? "Expand" : "Collapse"} onClick={onToggleCollapse}>
-          {collapsed ? "»" : "«"}
+        <div className="sb-brand">
+          <Icon name="cube" large />
+          <span className="sb-title">{t(lang, "brand")}</span>
+        </div>
+        <button
+          className="icon-btn refresh-btn"
+          title={t(lang, "refresh")}
+          aria-label={t(lang, "refresh")}
+          disabled={refreshing}
+          onClick={refresh}
+        >
+          <Icon name="refresh" />
         </button>
-        {!collapsed && <button className="sb-icon" title="Refresh" onClick={onRefresh}>↻</button>}
+        <button
+          className="icon-btn expand-btn"
+          title={collapsed ? t(lang, "expand") : t(lang, "collapse")}
+          aria-label={collapsed ? t(lang, "expand") : t(lang, "collapse")}
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapse}
+        >
+          <Icon name={collapsed ? "chev-r" : "chev-l"} />
+        </button>
       </div>
 
-      <nav className="sb-list">
-        {enabled.map((s) => (
-          <div key={s.id} className="sb-btn-row">
-            <button
-              className="sb-btn"
-              title={`${s.label} — click to open a new instance`}
-              onClick={() => onLaunch(s)}
-            >
-              <span className="sb-glyph">{glyph(s)}</span>
-              {!collapsed && <span className="sb-label">{s.label}</span>}
-            </button>
-            {!collapsed && s.deletable && (
-              <button
-                className="sb-del"
-                title={`Remove ${s.label}`}
-                onClick={() => onDelete(s.id)}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-        {enabled.length === 0 && !collapsed && (
-          <p className="sb-empty">No buttons. Start a profile or install a tool.</p>
+      <nav className="sb-list" aria-label={t(lang, "brand")}>
+        {groups.map((g) =>
+          g.items.length === 0 ? null : (
+            <div key={g.key}>
+              <p className="sb-group-label">{g.label}</p>
+              {g.items.map((s) => (
+                <div key={s.id} className="sb-row">
+                  <button
+                    className="launch-btn"
+                    title={`${s.label}${t(lang, "openInstanceSuffix")}`}
+                    aria-label={`${s.label}${t(lang, "openInstanceSuffix")}`}
+                    onClick={() => onLaunch(s)}
+                  >
+                    <Icon name={serviceIcon(s.id, s.type)} />
+                    <span className="launch-label">{s.label}</span>
+                  </button>
+                  {s.deletable && (
+                    <button
+                      className="del-btn"
+                      title={`${t(lang, "removePrefix")}${s.label}`}
+                      aria-label={`${t(lang, "removePrefix")}${s.label}`}
+                      onClick={() => onDelete(s.id)}
+                    >
+                      <Icon name="x" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ),
         )}
+        {enabled.length === 0 && <p className="sb-empty">{t(lang, "sidebarEmpty")}</p>}
       </nav>
 
       <div className="sb-foot">
-        {formOpen && !collapsed && (
-          <form className="sb-form" onSubmit={submit}>
-            <input
-              className="sb-input"
-              placeholder="name"
-              value={label}
-              maxLength={64}
-              onChange={(e) => setLabel(e.target.value)}
-            />
-            <input
-              className="sb-input"
-              placeholder="command"
-              value={cmd}
-              maxLength={64}
-              onChange={(e) => setCmd(e.target.value)}
-            />
-            {err && <span className="sb-err">{err}</span>}
-            <button type="submit" className="sb-add">Add</button>
-          </form>
-        )}
         <button
-          className="sb-icon sb-add-btn"
-          title="Register a button"
-          onClick={() => (collapsed ? onToggleCollapse() : setFormOpen((v) => !v))}
+          className="register-btn"
+          title={t(lang, "register")}
+          data-od-id="register-button"
+          onClick={() => (collapsed ? onToggleCollapse() : onOpenRegister())}
         >
-          +
+          <Icon name="plus" />
+          <span className="btn-text">{t(lang, "register")}</span>
         </button>
       </div>
     </aside>
   );
-}
-
-/** A simple glyph per known button; falls back to the first letter. */
-function glyph(s: ServiceEntry): string {
-  switch (s.id) {
-    case "codeServer":
-      return "</>";
-    case "vnc":
-      return "🌐";
-    case "terminal":
-      return ">_";
-    default:
-      return s.label.charAt(0).toUpperCase() || "?";
-  }
 }
