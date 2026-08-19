@@ -8,6 +8,17 @@
 *.swp
 *~
 
+# --- Exception: aio-env-config skill IS project code ---
+# It documents the repo's own layered scenario system, so it ships with the
+# repo. git can't re-include a path whose parent dir is excluded, so the
+# negation is step-by-step: re-open .claude/, ignore its contents, re-open
+# .claude/skills/, ignore its contents, re-include only aio-env-config/.
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/aio-env-config/
+
 # --- OS ---
 .DS_Store
 Thumbs.db
