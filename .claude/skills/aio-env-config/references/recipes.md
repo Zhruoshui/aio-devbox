@@ -150,22 +150,23 @@ Don't bake the scenario and the button hides (no dead pane).
 The L5 path - three files change together. See `references/compose-registry.md`
 for the full reasoning. Sketch:
 
-**docker-compose.yml** - new service under a profile, expose port, sandbox-net:
+**docker-compose.yml** - new service under a profile, join app's netns
+(`network_mode: "service:app"`; no networks/expose - they're mutually exclusive;
+pick a port clear of the reserved 8088/8200/6080/5900):
 ```yaml
 jupyter:
   build: { context: ., dockerfile: jupyter/Dockerfile }
   image: sandbox-jupyter
   restart: unless-stopped
   profiles: [jupyter]
-  expose: ["8888"]
+  network_mode: "service:app"
   volumes: [workspace:/home/gem]
-  networks: [sandbox-net]
 ```
 
 **gateway/Caddyfile** - a `handle_path` BEFORE the catch-all:
 ```caddyfile
 handle_path /jupyter/* {
-    reverse_proxy jupyter:8888
+    reverse_proxy app:8888
 }
 ```
 
@@ -174,7 +175,7 @@ handle_path /jupyter/* {
 [[service]]
 id = "jupyter"
 type = "web"
-target = "jupyter:8888"
+target = "app:8888"
 url = "/jupyter/"
 label = "Jupyter"
 ```
@@ -182,7 +183,7 @@ label = "Jupyter"
 **Run + verify.**
 ```bash
 make up PROFILES=jupyter
-docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}\n" http://jupyter:8888/'
+docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:8888/'
 # button shows (manifest enabled=true via TCP probe); iframe opens at /jupyter/
 ```
 Rebuild the app image so `services.toml` is picked up. If the app's assets are
@@ -272,7 +273,7 @@ docker exec aio-app-1 bash -lc 'command -v <tool> && <tool> --version'
 docker exec aio-app-1 bash -lc 'node --version; python3 --version; npm --version'
 # an L4 agent button will show because command_exists passes:
 docker exec aio-app-1 bash -lc 'command -v opencode'
-# a web service container is reachable on sandbox-net:
+# a web service sidecar is reachable on app's shared netns:
 docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}\n" http://<svc>:<port>/'
 # the generated Dockerfile.base has no leftover {{ placeholders:
 grep -n '{{' Dockerfile.base   # should print nothing

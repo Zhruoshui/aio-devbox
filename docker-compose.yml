@@ -32,10 +32,19 @@ services:
 
   # code-server (VSCode in the browser). Gated behind the `code-server` profile
   # so it only starts with `docker compose --profile code-server ... up` (or
-  # `make up PROFILES=code-server`). The manifest auto-detects it via TCP
-  # reachability to code-server:8200 (config.rs), so the UI hides the pane when
-  # this container is absent (R8 / AC4). Mounts the shared workspace volume so
-  # edits/extensions persist (R6 / AC3). Runs as uid 1000 (gem) from sandbox-base.
+  # `make up PROFILES=code-server`). Shares app's network namespace
+  # (network_mode: service:app): loopback + port space are app's, so the
+  # per-service DNS name `code-server` no longer exists on sandbox-net -
+  # everything on the shared stack is reached as app:PORT. The manifest
+  # auto-detects it via TCP reachability to app:8200 (config.rs), so the UI
+  # hides the pane when this container is absent (R8 / AC4). Mounts the shared
+  # workspace volume so edits/extensions persist (R6 / AC3). Runs as uid 1000
+  # (gem) from sandbox-base. Note: network_mode is mutually exclusive with
+  # networks/expose/ports (removed accordingly); compose adds an implicit
+  # depends_on on app - always operate via compose (make restart / make up),
+  # never `docker restart aio-app-1` or `--force-recreate app` alone (docker
+  # rebuilds the netns on restart; a lone sidecar keeps pointing at the dead
+  # one. Recovery = restart the sidecars. Verified 08-24).
   code-server:
     build:
       context: .
@@ -44,30 +53,36 @@ services:
     restart: unless-stopped
     profiles:
       - code-server
-    expose:
-      - "8200"
+    network_mode: "service:app"
     environment:
-      # code-server's own port preview (only reaches dev servers started in
-      # code-server's integrated terminal - cross-container preview is out of
-      # scope per design §11). Behind the /code-server/ subpath this absolute
-      # path routes to the gateway root, not code-server; kept per design §6.
+      # code-server's own port preview. Since code-server shares app's netns,
+      # /proxy/{port} reaches dev servers started in EITHER the workbench or
+      # code-server terminals via the shared loopback - the old "cross-container
+      # preview is out of scope" limitation no longer applies. Behind the
+      # /code-server/ subpath this absolute path routes to the gateway root,
+      # not code-server; kept per design §6.
       VSCODE_PROXY_URI: "/proxy/{port}/"
     volumes:
       - workspace:/home/gem
-    networks:
-      - sandbox-net
 
   # VNC / Chromium container (Phase G). Gated behind the `vnc` profile so it
   # only starts with `docker compose --profile vnc ... up` (or
-  # `make up PROFILES=vnc`). The manifest auto-detects it via TCP reachability
-  # to vnc:6080 (config.rs), so the UI hides the pane when this container is
-  # absent (R8 / AC4). Mounts the shared workspace volume so the Chromium
-  # profile persists at /home/gem/.config/chromium (R6 / AC3). Runs as uid 1000
-  # (gem) - decoupled from sandbox-base: vnc/Dockerfile is FROM
+  # `make up PROFILES=vnc`). Shares app's network namespace
+  # (network_mode: service:app): loopback + port space are app's, so the
+  # per-service DNS name `vnc` no longer exists on sandbox-net - websockify is
+  # reached as app:6080. The manifest auto-detects it via TCP reachability to
+  # app:6080 (config.rs), so the UI hides the pane when this container is
+  # absent (R8 / AC4). Chromium's localhost == the workbench / code-server
+  # terminals' localhost, so dev servers are previewed at
+  # http://localhost:PORT with zero cross-container hops (HTTPS-first exempt
+  # on loopback). Mounts the shared workspace volume so the Chromium profile
+  # persists at /home/gem/.config/chromium (R6 / AC3). Runs as uid 1000 (gem)
+  # - decoupled from sandbox-base: vnc/Dockerfile is FROM
   # debian:bookworm-slim (vnc is a pure browser surface and does not need the
-  # dev tooling / scenario fragments; dev work done in code-server/app is
-  # reached via the shared volume + sandbox-net DNS). shm_size 2gb because
-  # Chromium needs shared memory.
+  # dev tooling / scenario fragments). shm_size 2gb because Chromium needs
+  # shared memory. tmpfs on /tmp: a stale /tmp/.X99-lock surviving container
+  # restarts made Xvnc exit with "Server is already active" and the container
+  # flap; tmpfs is wiped on stop, killing the stale lock (R5).
   vnc:
     build:
       context: .
@@ -76,13 +91,12 @@ services:
     restart: unless-stopped
     profiles:
       - vnc
-    expose:
-      - "6080"
+    network_mode: "service:app"
     volumes:
       - workspace:/home/gem
     shm_size: "2gb"
-    networks:
-      - sandbox-net
+    tmpfs:
+      - /tmp
 
   # Base image build, gated behind the `build` profile so it never starts as a
   # runtime container. `docker compose --profile build build base` tags

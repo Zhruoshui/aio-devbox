@@ -9,7 +9,8 @@
 #
 # code-server subpath: code-server has no --prefix flag and 404s on /code-server/
 # (it is not subpath-aware). It is served behind /code-server/ via `handle_path`,
-# which STRIPS the /code-server prefix before proxying to code-server:8200. This
+# which STRIPS the /code-server prefix before proxying to app:8200 (code-server
+# shares app's netns via network_mode: service:app). This
 # works because code-server emits all-relative asset URLs (./_static/...,
 # stable-<hash>/...) and computes its base URL from window.location: the browser
 # resolves them against /code-server/, and each sub-request is stripped by caddy
@@ -27,7 +28,7 @@
 		{$SANDBOX_USER} {$SANDBOX_PASSWORD_HASH}
 	}
 	handle_path /code-server/* {
-		reverse_proxy code-server:8200
+		reverse_proxy app:8200
 	}
 	handle_path /vnc/* {
 		# noVNC 1.3.0 serves UNVERSIONED relative asset URLs (app/ui.js,
@@ -44,7 +45,7 @@
 		header {
 			Cache-Control no-store
 		}
-		reverse_proxy vnc:6080
+		reverse_proxy app:6080
 	}
 	handle {
 		reverse_proxy app:8088

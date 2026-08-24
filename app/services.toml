@@ -23,21 +23,21 @@
 [[service]]
 id = "codeServer"
 type = "web"
-target = "code-server:8200"
+target = "app:8200"
 url = "/code-server/"
 label = "code-server"
 
 [[service]]
 id = "vnc"
 type = "web"
-target = "vnc:6080"
+target = "app:6080"
 label = "Chromium"
 # `path=vnc/websockify` is REQUIRED: noVNC's ui.js builds the WS URL as
 # `ws://<host>:<port>/<path>` (absolute, it does NOT keep the /vnc/ subpath the
 # page was served from). With the default `path=websockify` it connects to
 # `ws://host/websockify`, which caddy's catch-all forwards to axum -> 404.
 # `vnc/websockify` makes it `ws://host/vnc/websockify`, which caddy's
-# `handle_path /vnc/*` strips to `/websockify` on vnc:6080 (websockify's WS
+# `handle_path /vnc/*` strips to `/websockify` on app:6080 (websockify's WS;
 # endpoint). host/port auto-derive from window.location, so only path needs
 # fixing. autoconnect/resize are read from the query string by noVNC too.
 url = "/vnc/vnc.html?autoconnect=1&resize=scale&path=vnc/websockify"
@@ -68,11 +68,12 @@ type = "agent"
 # (`pi-web`) - do NOT inline an env prefix (`VAR=x pi-web ...` would probe for
 # a binary named `VAR=x`). The button hides if the pi-web scenario isn't baked.
 # --no-open stops it trying to open a browser (headless); 0.0.0.0 lets a
-# published host port reach it. PI_WEB_ALLOWED_HOSTS=app is exported by
-# /etc/profile.d/pi-web.sh (baked in the pi-web scenario), so pi-web accepts
-# the sandbox-net DNS name http://app:30141 from the VNC/Chromium container
-# (pi-web only trusts loopback + IP literals otherwise; see request-security.ts).
-# Host access via a published port still works (Host = IP literal / localhost);
-# VNC needs no host-side port publish - it is already on sandbox-net.
+# published host port reach it. VNC/Chromium shares app's netns, so it opens
+# pi-web at http://localhost:30141 (same loopback - HTTPS-first exempt).
+# PI_WEB_ALLOWED_HOSTS=app is exported by /etc/profile.d/pi-web.sh (baked in
+# the pi-web scenario) and kept for compatibility, so pi-web also accepts the
+# sandbox-net DNS name http://app:30141 (pi-web only trusts loopback + IP
+# literals otherwise; see request-security.ts). Host access via a published
+# port still works (Host = IP literal / localhost).
 cmd = "pi-web --no-open --hostname 0.0.0.0 --port 30141"
 label = "pi Web"

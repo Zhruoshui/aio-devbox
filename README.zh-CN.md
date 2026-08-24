@@ -85,9 +85,17 @@ make clean                             # 停止、删卷、删已构建镜像
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + 反向代理到 `app`、`code-server`、`vnc`,也转发 WS 升级。 |
 | `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些按钮在线)、`/api/term/ws` pty WebSocket 桥、`POST/DELETE /api/buttons`(用户自注册按钮,存卷上)。`FROM sandbox-base`。 |
-| `code-server` | `sandbox-code-server`(构建) | 浏览器版 VSCode。profile 控制(`--profile code-server`),通过 TCP 探测 `code-server:8200` 自动探测。`FROM sandbox-base`。 |
-| `vnc` | `sandbox-vnc`(构建) | Xvnc + Chromium + noVNC Web 客户端。profile 控制(`--profile vnc`),通过 TCP 探测 `vnc:6080` 自动探测。`FROM debian:bookworm-slim`(与 `sandbox-base` 解耦)。`shm_size 2gb` 供 Chromium。 |
+| `code-server` | `sandbox-code-server`(构建) | 浏览器版 VSCode。profile 控制(`--profile code-server`),通过 TCP 探测 `app:8200` 自动探测。`FROM sandbox-base`。 |
+| `vnc` | `sandbox-vnc`(构建) | Xvnc + Chromium + noVNC Web 客户端。profile 控制(`--profile vnc`),通过 TCP 探测 `app:6080` 自动探测。`FROM debian:bookworm-slim`(与 `sandbox-base` 解耦)。`shm_size 2gb` 供 Chromium。 |
 | `base` | `sandbox-base`(构建) | 共享基础镜像。挂在 `build` profile 下,故**绝不**作为运行时容器启动。 |
+
+**共享网络命名空间:**`code-server` 与 `vnc` 通过 `network_mode:
+"service:app"` 加入 app 的网络栈(它们在 sandbox-net 上的独立 DNS 名已
+不存在,共享栈上的一切都以 `app:PORT` 访问)。因此 VNC 面板里的 Chromium 用
+`http://localhost:<port>` 即可访问工作台或 code-server 终端里启动的 dev
+server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端口:
+`8088`(axum)、`8200`(code-server)、`6080`(websockify)、`5900`(Xvnc,
+回环)——dev server 请避开这些端口。
 
 **构建顺序很重要:** `app` 和 `code-server` 都是 `FROM sandbox-base`,所以必须先
 构建并打好 `sandbox-base` 的 tag。Makefile 已处理(`make up` → `build-base` →

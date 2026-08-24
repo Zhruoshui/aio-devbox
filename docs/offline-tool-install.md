@@ -83,7 +83,7 @@
   4. `docker cp` 工具链包 + vendored 源码包进 app 容器。
   5. `./install.sh --prefix=/home/gem/.rust --without=rust-docs` → **rustc 1.97.1 + cargo 1.97.1** 装到共享卷(无 rustup、无网络)。
   6. `cargo build --offline` → 用 vendor 包编译 250 crate + mdBook → 产出 `target/debug/mdbook` v0.5.4。
-  7. 拷到 `~/.local/bin/mdbook`,app 容器 `mdbook serve --hostname 0.0.0.0 --port 3000`,vnc chromium 跨容器开 `http://app:3000`(走 sandbox-net DNS)。
+  7. 拷到 `~/.local/bin/mdbook`,app 容器 `mdbook serve --hostname 0.0.0.0 --port 3000`,vnc chromium 开 `http://localhost:3000`(共享 netns 直通回环)。
 
 **坑(重要)**:`cargo vendor --quiet` 会把**输出到 stdout 的那段 `.cargo/config.toml` 也吞掉**(config 就是 stdout 本体)→ 生成 0 字节 config,离线构建会去联网失败。**去掉 `--quiet`** 重跑才对。这段 config 是离线构建的关键映射,缺了不行。
 

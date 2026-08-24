@@ -22,7 +22,7 @@ Two `type`s:
   `host:port` for a TCP liveness probe (the manifest's `enabled` field = is the
   container reachable). `url` is the gateway path the iframe opens. Needs the
   matching compose service + caddy route (see below). Existing: `codeServer`
-  (`code-server:8200`, url `/code-server/`), `vnc` (`vnc:6080`, url
+  (`app:8200`, url `/code-server/`), `vnc` (`app:6080`, url
   `/vnc/vnc.html?...&path=vnc/websockify`).
 - **`type = "agent"`**: a CLI launched in an xterm pty pane. `cmd` is the
   command; `""` = default login shell (the `terminal` button). `enabled` =
@@ -60,7 +60,9 @@ change together, or the button shows but the iframe 404s. Walk through each:
 Add a new service. Gate it behind a `profiles: [<name>]` so it only starts when
 the user runs `make up PROFILES=<name>` (matches the code-server/vnc pattern -
 they're opt-in). Mount the shared `workspace` volume if the service needs to
-read `/home/gem`, expose its internal port, and join `sandbox-net`:
+read `/home/gem`, and join **app's network namespace** via
+`network_mode: "service:app"` (the netns-sharing topology: code-server/vnc do
+the same, so Chromium reaches dev servers at `http://localhost:<port>`):
 
 ```yaml
 my-service:
@@ -71,23 +73,25 @@ my-service:
   restart: unless-stopped
   profiles:
     - my-service
-  expose:
-    - "<port>"
+  network_mode: "service:app"
   volumes:
     - workspace:/home/gem        # only if it needs the shared files
-  networks:
-    - sandbox-net
 ```
 
-`expose:` (not `ports:`) - the gateway reverse-proxies; the port is internal to
-`sandbox-net`, not published to the host.
+`network_mode: "service:app"` (not `networks:`/`expose:`/`ports:` - they are
+mutually exclusive on a sidecar): loopback + port space are app's, compose adds
+an implicit `depends_on: app`, and the gateway reaches the service as
+`app:<port>`. The port must not collide with the reserved ports on the shared
+netns: `8088` (axum), `8200` (code-server), `6080` (websockify), `5900` (Xvnc,
+loopback). Only the `app` service itself joins `sandbox-net` and may publish
+ports.
 
 ### 2. gateway/Caddyfile
 
 Add a `handle_path /<prefix>/*` block **before** the catch-all `handle` (caddy
 evaluates `handle`/`handle_path` in source order - a later catch-all would
 shadow an earlier route). The block strips the prefix and proxies to the
-container on `sandbox-net`:
+container on app's shared netns (reached as `app:<port>`):
 
 ```caddyfile
 :8080 {
@@ -95,8 +99,8 @@ container on `sandbox-net`:
     handle_path /my-service/* {
         reverse_proxy my-service:<port>
     }
-    handle_path /code-server/* { reverse_proxy code-server:8200 }
-    handle_path /vnc/*         { header { Cache-Control no-store } reverse_proxy vnc:6080 }
+    handle_path /code-server/* { reverse_proxy app:8200 }
+    handle_path /vnc/*         { header { Cache-Control no-store } reverse_proxy app:6080 }
     handle { reverse_proxy app:8088 }
 }
 ```
@@ -116,7 +120,7 @@ Add the `[[service]]` so the manifest surfaces a button:
 [[service]]
 id = "my-service"
 type = "web"
-target = "my-service:<port>"
+target = "app:<port>"
 url = "/my-service/"
 label = "My Service"
 ```
@@ -131,11 +135,11 @@ Then **rebuild the app image** (services.toml is compiled in):
 
 ```bash
 make up PROFILES=my-service        # starts the new container
-docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}" http://my-service:<port>/'
+docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}" http://localhost:<port>/'
 ```
 
 The button should now show in the WebUI (manifest `enabled=true` because the
-container is reachable on `sandbox-net`). The gateway serves it at
+container is reachable on app's shared netns). The gateway serves it at
 `http://<host>:8080/my-service/` behind the basicauth.
 
 ## Compose profiles

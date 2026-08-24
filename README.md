@@ -94,9 +94,18 @@ make clean                             # stop, drop the volume, remove built ima
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + reverse proxy to `app`, `code-server`, `vnc`. Serves the WS upgrades too. |
 | `app` | `sandbox-app` (built) | Axum server: serves the React SPA, `GET /api/manifest` (which buttons are live), the `/api/term/ws` pty WebSocket bridge, and `POST/DELETE /api/buttons` (user-registered buttons on the volume). `FROM sandbox-base`. |
-| `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated (`--profile code-server`), auto-detected by TCP probe to `code-server:8200`. `FROM sandbox-base`. |
-| `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated (`--profile vnc`), auto-detected by TCP probe to `vnc:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
+| `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated (`--profile code-server`), auto-detected by TCP probe to `app:8200`. `FROM sandbox-base`. |
+| `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated (`--profile vnc`), auto-detected by TCP probe to `app:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
 | `base` | `sandbox-base` (built) | The shared base image. Gated behind the `build` profile so it **never** starts as a runtime container. |
+
+**Shared network namespace:** `code-server` and `vnc` join app's network stack
+via `network_mode: "service:app"` (their own sandbox-net DNS names no longer
+exist — everything on the shared stack is reached as `app:PORT`). Chromium in
+the VNC pane therefore reaches dev servers started in the workbench or
+code-server terminals at `http://localhost:<port>` (same loopback, no
+HTTPS-first upgrade). Reserved ports on the shared netns: `8088` (axum),
+`8200` (code-server), `6080` (websockify), `5900` (Xvnc, loopback) — pick
+other ports for dev servers.
 
 **Build order matters:** `app` and `code-server` are `FROM sandbox-base`, so
 `sandbox-base` must be built and tagged first. The Makefile handles this
