@@ -1,0 +1,13 @@
+{
+  "name": "aio-pi-extensions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AIO sandbox default pi extension packages - the pi scenario's 'subset config'. Baked verbatim to /opt/pi-extensions at build time (npm install --omit=dev); registered into ~/.pi/agent/settings.json at runtime by aio-pi-extensions using local paths (zero network, works on offline docker-load machines). To add/remove/bump a package: edit dependencies below, then `make build-base` and re-run `aio-pi-extensions` once per machine.",
+  "dependencies": {
+    "pi-subagents": "0.51.0",
+    "@juicesharp/rpiv-todo": "2.6.2",
+    "pi-lens": "4.0.1",
+    "pi-agent-browser-native": "0.3.0",
+    "@juicesharp/rpiv-ask-user-question": "2.6.2"
+  }
+}

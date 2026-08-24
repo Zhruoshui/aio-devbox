@@ -1,0 +1,4 @@
+id = "pi"
+name = "pi AI agent"
+description = "pi coding agent(earendil-works,npm @earendil-works/pi-coding-agent),装 /usr/local/bin;扩展烘 /opt/pi-extensions(pi-packages 清单),aio-pi-extensions 零网络登记到 ~/.pi(卷)"
+category = "app"

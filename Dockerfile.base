@@ -59,9 +59,9 @@ RUN groupadd --system --gid 1000 gem \
 # >>> scenario: node >>>
 # L1 always_on:Node 运行时。nodejs.org 官方 tarball 装 /usr/local(系统路径,
 # 躲过共享卷 aio_workspace 对 /home/gem 的遮盖;在 PATH 上,code-server 与 app
-# web-builder 直接可用,无需 source)。版本由 TUI 下拉选,gen 把 22.11.0
+# web-builder 直接可用,无需 source)。版本由 TUI 下拉选,gen 把 22.23.2
 # 注入 ARG。NodeSource 被沙箱网络策略封锁,故走 nodejs.org(同 head 原 node 安装)。
-ARG NODE_VERSION=22.11.0
+ARG NODE_VERSION=22.23.2
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
         -o /tmp/node.tar.xz \
  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
@@ -108,6 +108,61 @@ RUN apt-get update \
  && fzf --version && rg --version && bat --version && fd --version
 # <<< scenario: shell-utils <<<
 
+# >>> scenario: c23 >>>
+# C23 开发环境:clang-22 主工具链(完整 C23)+ gcc-12(复用 build-essential)+ C 配套工具。
+#
+# 为什么这样搭:
+#   - bookworm 的 apt 只有 gcc-12(C23 部分支持,-std=c2x);backports 无 gcc-13/14,
+#     跨源(如 trixie)拉新 gcc 会连带升级 libc6,搞崩整个镜像。故完整 C23 由 clang
+#     承担:clang-22 来自官方 apt.llvm.org 的 bookworm 专属源(依赖 libc6>=2.34,
+#     与 bookworm 的 2.36 兼容)。gcc-12 已在 head 的 build-essential 中,这里不重复装。
+#   - 所有工具装系统路径(/usr/bin、/usr/local/bin),不被共享卷 aio_workspace 遮盖;
+#     无版本后缀命令(clang/clang++/clang-format/clang-tidy/clangd/lld)软链到
+#     /usr/local/bin,保证 login shell(bash -l,WebUI 终端面板)可见。
+#   - 只使用 HTTPS(apt.llvm.org 已验证网络可达,head 已强制 apt HTTPS)。
+#   - 版本经 ARG(LLVM_REPO)固定可复现;构建期冒烟用 clang -std=c23 编译运行 C23
+#     程序,失败即尽早暴露。
+# apt lists 在 head 末尾被 `rm -rf /var/lib/apt/lists/*` 清空,这里需重新 update。
+
+ARG LLVM_REPO=llvm-toolchain-bookworm-22
+RUN install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/keyrings/llvm-snapshot.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] https://apt.llvm.org/bookworm/ ${LLVM_REPO} main" \
+      > /etc/apt/sources.list.d/llvm-toolchain.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        clang-22 clang-format-22 clang-tidy-22 clangd-22 lld-22 libclang-rt-22-dev \
+        gdb cmake ninja-build ccache valgrind cppcheck strace \
+ && rm -rf /var/lib/apt/lists/* \
+# 软链无版本后缀命令到 /usr/local/bin(全 shell PATH 通用,login/非 login 都可见;
+# 同 rust/go 场景的做法)。clang-22 是主 C23 编译器,gcc-12 保持默认不动。
+ && for b in clang clang++ clang-format clang-tidy clangd lld; do \
+      ln -sf "/usr/bin/${b}-22" "/usr/local/bin/${b}"; done \
+ && clang --version \
+ && gcc --version && gdb --version | head -n1 \
+ && cmake --version | head -n1 && ninja --version \
+ && ccache --version | head -n1 && valgrind --version \
+ && cppcheck --version && strace -V | head -n1
+
+# 构建期冒烟:用 clang -std=c23 编译运行一个用到 C23 特性的最小程序
+# (bool/true 关键字、typeof、二进制字面量、数字分隔符),提前暴露工具链问题。
+RUN cat > /tmp/c23_smoke.c <<'EOF'
+#include <stdbool.h>
+#include <stdio.h>
+int main(void) {
+    bool ok = true;          /* C23: bool/true(关键字;stdbool.h 提供兼容) */
+    typeof(ok) t = ok;       /* C23: typeof */
+    int b = 0b1010;          /* C23: 二进制字面量 */
+    unsigned long n = 1'000; /* C23: 数字分隔符 */
+    printf("ok=%d b=%d n=%lu\n", ok && t, b, n);
+    return 0;
+}
+EOF
+RUN clang -std=c23 -Wall -Wextra /tmp/c23_smoke.c -o /tmp/c23_smoke \
+ && /tmp/c23_smoke \
+ && rm -f /tmp/c23_smoke.c /tmp/c23_smoke
+# <<< scenario: c23 <<<
+
 # >>> scenario: python-dev >>>
 # uv + ruff as single static-ish binaries to /usr/local/bin (system path, NOT
 # /home/gem -> not masked by the workspace volume; on PATH for all users/shells
@@ -126,6 +181,38 @@ RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/
  && rm -rf /tmp/uv.tgz /tmp/uv-x86_64-unknown-linux-gnu /tmp/ruff.tgz /tmp/ruff-x86_64-unknown-linux-gnu \
  && uv --version && ruff --version
 # <<< scenario: python-dev <<<
+
+# >>> scenario: rust >>>
+# Rust toolchain via online rustup (build machine has network; offline is
+# handled by whole-image `docker save/load`, NOT by vendoring rustup here).
+#
+# Lands in /opt/rust (system path), NOT ~/.cargo: the workspace volume mounts
+# over /home/gem, so anything baked into /home/gem/.cargo would be masked /
+# go stale (卷遮盖). /opt/rust is in the image layer, visible in every
+# container derived from sandbox-base, and RUSTUP_HOME/CARGO_HOME point there.
+# chown to gem so the dev can `cargo install` / `rustup` freely.
+
+ARG RUST_VERSION=stable
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile default --default-toolchain ${RUST_VERSION} \
+                 --component rust-analyzer \
+ && rustup default ${RUST_VERSION} \
+ && rustc --version && cargo --version && rustfmt --version && cargo clippy --version \
+ && chown -R 1000:1000 /opt/rust \
+# rustup puts its proxies in /opt/rust/cargo/bin (custom PATH). The ENV PATH
+# above is inherited by non-login shells, but LOGIN shells (bash -l, e.g. the
+# AIO terminal panel's pty) source /etc/profile which RESETS PATH to the
+# standard set, dropping /opt/rust/cargo/bin -> `cargo` not found there.
+# Symlink the proxies into /usr/local/bin, which is on PATH in EVERY shell
+# (login / non-login / interactive / non-interactive), so cargo/rustc/rustup/
+# rustfmt are universally findable with zero per-shell PATH management. The
+# proxies are stable paths; rustup updates the toolchain behind them, so the
+# symlinks stay valid across `rustup update`.
+ && for b in /opt/rust/cargo/bin/*; do ln -sf "$b" /usr/local/bin/"$(basename "$b")"; done
+# <<< scenario: rust <<<
 
 # >>> scenario: uv >>>
 # L3 可选:uv(astral-sh 的 Python 版本/包管理器)。单二进制装 /usr/local/bin
@@ -164,6 +251,58 @@ RUN mkdir -p /tmp/oc \
  && rm -rf /tmp/oc /tmp/oc.tar.gz \
  && opencode --version
 # <<< scenario: opencode <<<
+
+# >>> scenario: pi >>>
+# L4:pi coding agent(earendil-works/pi,https://github.com/earendil-works/pi)。
+# 官方安装 = `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`
+# (quickstart:pi 不依赖 install scripts)。npm 全局 prefix=/usr/local(node 场景
+# 烘在 /usr/local),故得 /usr/local/bin/pi(系统路径,不被共享卷 aio_workspace
+# 遮盖;login/non-login shell 都在 PATH)。node 是 always_on L1,build 时已在
+# PATH,可直接 npm -g。engines 要求 node>=22.19(enabled.toml 已置 22.23.2)。
+#
+# 扩展子集配置(pi-packages):pi 从 ~/.pi/agent/settings.json 的 packages 数组
+# 加载扩展,而 ~/.pi=/home/gem/.pi 被共享卷盖住 -> 登记必须发生在运行时。为了
+# 让 docker save/load 的离线分发携带扩展本体,包实体烘在系统路径
+# /opt/pi-extensions(scenarios/pi/pi-packages/package.json 的 dependencies 即
+# 清单,单一事实源),运行时由 aio-pi-extensions 用本地路径(pi install /abs/path
+# 不拷贝、零网络)登记进卷上的 settings.json —— 离线机器 `make load` 后跑一次
+# 脚本即可,不需要 npm 网络。同 code-server /opt/cs-extensions 的烘焙模式。
+
+ARG PI_VERSION=0.84.2
+COPY scenarios/pi/pi-packages/package.json /opt/pi-extensions/package.json
+RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+ && pi --version \
+ && cd /opt/pi-extensions \
+ && npm install --omit=dev --no-audit --no-fund \
+ && ls /opt/pi-extensions/node_modules
+# Script COPY goes LAST (own tiny layer): editing the script must not
+# invalidate the big npm install layers above.
+COPY scenarios/pi/aio-pi-extensions.sh /usr/local/bin/aio-pi-extensions
+RUN chmod 0755 /usr/local/bin/aio-pi-extensions \
+ && bash -n /usr/local/bin/aio-pi-extensions
+# <<< scenario: pi <<<
+
+# >>> scenario: pi-web >>>
+# L4:pi 的本地浏览器 UI(agegr/pi-web,Next.js 服务,https://github.com/agegr/pi-web)。
+# 拍板"npm 安装上即可"+ 侧边栏按钮:不建 L5 compose 服务(那需要 compose 服务 +
+# Caddyfile + services.toml type=web 三件套),仅 npm 全局装得 /usr/local/bin/pi-web
+# (系统路径)。面板按钮在 app/services.toml(cmd="pi-web --no-open --hostname 0.0.0.0
+# --port 30141")于 pty 面板启动服务;宿主机浏览器访问需先发布端口:
+# `sbx ports <sandbox> --publish 30141:30141/tcp`。engines 要求 node>=22.19
+# (enabled.toml 已置 22.23.2)。数据读 ~/.pi/agent,与 pi 共享配置/会话。
+ARG PI_WEB_VERSION=0.8.9
+RUN npm install -g "@agegr/pi-web@${PI_WEB_VERSION}" \
+ && command -v pi-web \
+ && ls -l "$(command -v pi-web)"
+
+# PI_WEB_ALLOWED_HOSTS=app:让 pi-web 接受 sandbox-net 服务名 `app`
+# (VNC/Chromium 容器用 http://app:30141 访问)。pi-web 默认只信任 loopback +
+# IP 字面量(request-security.ts);在 profile.d 导出该变量,按钮(bash -lc)与
+# 终端里手动启动的 pi-web 都会带上。注意不要写进 services.toml 的 cmd:
+# command_exists 探测首个 token,`VAR=x pi-web ...` 会去找名为 `VAR=x` 的二进制。
+RUN printf 'export PI_WEB_ALLOWED_HOSTS=app\n' > /etc/profile.d/pi-web.sh \
+ && chmod 644 /etc/profile.d/pi-web.sh
+# <<< scenario: pi-web <<<
 
 # sandbox-base TAIL fragment. `aio-config gen` appends this AFTER all enabled
 # scenario fragments. Everything above (head + scenarios) ran as root; this

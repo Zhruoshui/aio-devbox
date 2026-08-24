@@ -1,0 +1,4 @@
+id = "pi-web"
+name = "pi Web UI"
+description = "pi 的本地浏览器 UI(@agegr/pi-web,npm 全局装 /usr/local/bin;需 node>=22.19;面板按钮启动 30141)"
+category = "app"

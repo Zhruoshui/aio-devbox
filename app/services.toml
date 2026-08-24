@@ -53,3 +53,26 @@ id = "opencode"
 type = "agent"
 cmd = "opencode"              # button shows only if `opencode` is on PATH
 label = "opencode"
+
+[[service]]
+id = "pi"
+type = "agent"
+cmd = "pi"                    # button shows only if `pi` is on PATH
+label = "pi"
+
+[[service]]
+id = "piWeb"
+type = "agent"
+# Launch the pi-web server in a pty pane. command_exists probes the FIRST
+# whitespace token of cmd, so the cmd must start with the real binary
+# (`pi-web`) - do NOT inline an env prefix (`VAR=x pi-web ...` would probe for
+# a binary named `VAR=x`). The button hides if the pi-web scenario isn't baked.
+# --no-open stops it trying to open a browser (headless); 0.0.0.0 lets a
+# published host port reach it. PI_WEB_ALLOWED_HOSTS=app is exported by
+# /etc/profile.d/pi-web.sh (baked in the pi-web scenario), so pi-web accepts
+# the sandbox-net DNS name http://app:30141 from the VNC/Chromium container
+# (pi-web only trusts loopback + IP literals otherwise; see request-security.ts).
+# Host access via a published port still works (Host = IP literal / localhost);
+# VNC needs no host-side port publish - it is already on sandbox-net.
+cmd = "pi-web --no-open --hostname 0.0.0.0 --port 30141"
+label = "pi Web"

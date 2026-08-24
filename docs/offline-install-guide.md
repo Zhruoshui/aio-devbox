@@ -5,6 +5,32 @@
 
 ---
 
+## 前置:整机分发(make save / make load)
+
+本指南的正文针对"离线机**已有运行中的 stack**"之后补装工具。若目标是一台**全新离线机**的整套部署,用仓库自带的打包目标 —— 镜像之外还要带上两个被 gitignore、且不随镜像走的宿主状态文件(`.env` 是 compose 起栈的硬依赖,`gateway/secrets/hash` 缺失会被重置为默认密码):
+
+```bash
+# 联网机:一键打包(docker save 在同一 tar 内对共享层去重,多带 sandbox-base 几乎不增体积)
+make save
+#   → aio-offline-bundle/ 目录(整体传输:tar cf bundle.tar aio-offline-bundle 或 scp -r)
+#   = images.tar(镜像 sandbox-base/app/code-server/vnc + caddy:2)
+#   + env(.env,compose env_file)
+#   + hash(gateway/secrets/hash,basicauth bcrypt)
+#   + enabled.toml(.aio/enabled.toml,场景选择记录)
+
+# 传到离线机仓库根目录后:
+make load
+make up NOBUILD=1 PROFILES="code-server vnc"
+# 终端面板跑一次(零网络,把烘焙扩展登记进 ~/.pi):
+aio-pi-extensions
+```
+
+注意:
+- 共享卷 `aio_workspace` **不在 bundle 里**(pi 会话/密钥、code-server 设置、Chromium profile 等用户数据)—— 需要迁移用户数据时按 §3.4 单独 tar 卷,新卷则为空白起步。
+- `PROFILES` 空格/逗号分隔均可(Makefile 已归一化);`NOBUILD=1` 跳过构建,直接用 load 进来的镜像。
+
+---
+
 ## 第一部分:原理与方法论
 
 ## 0. 前提与术语

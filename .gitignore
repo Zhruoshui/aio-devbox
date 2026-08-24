@@ -55,3 +55,6 @@ vnc-screenshot.png
 # --- Scenario selection (machine-local; written by `make config`) ---
 # The .example is committed as a seed; the real selection is per-machine.
 .aio/enabled.toml
+
+# --- Offline transfer artifacts (make save / make load) ---
+aio-offline-bundle/
