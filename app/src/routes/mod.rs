@@ -2,4 +2,5 @@
 pub mod buttons;
 pub mod manifest;
 pub mod seam;
+pub mod stats;
 pub mod terminal;

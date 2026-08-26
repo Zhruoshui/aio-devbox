@@ -38,7 +38,8 @@ mod routes;
 mod state;
 
 use routes::{
-    buttons::{create_button, delete_button}, manifest::manifest, seam::seam, terminal::terminal_ws,
+    buttons::{create_button, delete_button}, manifest::manifest, seam::seam,
+    stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
 };
 use state::AppState;
 
@@ -59,6 +60,9 @@ async fn main() {
         PathBuf::from(std::env::var("AIO_BUTTONS_FILE").unwrap_or_else(|_| BUTTONS_FILE.to_string()));
     let state = AppState::new(config::load_services(), buttons_file);
 
+    // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
+    spawn_stats_sampler(state.clone());
+
     // Static SPA tree. `/` serves index.html (dir index); unknown paths fall
     // back to index.html (SPA client-side routing, used from Phase C onward).
     let serve_dir = ServeDir::new(STATIC_DIR).fallback(ServeFile::new(format!(
@@ -69,6 +73,10 @@ async fn main() {
     let app = Router::new()
         // Real route: live service manifest for the workspace UI.
         .route("/api/manifest", get(manifest))
+        // Real route: container resource snapshot (CPU/MEM/DISK) for the
+        // statusbar footer. Static segment wins over the `/api/*rest`
+        // catch-all below, same as `/api/manifest`.
+        .route("/api/stats", get(stats))
         // Real route: terminal pty WebSocket bridge (Phase E). Static segments
         // rank above the `/api/*rest` catch-all below, so this wins (same
         // mechanism as `/api/manifest`). Sibling `/api/term/*` still hits the

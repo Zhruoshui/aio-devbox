@@ -20,6 +20,8 @@ tower-http = { version = "0.5", features = ["fs"] }
 # futures-util drives the split WebSocket sink/stream.
 portable-pty = "0.8"
 futures-util = "0.3"
+# Stats endpoint: statvfs on the workspace volume for disk usage.
+nix = { version = "0.29", features = ["fs"] }
 
 [profile.release]
 opt-level = 2

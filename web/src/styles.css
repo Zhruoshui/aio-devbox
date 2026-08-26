@@ -504,6 +504,37 @@ input {
   background: var(--success);
   flex-shrink: 0;
 }
+/* Backend heartbeat down: reuse the danger token (paired with --success in
+ * both modes) instead of adding a new hue. */
+.dot.down {
+  background: var(--danger);
+}
+/* Container CPU/MEM/DISK readings: same recessed mono look as the host
+ * block; the whole segment is simply not rendered while stats are absent. */
+.statusbar .seg-stats {
+  color: var(--muted);
+}
+/* Host block doubles as a copy-the-URL button. Styled as quiet text so the
+ * bar reads identically to before; the "copied" tag appears inline for
+ * 1.5s after a successful copy. */
+.host-copy {
+  padding: 0 var(--space-1);
+  margin: 0 calc(-1 * var(--space-1));
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.host-copy:hover {
+  background: color-mix(in oklch, var(--fg) 7%, transparent);
+  color: var(--fg);
+}
+.host-copy .copied-tag {
+  margin-left: var(--space-1);
+  color: var(--success);
+}
 .statusbar .mono {
   font-family: var(--font-mono);
   font-size: 0.9em;

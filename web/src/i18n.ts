@@ -42,6 +42,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     noButtons: "没有可用按钮。启动一个 compose profile（例如 --profile code-server）或把场景烘焙进镜像。",
     statusAvail: "{n} 个服务可用",
     statusMounted: "工作区卷已挂载",
+    statusOffline: "后端连接中断",
+    copied: "已复制",
+    resetLayout: "重置布局",
+    statsTip: "CPU / 内存 / 磁盘（容器视角）",
+    copyUrl: "复制工作台地址",
     popin: "返回工作区",
   },
   en: {
@@ -76,6 +81,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     noButtons: "No buttons available. Start a compose profile (e.g. --profile code-server) or bake a scenario into the image.",
     statusAvail: "{n} services available",
     statusMounted: "workspace volume mounted",
+    statusOffline: "backend unreachable",
+    copied: "copied",
+    resetLayout: "Reset layout",
+    statsTip: "CPU / memory / disk (container view)",
+    copyUrl: "Copy workspace URL",
     popin: "Dock back to workspace",
   },
 };

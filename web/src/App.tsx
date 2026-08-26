@@ -43,6 +43,7 @@ import { t, type Lang } from "./i18n";
 import { Icon, IconSprite, serviceIcon } from "./icons";
 import { Sidebar } from "./Sidebar";
 import { Statusbar } from "./Statusbar";
+import { useStats } from "./useStats";
 import { RegisterDialog } from "./RegisterDialog";
 import { IframePane } from "./panes/IframePane";
 import { XtermPane } from "./panes/XtermPane";
@@ -58,6 +59,7 @@ const THEME_KEY = "aio.theme";
 const LANG_KEY = "aio.lang";
 const HEADER_HEIGHT = 40;
 const GL_WINDOW_PARAM = "gl-window";
+const LAYOUT_KEY = "aio.layout";
 
 /**
  * Popout child windows carry their layout in localStorage under the
@@ -125,6 +127,21 @@ export function App(): JSX.Element {
     () => (localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh-CN"),
   );
   const [registerOpen, setRegisterOpen] = useState(false);
+
+  // Container-resource polling; also doubles as the backend heartbeat that
+  // drives the statusbar dot. The hook seeds online=true, which is correct:
+  // the statusbar only renders once status === "ready" (the manifest fetch
+  // already succeeded), and the first /api/stats poll corrects it within 3s.
+  // Popout children run the hook too (harmless one-fetch/3s overhead).
+  const { stats, online } = useStats();
+
+  // Reset the persisted layout: clear the stored config and reload so the GL
+  // effect re-runs the default single-terminal path (deterministic; no GL
+  // hot-rebuild).
+  const resetLayout = useCallback(() => {
+    localStorage.removeItem(LAYOUT_KEY);
+    window.location.reload();
+  }, []);
 
   // Persist sidebar collapse state.
   useEffect(() => {
@@ -275,31 +292,72 @@ export function App(): JSX.Element {
       if (SUB_WINDOW.title) document.title = SUB_WINDOW.title;
       (window as unknown as { __glInstance?: unknown }).__glInstance = gl;
     } else {
-      // Default layout: a single stack (one page) holding one terminal
-      // instance when the terminal is enabled - which it always is (bash
-      // exists).
-      const enabled = services.filter((s) => s.enabled);
-      const terminal = enabled.find((s) => s.id === TERMINAL_ID) ?? enabled[0];
-      seqRef.current[terminal.id] = 1;
-      const config: LayoutConfig = {
-        root: {
-          type: "stack",
-          content: [
-            {
-              type: "component",
-              componentType: PANE_COMPONENT_TYPE,
-              componentState: { service: terminal, seq: 1 },
-              title: terminal.label,
-            },
-          ],
-        },
-        settings: { reorderEnabled: true },
-        // golden-layout writes the header height as an INLINE style from this
-        // config value (CSS alone cannot override it); gl-kumo.css lays out
-        // the 40px strip to match the Kumo reference tab bar.
-        dimensions: { headerHeight: HEADER_HEIGHT },
-      };
-      gl.loadLayout(config);
+      // Restore the persisted layout (splits/tabs) if present; any failure
+      // (missing key, corrupt JSON, an unminifiable config - e.g. one saved
+      // with an open popout) falls through to the default single-terminal
+      // layout below.
+      let restored = false;
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (raw !== null) {
+        try {
+          const resolved = ResolvedLayoutConfig.unminifyConfig(JSON.parse(raw));
+          const config: LayoutConfig = {
+            ...LayoutConfig.fromResolved(resolved),
+            dimensions: { headerHeight: HEADER_HEIGHT },
+          };
+          gl.loadLayout(config);
+          resyncSeq(config.root, seqRef.current);
+          restored = true;
+        } catch {
+          /* corrupt archive = behave as if never saved */
+        }
+      }
+      if (!restored) {
+        // Default layout: a single stack (one page) holding one terminal
+        // instance when the terminal is enabled - which it always is (bash
+        // exists).
+        const enabled = services.filter((s) => s.enabled);
+        const terminal = enabled.find((s) => s.id === TERMINAL_ID) ?? enabled[0];
+        seqRef.current[terminal.id] = 1;
+        const config: LayoutConfig = {
+          root: {
+            type: "stack",
+            content: [
+              {
+                type: "component",
+                componentType: PANE_COMPONENT_TYPE,
+                componentState: { service: terminal, seq: 1 },
+                title: terminal.label,
+              },
+            ],
+          },
+          settings: { reorderEnabled: true },
+          // golden-layout writes the header height as an INLINE style from this
+          // config value (CSS alone cannot override it); gl-kumo.css lays out
+          // the 40px strip to match the Kumo reference tab bar.
+          dimensions: { headerHeight: HEADER_HEIGHT },
+        };
+        gl.loadLayout(config);
+      }
+
+      // Persist layout changes (tab drag/split/close) with a 500ms debounce.
+      // SUB_WINDOW must NOT attach this: the popout child runs this same
+      // effect, and its stateChanged would overwrite the parent's archive
+      // with the child's single-pane layout.
+      let saveTimer: ReturnType<typeof setTimeout> | undefined;
+      gl.on("stateChanged", () => {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          try {
+            localStorage.setItem(
+              LAYOUT_KEY,
+              JSON.stringify(ResolvedLayoutConfig.minifyConfig(gl.saveLayout())),
+            );
+          } catch {
+            /* save failure is non-fatal; next change retries */
+          }
+        }, 500);
+      });
     }
     glRef.current = gl;
 
@@ -415,6 +473,9 @@ export function App(): JSX.Element {
           services={services}
           lang={lang}
           theme={theme}
+          online={online}
+          stats={stats}
+          onResetLayout={resetLayout}
           onToggleTheme={() => setTheme((m) => (m === "dark" ? "light" : "dark"))}
           onToggleLang={() => setLang((l) => (l === "zh-CN" ? "en" : "zh-CN"))}
         />
@@ -483,4 +544,23 @@ function isServiceEntry(v: unknown): v is ServiceEntry {
     (s.type === "web" || s.type === "agent") &&
     typeof s.enabled === "boolean"
   );
+}
+
+/**
+ * After restoring a saved layout, re-sync the per-service instance counters
+ * from the restored componentStates. Without this, launching a new instance
+ * would restart at seq 1 and title-clash with the restored "Terminal" tab
+ * ("Terminal" vs "Terminal (2)" both meaning the second instance).
+ */
+function resyncSeq(node: LayoutConfig["root"], seq: Record<string, number>): void {
+  if (!node) return;
+  if (node.type === "component") {
+    const state = node.componentState as { service?: unknown; seq?: unknown } | undefined;
+    if (state && isServiceEntry(state.service) && typeof state.seq === "number") {
+      seq[state.service.id] = Math.max(seq[state.service.id] ?? 0, state.seq);
+    }
+    return;
+  }
+  const children = (node as { content?: LayoutConfig["root"][] }).content;
+  children?.forEach((c) => resyncSeq(c, seq));
 }

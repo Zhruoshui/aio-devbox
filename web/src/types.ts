@@ -20,7 +20,10 @@ export interface ServiceEntry {
   label: string;
   /** True for user-registered buttons (deletable in the UI). */
   deletable: boolean;
-  /** Gateway path the iframe opens. Present only for type === "web". */
+  /** Iframe src. Present only for type === "web". Usually a gateway path
+   * (/code-server/); may be absolute with a `{host}` placeholder that
+   * IframePane substitutes with window.location.hostname (pi-web's dedicated
+   * port, which cannot sit behind a gateway subpath). */
   url?: string;
   /** Command launched in the pty ("" = default shell). Present only for type === "agent". */
   cmd?: string;
@@ -28,4 +31,20 @@ export interface ServiceEntry {
 
 export interface Manifest {
   services: ServiceEntry[];
+}
+
+// Stats contract - mirrors the Rust `StatsSnapshot` in app/src/routes/stats.rs
+// EXACTLY. Backend is the single owner of the /api/stats payload shape; this
+// interface is the single frontend-side decoder target (no inline casts).
+// Semantics are CONTAINER-view (cgroup v2 for CPU/mem, statvfs of the
+// workspace volume for disk). `memTotalBytes: null` means the container has
+// no memory limit (docker compose sets none by default).
+export interface StatsSnapshot {
+  /** Container CPU usage, 0-100 (relative to the effective cpu quota). */
+  cpuPct: number;
+  memUsedBytes: number;
+  /** Absent/null = no cgroup memory limit; show absolute usage only. */
+  memTotalBytes?: number;
+  diskUsedBytes: number;
+  diskTotalBytes: number;
 }
