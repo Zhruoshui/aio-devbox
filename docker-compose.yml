@@ -25,6 +25,16 @@ services:
     restart: unless-stopped
     expose:
       - "8088"
+    # pi-web (autostarted by app/entrypoint.sh on the shared netns) is embedded
+    # as an iframe pane and must be reachable from the HOST browser, so unlike
+    # 8088 (which goes through the gateway) its port is published directly.
+    # A gateway subpath is impossible for pi-web: Next.js emits root-absolute
+    # asset URLs (/_next/...) and serves its own /api/* (collides with axum's
+    # /api), so it needs a dedicated origin root - see services.toml's piWeb
+    # entry. Host-side, this port needs the usual one-time
+    # `sbx ports <sandbox> --publish 30141:30141/tcp`.
+    ports:
+      - "30141:30141"
     volumes:
       - workspace:/home/gem
     networks:

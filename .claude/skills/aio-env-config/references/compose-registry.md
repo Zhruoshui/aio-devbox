@@ -20,10 +20,15 @@ Two `type`s:
 
 - **`type = "web"`**: a containerized service shown in an iframe. `target` is
   `host:port` for a TCP liveness probe (the manifest's `enabled` field = is the
-  container reachable). `url` is the gateway path the iframe opens. Needs the
-  matching compose service + caddy route (see below). Existing: `codeServer`
-  (`app:8200`, url `/code-server/`), `vnc` (`app:6080`, url
-  `/vnc/vnc.html?...&path=vnc/websockify`).
+  container reachable). `url` is what the iframe opens - usually a gateway path.
+  Services whose HTML references ROOT-absolute assets or that serve `/api/*`
+  themselves cannot sit behind a stripped subpath; the escape hatch is a
+  dedicated published port + an absolute `url` with a `{host}` placeholder
+  (IframePane substitutes `window.location.hostname`; piWeb does this on
+  30141). Needs the matching compose service (+ caddy route when gateway-
+  proxied; see below). Existing: `codeServer` (`app:8200`, url `/code-server/`),
+  `vnc` (`app:6080`, url `/vnc/vnc.html?...&path=vnc/websockify`), `piWeb`
+  (`app:30141`, url `http://{host}:30141/` - published directly, not proxied).
 - **`type = "agent"`**: a CLI launched in an xterm pty pane. `cmd` is the
   command; `""` = default login shell (the `terminal` button). `enabled` =
   whether `cmd` is on the login-shell PATH (a `command_exists` probe at manifest

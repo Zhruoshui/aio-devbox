@@ -11,7 +11,9 @@
 //      actually loads the service UI;
 //   5. instances close via the golden-layout tab close icon;
 //   6. a user button can be registered via the UI form (POST /api/buttons),
-//      launched, and deleted (DELETE /api/buttons/:id).
+//      launched, and deleted (DELETE /api/buttons/:id);
+//   7. the statusbar shows CPU / MEM / DISK readings (GET /api/stats poll);
+//   8. the golden-layout tab set survives a page reload (aio.layout restore).
 //
 // Run inside a node:20-bookworm container with chromium installed, --network
 // host so localhost:8080 reaches the gateway. Uses puppeteer-core against the
@@ -154,7 +156,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // --- 4. Each enabled web service button opens a loading iframe ------------
   const iframeResults = [];
   for (const svc of expectedWeb) {
-    const srcPrefix = svc.url.split("?")[0];
+    // {host} in a manifest url is substituted with window.location.hostname
+    // by IframePane.tsx at render time (pi-web's published-port URL); the
+    // browser here is on localhost, so mirror that substitution.
+    const srcPrefix = svc.url.split("?")[0].replace("{host}", "localhost");
     await page.click(`.launch-btn[title^="${svc.label}"]`);
     await page.waitForSelector(`.pane-iframe[src^="${srcPrefix}"]`, { timeout: 10000 });
     // The iframe element exists immediately, but its frame starts at
@@ -238,6 +243,44 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const deletedOk = delRes.ok && !titlesAfterDelete.includes("smokebtn");
   console.log("register/run/delete:", { userCmdRan, deletedOk, titlesAfterDelete });
 
+  // --- 7. Statusbar resource readings (GET /api/stats poll) ---------------
+  // The stats segment stays hidden until the first poll lands (up to ~3s +
+  // render); CPU / MEM / DISK labels must all be present.
+  await page.waitForSelector(".statusbar .seg-stats", { timeout: 10000 });
+  const statsText = await page.$eval(
+    ".statusbar .seg-stats",
+    (e) => (e.textContent || "").replace(/\s+/g, " ").trim(),
+  );
+  const statsOk =
+    statsText.includes("CPU") && statsText.includes("MEM") && statsText.includes("DISK");
+  console.log("statusbar stats:", JSON.stringify(statsText), "| statsOk:", statsOk);
+
+  // --- 8. Layout persistence: reload restores tabs --------------------------
+  // Snapshot the current tab titles, reload, and expect the same set back
+  // (order may differ; golden-layout restores content, not z-order).
+  const titlesBeforeReload = await page.$$eval(".lm_tab .lm_title", (els) =>
+    els.map((e) => (e.textContent || "").trim()).sort(),
+  );
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForSelector(".lm_root", { timeout: 10000 });
+  await page.waitForFunction(
+    () => document.querySelectorAll(".lm_tab").length > 0,
+    { timeout: 10000 },
+  );
+  await sleep(1500); // allow restored xterm panes to re-render
+  const titlesAfterReload = await page.$$eval(".lm_tab .lm_title", (els) =>
+    els.map((e) => (e.textContent || "").trim()).sort(),
+  );
+  const layoutRestoreOk =
+    titlesAfterReload.length === titlesBeforeReload.length &&
+    titlesBeforeReload.every((t, i) => titlesAfterReload[i] === t);
+  console.log(
+    "layout restore:",
+    JSON.stringify({ before: titlesBeforeReload, after: titlesAfterReload }),
+    "| layoutRestoreOk:",
+    layoutRestoreOk,
+  );
+
   await browser.close();
 
   const ok =
@@ -248,6 +291,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     closeOk &&
     userCmdRan &&
     deletedOk &&
+    statsOk &&
+    layoutRestoreOk &&
     failedReqs.length === 0 &&
     badResponses.length === 0;
   console.log(
@@ -261,6 +306,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         closeOk,
         userCmdRan,
         deletedOk,
+        statsOk,
+        layoutRestoreOk,
         failedReqs,
         badResponses,
         pageErrors: errors,

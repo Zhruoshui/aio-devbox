@@ -13,7 +13,10 @@
 #   type   - "web" (iframe pane, containerized) | "agent" (xterm pane, pty-launched CLI)
 #   target - host:port to TCP-probe for liveness (type=web only). `enabled` in the
 #            manifest = whether this is currently reachable (reflects compose profiles).
-#   url    - gateway path the iframe opens (type=web only)
+#   url    - iframe src (type=web only). Usually a gateway path (/code-server/);
+#            may be absolute with a `{host}` placeholder (IframePane substitutes
+#            window.location.hostname) for services that publish their own port
+#            and cannot sit behind a subpath - see the piWeb entry.
 #   label  - display name (optional; falls back to a friendly form of `id`)
 #   cmd    - command launched in the pty (type=agent only). "" = default shell.
 #            `enabled` for type=agent = command_exists(cmd) on the login-shell
@@ -62,18 +65,27 @@ label = "pi"
 
 [[service]]
 id = "piWeb"
-type = "agent"
-# Launch the pi-web server in a pty pane. command_exists probes the FIRST
-# whitespace token of cmd, so the cmd must start with the real binary
-# (`pi-web`) - do NOT inline an env prefix (`VAR=x pi-web ...` would probe for
-# a binary named `VAR=x`). The button hides if the pi-web scenario isn't baked.
-# --no-open stops it trying to open a browser (headless); 0.0.0.0 lets a
-# published host port reach it. VNC/Chromium shares app's netns, so it opens
-# pi-web at http://localhost:30141 (same loopback - HTTPS-first exempt).
-# PI_WEB_ALLOWED_HOSTS=app is exported by /etc/profile.d/pi-web.sh (baked in
-# the pi-web scenario) and kept for compatibility, so pi-web also accepts the
-# sandbox-net DNS name http://app:30141 (pi-web only trusts loopback + IP
-# literals otherwise; see request-security.ts). Host access via a published
-# port still works (Host = IP literal / localhost).
-cmd = "pi-web --no-open --hostname 0.0.0.0 --port 30141"
+type = "web"
+# pi-web embedded in an iframe pane (was type=agent: a pty pane that merely
+# STARTED the server). The server is now autostarted at container boot by
+# app/entrypoint.sh (respawn loop, logs in ~/.aio/pi-web.log), and this entry
+# only points the pane at it - `enabled` TCP-probes app:30141, so the button
+# still auto-hides when the pi-web scenario isn't baked (nothing listens).
+#
+# Why a published-port URL (http://{host}:30141/) instead of a gateway path
+# like code-server (/code-server/) or vnc (/vnc/): pi-web is a Next.js app
+# whose HTML references ROOT-absolute assets (/_next/static/..., verified by
+# curl), so caddy's handle_path strip-prefix pattern breaks - the browser
+# would request /_next/... at the gateway root and land on axum (404). It also
+# serves its own /api/* (sessions/cwd/worktrees...), colliding with axum's
+# /api. Hence a dedicated origin: docker-compose publishes 30141 directly on
+# the app service, and pi-web is served at the root of that port.
+#
+# {host} is substituted with window.location.hostname by IframePane.tsx: the
+# browser may reach the sandbox via localhost OR a LAN IP, and the manifest
+# URL must stay static. pi-web trusts loopback + IP literals
+# (request-security.ts), so both pass its Host check; PI_WEB_ALLOWED_HOSTS=app
+# (set by the autostart) keeps http://app:30141 working from sandbox-net.
+target = "app:30141"
+url = "http://{host}:30141/"
 label = "pi Web"
