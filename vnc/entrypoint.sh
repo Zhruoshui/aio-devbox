@@ -87,6 +87,13 @@ OPENBOX_PID=$!
 # 3. Chromium. --no-sandbox is required in containers (no setuid sandbox helper);
 #    --disable-dev-shm-usage avoids /dev/shm exhaustion (shm_size is also 2gb);
 #    --user-data-dir keeps the profile on the shared workspace volume (R6/AC3).
+#    --remote-debugging-port opens the CDP endpoint consumed by pi's
+#    agent-browser CLI (baked by scenarios/pi/fragment.Dockerfile, injected as
+#    `--cdp 9222` by /usr/local/bin/agent-browser wrapper) via the shared
+#    netns: app/code-server/vnc reach it as localhost:9222; Chrome binds CDP to
+#    127.0.0.1 only and the gateway does NOT publish 9222. Same user-data-dir
+#    means agent-driven and manual browsing share one login session (AC5).
+CDP_PORT="${BROWSER_CDP_PORT:-9222}"
 chromium \
   --no-sandbox \
   --disable-dev-shm-usage \
@@ -94,6 +101,7 @@ chromium \
   --no-first-run \
   --no-default-browser-check \
   --disable-features=TranslateUI \
+  --remote-debugging-port="${CDP_PORT}" \
   --user-data-dir=/home/gem/.config/chromium \
   about:blank &
 CHROMIUM_PID=$!
