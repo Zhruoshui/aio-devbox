@@ -30,6 +30,8 @@ const PATHS = {
   copy:
     '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   reset: '<path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 3v6h6"/>',
+  sliders:
+    '<path d="M3 8h18"/><path d="M3 16h18"/><circle cx="9" cy="8" r="2.5"/><circle cx="15" cy="16" r="2.5"/>',
 } as const;
 
 /** Mount once (app root): the shared <symbol> sprite every <Icon> references. */
@@ -72,7 +74,7 @@ export function Icon({
 /** Sidebar icon for a manifest service: known ids get a glyph, everything
  * else falls back to a semantic icon by type (web -> browser, agent ->
  * terminal). */
-export function serviceIcon(id: string, type: "web" | "agent"): IconName {
+export function serviceIcon(id: string, type: "web" | "agent" | "page"): IconName {
   switch (id) {
     case "codeServer":
       return "code";
@@ -82,7 +84,9 @@ export function serviceIcon(id: string, type: "web" | "agent"): IconName {
       return "terminal";
     case "opencode":
       return "chat";
+    case "modelsConfig":
+      return "sliders";
     default:
-      return type === "web" ? "browser" : "terminal";
+      return type === "web" ? "browser" : type === "page" ? "sliders" : "terminal";
   }
 }

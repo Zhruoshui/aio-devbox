@@ -47,6 +47,11 @@ export function Sidebar({
       items: enabled.filter((s) => s.type === "web"),
     },
     {
+      key: "page",
+      label: t(lang, "groupSystem"),
+      items: enabled.filter((s) => s.type === "page"),
+    },
+    {
       key: "tui",
       label: t(lang, "groupTui"),
       items: enabled.filter((s) => s.type === "agent" && !s.deletable),

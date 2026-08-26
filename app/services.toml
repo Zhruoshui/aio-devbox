@@ -11,6 +11,7 @@
 # Fields:
 #   id     - button identifier (frontend key; stable for toggle state)
 #   type   - "web" (iframe pane, containerized) | "agent" (xterm pane, pty-launched CLI)
+#          | "page" (native React pane provided by the app itself; always enabled)
 #   target - host:port to TCP-probe for liveness (type=web only). `enabled` in the
 #            manifest = whether this is currently reachable (reflects compose profiles).
 #   url    - iframe src (type=web only). Usually a gateway path (/code-server/);
@@ -89,3 +90,8 @@ type = "web"
 target = "app:30141"
 url = "http://{host}:30141/"
 label = "pi Web"
+
+[[service]]
+id = "modelsConfig"
+type = "page"
+label = "模型配置"

@@ -9,7 +9,7 @@
 //   #[serde(skip_serializing_if = "Option::is_none")] url -> omitted when None
 //   #[serde(skip_serializing_if = "Option::is_none")] cmd -> omitted when None
 
-export type ServiceType = "web" | "agent";
+export type ServiceType = "web" | "agent" | "page";
 
 export interface ServiceEntry {
   id: string;

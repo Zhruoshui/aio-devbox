@@ -38,8 +38,9 @@ mod routes;
 mod state;
 
 use routes::{
-    buttons::{create_button, delete_button}, manifest::manifest, seam::seam,
-    stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
+    buttons::{create_button, delete_button}, manifest::manifest,
+    models::{apply_agent, discover::discover, get_agents, get_config, import_pi, put_config, test::test, usage::usage},
+    seam::seam, stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
 };
 use state::AppState;
 
@@ -52,13 +53,19 @@ const STATIC_DIR: &str = "/app/static";
 /// Override with `AIO_BUTTONS_FILE`.
 const BUTTONS_FILE: &str = "/home/gem/.aio/buttons.toml";
 
+/// Default location of the canonical model config (providers + agent
+/// assignments). Override with `AIO_MODELS_FILE`.
+const MODELS_FILE: &str = "/home/gem/.aio/models.json";
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
     let buttons_file =
         PathBuf::from(std::env::var("AIO_BUTTONS_FILE").unwrap_or_else(|_| BUTTONS_FILE.to_string()));
-    let state = AppState::new(config::load_services(), buttons_file);
+    let models_file =
+        PathBuf::from(std::env::var("AIO_MODELS_FILE").unwrap_or_else(|_| MODELS_FILE.to_string()));
+    let state = AppState::new(config::load_services(), buttons_file, models_file);
 
     // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
     spawn_stats_sampler(state.clone());
@@ -87,6 +94,17 @@ async fn main() {
         // 0.7 / matchit path-param syntax.
         .route("/api/buttons", post(create_button))
         .route("/api/buttons/:id", delete(delete_button))
+        // Model config: canonical store (GET/PUT) + pi import (POST) +
+        // M2 discover (POST /v1/models fetch) + test (minimal completion probe) +
+        // M3 agent status + apply (render canonical -> native files).
+        .route("/api/models/config", get(get_config).put(put_config))
+        .route("/api/models/import/pi", post(import_pi))
+        .route("/api/models/discover", post(discover))
+        .route("/api/models/test", post(test))
+        .route("/api/models/agents", get(get_agents))
+        .route("/api/models/apply/:agent", post(apply_agent))
+        // M4: per-(agent,model) token usage aggregation (design §6).
+        .route("/api/models/usage", get(usage))
         // Reserved seams (design §13/§14C): 502 stub on any method. The bare
         // prefix, the trailing slash, and every sub-path are each covered.
         // `/api/manifest` and `/api/term/ws` above are static segments so they

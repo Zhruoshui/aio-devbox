@@ -46,6 +46,7 @@ import { Statusbar } from "./Statusbar";
 import { useStats } from "./useStats";
 import { RegisterDialog } from "./RegisterDialog";
 import { IframePane } from "./panes/IframePane";
+import { ModelsPane } from "./panes/ModelsPane";
 import { XtermPane } from "./panes/XtermPane";
 import "./styles.css";
 
@@ -522,6 +523,7 @@ export function App(): JSX.Element {
 /** Render the generic pane for a service by its type. */
 function PaneForService({ service }: { service: ServiceEntry }): JSX.Element {
   if (service.type === "web") return <IframePane service={service} />;
+  if (service.type === "page") return <ModelsPane service={service} />;
   return <XtermPane service={service} />;
 }
 
@@ -541,7 +543,7 @@ function isServiceEntry(v: unknown): v is ServiceEntry {
   const s = v as Record<string, unknown>;
   return (
     typeof s.id === "string" &&
-    (s.type === "web" || s.type === "agent") &&
+    (s.type === "web" || s.type === "agent" || s.type === "page") &&
     typeof s.enabled === "boolean"
   );
 }

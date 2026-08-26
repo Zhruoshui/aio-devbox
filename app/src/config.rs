@@ -86,6 +86,9 @@ pub struct Service {
 pub enum ServiceType {
     Web,
     Agent,
+    /// A native page provided by the app itself (not an iframe/pty). Always
+    /// enabled — no TCP probe or command_exists check (design §1 manifest).
+    Page,
 }
 
 /// One entry in the JSON manifest returned by `GET /api/manifest`.
@@ -170,7 +173,7 @@ async fn resolve_login_path() -> Vec<PathBuf> {
 /// token is probed - the rest are arguments (`htop -t`, `echo hi`). Mirrors
 /// `command -v` for PATH executables (does not detect shell functions/aliases
 /// - rare for our use case).
-fn command_exists(cmd: &str, dirs: &[PathBuf]) -> bool {
+pub(crate) fn command_exists(cmd: &str, dirs: &[PathBuf]) -> bool {
     let name = cmd.trim();
     if name.is_empty() {
         return true;
@@ -268,10 +271,12 @@ pub async fn build_manifest(services: &[Service], dirs: &[PathBuf]) -> Manifest 
         let enabled = match svc.service_type {
             ServiceType::Web => is_web_reachable(svc).await,
             ServiceType::Agent => command_exists(svc.cmd.as_deref().unwrap_or(""), dirs),
+            ServiceType::Page => true,
         };
         let (url, cmd) = match svc.service_type {
             ServiceType::Web => (svc.url.clone(), None),
             ServiceType::Agent => (None, svc.cmd.clone()),
+            ServiceType::Page => (None, None),
         };
         entries.push(ManifestEntry {
             id: svc.id.clone(),
@@ -296,6 +301,7 @@ fn humanize_id(id: &str) -> String {
         "codeServer" => "code-server".to_string(),
         "vnc" => "Chromium".to_string(),
         "terminal" => "Terminal".to_string(),
+        "modelsConfig" => "Model config".to_string(),
         other => other.to_string(),
     }
 }
