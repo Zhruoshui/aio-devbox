@@ -1,0 +1,4 @@
+id = "fonts"
+name = "字体 (Maple Mono NF CN)"
+description = "fontconfig + Maple Mono NF CN(等宽 + Nerd Font 图标 + 内置中文,4 核心字重约 78MB),并设为通用族默认;修复容器零字体导致的服务端渲染豆腐块;网页端字体取自宿主浏览器,与本场景无关"
+category = "os"
