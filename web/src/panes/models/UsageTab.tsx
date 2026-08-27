@@ -2,8 +2,9 @@
 //
 // Pure frontend over the existing GET /api/models/usage aggregate rows: four
 // summary cards, a horizontal bar chart of tokens by model, a cost-share
-// donut by agent (hidden when no row carries a cost), and the Kumo-styled
-// detail table with a 合计 footer. No new backend time-series (design §7).
+// donut by agent (shown only when some row's cost is > 0 — an all-zero donut
+// is noise), and the Kumo-styled detail table with cache split into read/
+// write columns and a 合计 footer. No new backend time-series (design §7).
 
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
@@ -22,8 +23,13 @@ const WINDOWS: { key: UsageWindow; label: string }[] = [
 function summarize(rows: UsageRow[]) {
   const totalIn = rows.reduce((a, r) => a + r.in, 0);
   const totalOut = rows.reduce((a, r) => a + r.out, 0);
-  const totalCache = rows.reduce((a, r) => a + r.cacheRead + r.cacheWrite, 0);
+  const totalCacheR = rows.reduce((a, r) => a + r.cacheRead, 0);
+  const totalCacheW = rows.reduce((a, r) => a + r.cacheWrite, 0);
+  // hasCost: some row carries a cost (log or backfilled) -> show the cost
+  // column. hasCostValue: some cost is actually > 0 -> show the donut (an
+  // all-zero donut is noise — the pre-backfill bug showed it constantly).
   const hasCost = rows.some((r) => r.cost !== undefined);
+  const hasCostValue = rows.some((r) => (r.cost ?? 0) > 0);
   const totalCost = hasCost ? rows.reduce((a, r) => a + (r.cost ?? 0), 0) : 0;
 
   // Tokens per model (in+out+cache), top 8, descending.
@@ -51,9 +57,11 @@ function summarize(rows: UsageRow[]) {
   return {
     totalIn,
     totalOut,
-    totalCache,
+    totalCacheR,
+    totalCacheW,
     totalCost,
     hasCost,
+    hasCostValue,
     modelItems,
     costItems,
   };
@@ -130,10 +138,13 @@ export function UsageTab({
           <div className="ml-stats">
             {card(t(lang, "mcUsageColIn"), fmtTokens(s.totalIn))}
             {card(t(lang, "mcUsageColOut"), fmtTokens(s.totalOut))}
-            {card(t(lang, "mcUsageColCache"), fmtTokens(s.totalCache))}
+            {card(t(lang, "mcUsageColCache"), fmtTokens(s.totalCacheR + s.totalCacheW))}
             {s.hasCost
               ? card(t(lang, "mcUsageColCost"), fmtCost(s.totalCost))
-              : card(t(lang, "mcUsageTotalTokens"), fmtTokens(s.totalIn + s.totalOut + s.totalCache))}
+              : card(
+                  t(lang, "mcUsageTotalTokens"),
+                  fmtTokens(s.totalIn + s.totalOut + s.totalCacheR + s.totalCacheW),
+                )}
           </div>
 
           {/* charts */}
@@ -146,7 +157,7 @@ export function UsageTab({
                 <TokenBars items={s.modelItems} />
               </div>
             )}
-            {s.hasCost && s.costItems.length > 0 && (
+            {s.hasCostValue && s.costItems.length > 0 && (
               <div className="ml-chart-card">
                 <h3 className="ml-chart-title">{t(lang, "mcUsageCostShare")}</h3>
                 <CostDonut items={s.costItems} total={s.totalCost} />
@@ -156,55 +167,56 @@ export function UsageTab({
 
           {/* detail table */}
           <div className="ml-chart-card ml-usage-table-card">
-            <table className="ml-table">
-              <thead>
-                <tr>
-                  <th>{t(lang, "mcUsageColAgent")}</th>
-                  <th>{t(lang, "mcUsageColProvider")}</th>
-                  <th>{t(lang, "mcUsageColModel")}</th>
-                  <th className="ml-num">{t(lang, "mcUsageColIn")}</th>
-                  <th className="ml-num">{t(lang, "mcUsageColOut")}</th>
-                  <th className="ml-num">{t(lang, "mcUsageColCache")}</th>
-                  {s.hasCost && (
-                    <th className="ml-num">{t(lang, "mcUsageColCost")}</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {all.map((r, i) => {
-                  const cacheTotal = r.cacheRead + r.cacheWrite;
-                  return (
+            <div className="ml-table-scroll">
+              <table className="ml-table ml-usage-table">
+                <thead>
+                  <tr>
+                    <th>{t(lang, "mcUsageColAgent")}</th>
+                    <th>{t(lang, "mcUsageColProvider")}</th>
+                    <th>{t(lang, "mcUsageColModel")}</th>
+                    <th className="ml-num">{t(lang, "mcUsageColIn")}</th>
+                    <th className="ml-num">{t(lang, "mcUsageColOut")}</th>
+                    <th className="ml-num">{t(lang, "mcUsageColCacheR")}</th>
+                    <th className="ml-num">{t(lang, "mcUsageColCacheW")}</th>
+                    {s.hasCost && (
+                      <th className="ml-num">{t(lang, "mcUsageColCost")}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {all.map((r, i) => (
                     <tr key={i}>
                       <td>{r.agent}</td>
-                      <td>{r.provider ?? "—"}</td>
-                      <td>{r.model}</td>
+                      <td className="ml-cell-clip" title={r.provider ?? undefined}>
+                        {r.provider ?? "—"}
+                      </td>
+                      <td className="ml-cell-clip ml-cell-mono" title={r.model}>
+                        {r.model}
+                      </td>
                       <td className="ml-num">{fmtTokens(r.in)}</td>
                       <td className="ml-num">{fmtTokens(r.out)}</td>
-                      <td
-                        className="ml-num"
-                        title={`cacheRead=${r.cacheRead} cacheWrite=${r.cacheWrite}`}
-                      >
-                        {fmtTokens(cacheTotal)}
-                      </td>
+                      <td className="ml-num">{fmtTokens(r.cacheRead)}</td>
+                      <td className="ml-num">{fmtTokens(r.cacheWrite)}</td>
                       {s.hasCost && (
                         <td className="ml-num">
                           {r.cost !== undefined ? fmtCost(r.cost) : "—"}
                         </td>
                       )}
                     </tr>
-                  );
-                })}
-                <tr className="ml-table-total">
-                  <td colSpan={3}>{t(lang, "mcUsageTotal")}</td>
-                  <td className="ml-num">{fmtTokens(s.totalIn)}</td>
-                  <td className="ml-num">{fmtTokens(s.totalOut)}</td>
-                  <td className="ml-num">{fmtTokens(s.totalCache)}</td>
-                  {s.hasCost && (
-                    <td className="ml-num">{fmtCost(s.totalCost)}</td>
-                  )}
-                </tr>
-              </tbody>
-            </table>
+                  ))}
+                  <tr className="ml-table-total">
+                    <td colSpan={3}>{t(lang, "mcUsageTotal")}</td>
+                    <td className="ml-num">{fmtTokens(s.totalIn)}</td>
+                    <td className="ml-num">{fmtTokens(s.totalOut)}</td>
+                    <td className="ml-num">{fmtTokens(s.totalCacheR)}</td>
+                    <td className="ml-num">{fmtTokens(s.totalCacheW)}</td>
+                    {s.hasCost && (
+                      <td className="ml-num">{fmtCost(s.totalCost)}</td>
+                    )}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

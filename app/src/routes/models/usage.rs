@@ -12,6 +12,12 @@
 // corrupt record never breaks the response. Use serde_json::Value for the
 // permissive parsing (don't hard-model every field).
 //
+// Cost (task 08-27-usage-correctness): canonical `provider.models[].cost`
+// unit is USD per 1M tokens. Logged cost is trusted only when > 0 (pi and
+// opencode always log 0 — audit finding); otherwise cost is computed from
+// canonical config, cache reads/writes priced with their own rates (see the
+// `cost backfill` section below). All-zero token rows are dropped.
+//
 // Cache: 30s TTL keyed by window string, in a process-global Mutex. A
 // `?refresh=1` query param bypasses the cache once.
 //
@@ -32,7 +38,7 @@ use tokio::sync::Mutex;
 
 use crate::state::AppState;
 use super::render::home_dir;
-use super::store::{read_config, CanonicalConfig};
+use super::store::{read_config, CanonicalConfig, CostEntry};
 
 /// Cache TTL (design §6: 30s).
 const CACHE_TTL: Duration = Duration::from_secs(30);
@@ -153,6 +159,15 @@ pub async fn usage(
     }
 
     let mut rows: Vec<UsageRow> = buckets.into_values().collect();
+
+    // Drop all-zero rows (design §3): a row with 0 in/out/cache tokens is
+    // noise (e.g. an opencode free-model session that never really ran).
+    rows.retain(|r| r.r#in + r.out + r.cache_read + r.cache_write > 0);
+
+    // Fill cost for rows whose logged cost is absent or (audit finding) the
+    // always-0 placeholder pi/opencode write (design §2).
+    backfill_cost(&mut rows, &canonical);
+
     // Stable order: agent, provider, model.
     rows.sort_by(|a, b| {
         a.agent
@@ -620,7 +635,179 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
     buckets.into_values().collect()
 }
 
-// ── helpers ───────────────────────────────────────────────────────
+// ── cost backfill (task 08-27-usage-correctness, design §2) ────────
+//
+// Audit ground truth: pi and opencode log a `cost` field that is ALWAYS 0
+// (never a real computed cost), and claude/codex logs carry no cost at all.
+// So the fill priority is:
+//   1. log cost > 0          -> trust it, never touch (no double count)
+//   2. log cost 0/None       -> compute from canonical `provider.models[].cost`
+//                               (unit: USD per 1M tokens, design §1), cache
+//                               reads/writes priced with their OWN rates
+//   3. no cost match         -> leave None (never invent a price)
+// Match tiers: (provider,model) exact -> model exact across providers ->
+// version/date-suffix fuzzy, forward direction only (row id = canonical id +
+// `-\d[\d.]*`, e.g. `claude-sonnet-4-20250514` vs `claude-sonnet-4`;
+// alphabetic variant suffixes like `-free` never match — different model).
+
+/// Price `tokens` at `per_m` USD/1M-tokens (None price contributes 0 —
+/// canonical cost entries may be partially configured).
+fn price_per_m(tokens: u64, per_m: Option<f64>) -> f64 {
+    match per_m {
+        Some(p) => tokens as f64 / 1_000_000.0 * p,
+        None => 0.0,
+    }
+}
+
+/// Compute a row's cost from a canonical cost entry (design §1): each token
+/// bucket uses its OWN unit price; cacheRead/cacheWrite never ride the
+/// input rate.
+fn compute_cost(entry: &CostEntry, row: &UsageRow) -> f64 {
+    price_per_m(row.r#in, entry.input)
+        + price_per_m(row.out, entry.output)
+        + price_per_m(row.cache_read, entry.cache_read)
+        + price_per_m(row.cache_write, entry.cache_write)
+}
+
+/// One model-match candidate: canonical provider id + the matched canonical
+/// model id length (for most-specific-first ordering) + its cost entry.
+struct CostHit<'a> {
+    provider: String,
+    model_len: usize,
+    entry: &'a CostEntry,
+}
+
+/// Find cost candidates whose canonical model id matches `model` exactly.
+fn exact_model_hits<'a>(
+    canonical: &'a CanonicalConfig,
+    model: &str,
+) -> Vec<CostHit<'a>> {
+    let mut out = Vec::new();
+    for (id, provider) in &canonical.providers {
+        if let Some(entry) = provider
+            .models
+            .iter()
+            .find(|m| m.id == model)
+            .and_then(|m| m.cost.as_ref())
+        {
+            out.push(CostHit {
+                provider: id.clone(),
+                model_len: model.len(),
+                entry,
+            });
+        }
+    }
+    out
+}
+
+/// True when `s` looks like a version/date stamp appended to a model id:
+/// design §2c's `-\d[\d.]*` — a '-' followed by digits/dots, LED by a digit
+/// ("-20250514", "-4", "-4.5"; NOT "-." or "-.5"). Alphabetic variants
+/// ("-free", "-vision-exp") are DIFFERENT models, not the same model with a
+/// date stamp — pricing `deepseek-v4-flash-free` at `deepseek-v4-flash`
+/// rates would be wrong (audit finding from the container reconciliation), so
+/// those must NOT fuzzy-match. ASCII digits only: unicode digit look-alikes
+/// are not version stamps.
+fn is_version_suffix(s: &str) -> bool {
+    match s.strip_prefix('-') {
+        Some(rest) if !rest.is_empty() => {
+            rest.starts_with(|c: char| c.is_ascii_digit())
+                && rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+        }
+        _ => false,
+    }
+}
+
+/// Fuzzy tier: the row model is a canonical id plus a version/date suffix
+/// (`claude-sonnet-4-20250514` vs `claude-sonnet-4`). Forward direction only —
+/// a shorter row id matching a longer canonical id ("gpt" vs "gpt-5") is too
+/// risky. Longest canonical id wins (most specific match).
+fn fuzzy_model_hits<'a>(
+    canonical: &'a CanonicalConfig,
+    model: &str,
+) -> Vec<CostHit<'a>> {
+    let mut out: Vec<CostHit<'a>> = Vec::new();
+    for (id, provider) in &canonical.providers {
+        for m in &provider.models {
+            let matches = !m.id.is_empty()
+                && model.len() > m.id.len()
+                && model.starts_with(m.id.as_str())
+                && is_version_suffix(&model[m.id.len()..]);
+            if matches {
+                if let Some(entry) = m.cost.as_ref() {
+                    out.push(CostHit {
+                        provider: id.clone(),
+                        model_len: m.id.len(),
+                        entry,
+                    });
+                }
+            }
+        }
+    }
+    // Most specific (longest matched canonical id) first, then stable by id.
+    out.sort_by(|a, b| b.model_len.cmp(&a.model_len).then(a.provider.cmp(&b.provider)));
+    out
+}
+
+/// Resolve a row's cost config (design §2). Returns the hit; the provider is
+/// reported only when unambiguous (exactly one candidate) so the caller can
+/// backfill `row.provider` without mislabeling.
+fn lookup_cost<'a>(
+    canonical: &'a CanonicalConfig,
+    row: &UsageRow,
+) -> Option<(Option<String>, &'a CostEntry)> {
+    // Tier a: the row's provider is known and canonical, exact model match.
+    if let Some(pid) = &row.provider {
+        if let Some(entry) = canonical
+            .providers
+            .get(pid)
+            .and_then(|p| p.models.iter().find(|m| m.id == row.model))
+            .and_then(|m| m.cost.as_ref())
+        {
+            return Some((Some(pid.clone()), entry));
+        }
+    }
+    // Tier b: exact model id across providers. Unambiguous when exactly one.
+    let exact = exact_model_hits(canonical, &row.model);
+    if let Some(first) = exact.first() {
+        let provider = if exact.len() == 1 {
+            Some(first.provider.clone())
+        } else {
+            None
+        };
+        return Some((provider, first.entry));
+    }
+    // Tier c: prefix-fuzzy, most specific first.
+    let fuzzy = fuzzy_model_hits(canonical, &row.model);
+    if let Some(first) = fuzzy.first() {
+        let provider = if fuzzy.len() == 1 {
+            Some(first.provider.clone())
+        } else {
+            None
+        };
+        return Some((provider, first.entry));
+    }
+    None
+}
+
+/// Fill in `cost` (and, when unambiguous, `provider`) for every row whose
+/// logged cost is absent or zero. Rows with a real logged cost (> 0) are
+/// left untouched (design §2: no double count).
+pub fn backfill_cost(rows: &mut [UsageRow], canonical: &CanonicalConfig) {
+    for row in rows.iter_mut() {
+        if row.cost.map(|c| c > 0.0).unwrap_or(false) {
+            continue; // real logged cost — trust it
+        }
+        if let Some((provider, entry)) = lookup_cost(canonical, row) {
+            row.cost = Some(compute_cost(entry, row));
+            if row.provider.is_none() {
+                row.provider = provider;
+            }
+        }
+        // No hit: cost stays as-is (None, or the logged 0 for free models).
+    }
+}
+
 
 /// Recursively collect all `.jsonl` files under `root`. Missing dir is an
 /// error (caller decides to skip).
@@ -1282,5 +1469,208 @@ mod tests {
         // parser to the same epoch.
         assert!(gen.unwrap().ends_with('Z'));
         assert_eq!(iso8601_to_epoch(gen.unwrap()), Some(1_700_000_000));
+    }
+
+    // --- cost backfill (task 08-27-usage-correctness, design §2) ---
+
+    use super::super::store::{CostEntry, ModelEntry, ProviderEntry};
+
+    fn approx(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    fn make_row(
+        agent: &str,
+        provider: Option<&str>,
+        model: &str,
+        in_tok: u64,
+        out_tok: u64,
+        cache_read: u64,
+        cache_write: u64,
+        cost: Option<f64>,
+    ) -> UsageRow {
+        UsageRow {
+            agent: agent.into(),
+            provider: provider.map(String::from),
+            model: model.into(),
+            r#in: in_tok,
+            out: out_tok,
+            cache_read,
+            cache_write,
+            cost,
+        }
+    }
+
+    /// Canonical fixture:
+    /// - prov-a: m1 with full cost (distinct rates per bucket)
+    /// - prov-b: m2 with input-only cost
+    /// - prov-c: m1 again (makes m1's provider ambiguous across providers)
+    /// - prov-d: claude-sonnet-4 with cost (fuzzy target)
+    fn cost_canonical() -> CanonicalConfig {
+        let mut c = CanonicalConfig::default();
+        let full = || {
+            Some(CostEntry {
+                input: Some(0.14),
+                output: Some(0.28),
+                cache_read: Some(0.0028),
+                cache_write: Some(1.12),
+            })
+        };
+        let entry = |id: &str, cost: Option<CostEntry>| ModelEntry {
+            id: id.into(),
+            cost,
+            ..Default::default()
+        };
+        c.providers.insert(
+            "prov-a".into(),
+            ProviderEntry {
+                name: "A".into(),
+                models: vec![entry("m1", full())],
+                ..Default::default()
+            },
+        );
+        c.providers.insert(
+            "prov-b".into(),
+            ProviderEntry {
+                name: "B".into(),
+                models: vec![entry("m2", Some(CostEntry { input: Some(2.0), ..Default::default() }))],
+                ..Default::default()
+            },
+        );
+        c.providers.insert(
+            "prov-c".into(),
+            ProviderEntry {
+                name: "C".into(),
+                models: vec![entry("m1", Some(CostEntry { input: Some(9.9), ..Default::default() }))],
+                ..Default::default()
+            },
+        );
+        c.providers.insert(
+            "prov-d".into(),
+            ProviderEntry {
+                name: "D".into(),
+                models: vec![entry("claude-sonnet-4", full())],
+                ..Default::default()
+            },
+        );
+        c
+    }
+
+    #[test]
+    fn backfill_trusts_positive_logged_cost() {
+        // A real logged cost is never touched (no double count).
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("pi", Some("prov-a"), "m1", 1_000_000, 1_000_000, 0, 0, Some(0.5))];
+        backfill_cost(&mut rows, &canonical);
+        assert_eq!(rows[0].cost, Some(0.5));
+    }
+
+    #[test]
+    fn backfill_zero_logged_cost_computes_from_provider_model() {
+        // pi/opencode always log 0 — that must fall through to backfill.
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("pi", Some("prov-a"), "m1", 1_000_000, 1_000_000, 1_000_000, 1_000_000, Some(0.0))];
+        backfill_cost(&mut rows, &canonical);
+        // Each bucket priced with its OWN rate: 0.14 + 0.28 + 0.0028 + 1.12.
+        let expected = 0.14 + 0.28 + 0.0028 + 1.12;
+        assert!(
+            rows[0].cost.map(|c| approx(c, expected)).unwrap_or(false),
+            "cost = {:?}, expected {expected}",
+            rows[0].cost
+        );
+    }
+
+    #[test]
+    fn backfill_none_cost_exact_model_across_providers() {
+        // claude rows have provider=None; exact model id found in prov-b.
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("claude", None, "m2", 500_000, 0, 0, 0, None)];
+        backfill_cost(&mut rows, &canonical);
+        // prov-b has input-only cost: 0.5M * 2.0 = 1.0; output/cache None -> 0.
+        assert!(rows[0].cost.map(|c| approx(c, 1.0)).unwrap_or(false), "cost = {:?}", rows[0].cost);
+        // Unambiguous match -> provider backfilled.
+        assert_eq!(rows[0].provider.as_deref(), Some("prov-b"));
+    }
+
+    #[test]
+    fn backfill_provider_none_when_model_ambiguous() {
+        // m1 exists in prov-a AND prov-c: cost still filled (most specific /
+        // first), but provider must NOT be backfilled (ambiguous).
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("claude", None, "m1", 1_000_000, 0, 0, 0, None)];
+        backfill_cost(&mut rows, &canonical);
+        assert!(rows[0].cost.is_some(), "cost must still be filled");
+        assert!(rows[0].provider.is_none(), "ambiguous match must not backfill provider");
+    }
+
+    #[test]
+    fn backfill_fuzzy_version_suffix_matches() {
+        let canonical = cost_canonical();
+        // Date-suffixed log id vs canonical id (the claude case).
+        let mut rows = vec![make_row("claude", None, "claude-sonnet-4-20250514", 1_000_000, 0, 0, 0, None)];
+        backfill_cost(&mut rows, &canonical);
+        assert!(rows[0].cost.map(|c| approx(c, 0.14)).unwrap_or(false), "cost = {:?}", rows[0].cost);
+        assert_eq!(rows[0].provider.as_deref(), Some("prov-d"));
+    }
+
+    #[test]
+    fn backfill_fuzzy_rejects_variant_suffixes() {
+        // "-free" / "-vision-exp" are DIFFERENT models — must not be priced
+        // at the base model's rates (container reconciliation found
+        // deepseek-v4-flash-free wrongly priced at deepseek-v4-flash rates).
+        let canonical = cost_canonical();
+        for variant in ["claude-sonnet-4-free", "claude-sonnet-4-vision-exp"] {
+            let mut rows = vec![make_row("opencode", None, variant, 1_000_000, 0, 0, 0, None)];
+            backfill_cost(&mut rows, &canonical);
+            assert!(rows[0].cost.is_none(), "{variant} must not fuzzy-match");
+        }
+        // Degenerate suffixes are not version stamps either (design §2c
+        // `-\d[\d.]*` must LEAD with a digit): bare "-", leading-dot "-.5",
+        // dots-only "-.", and unicode digit look-alikes all fail.
+        for variant in [
+            "claude-sonnet-4-",
+            "claude-sonnet-4-.5",
+            "claude-sonnet-4-.",
+            "claude-sonnet-4-٢٠٢٥",
+        ] {
+            let mut rows = vec![make_row("claude", None, variant, 1_000_000, 0, 0, 0, None)];
+            backfill_cost(&mut rows, &canonical);
+            assert!(rows[0].cost.is_none(), "{variant} must not fuzzy-match");
+        }
+        // Reverse direction (shorter row id) is rejected too: "gpt" must not
+        // match a hypothetical "gpt-5".
+        let mut rows = vec![make_row("codex", None, "claude-sonnet", 1_000_000, 0, 0, 0, None)];
+        backfill_cost(&mut rows, &canonical);
+        assert!(rows[0].cost.is_none(), "reverse-prefix must not match");
+    }
+
+    #[test]
+    fn backfill_no_match_leaves_cost_none() {
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("codex", None, "totally-unknown", 100, 100, 0, 0, None)];
+        backfill_cost(&mut rows, &canonical);
+        assert!(rows[0].cost.is_none(), "never invent a price");
+        assert!(rows[0].provider.is_none());
+    }
+
+    #[test]
+    fn backfill_free_model_stays_zero() {
+        // A logged 0 with no canonical hit stays 0 (real free tier), not None.
+        let canonical = cost_canonical();
+        let mut rows = vec![make_row("opencode", Some("opencode"), "mimo-v2.5-free", 1_000, 500, 0, 0, Some(0.0))];
+        backfill_cost(&mut rows, &canonical);
+        assert_eq!(rows[0].cost, Some(0.0));
+    }
+
+    #[test]
+    fn zero_token_rows_dropped_in_handler_order() {
+        // The handler's retain (design §3): all-zero rows are noise.
+        let mut rows = vec![
+            make_row("opencode", Some("opencode"), "mimo-v2.5-free", 0, 0, 0, 0, Some(0.0)),
+            make_row("pi", None, "m2", 7, 0, 0, 0, None),
+        ];
+        rows.retain(|r| r.r#in + r.out + r.cache_read + r.cache_write > 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "m2");
     }
 }

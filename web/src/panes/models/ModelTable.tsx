@@ -41,7 +41,7 @@ export function ModelTable({
           <th className="ml-chk">{t(lang, "mcReasoning")}</th>
           <th>{t(lang, "mcContextWindow")}</th>
           <th>{t(lang, "mcMaxTokens")}</th>
-          <th>{t(lang, "mcCost")} →</th>
+          <th>{t(lang, "mcCostPerM")} →</th>
           <th>in</th>
           <th>out</th>
           <th>cacheR</th>
