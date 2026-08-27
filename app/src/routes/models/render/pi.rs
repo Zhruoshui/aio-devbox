@@ -208,19 +208,22 @@ fn render_pi_model(m: &ModelEntry) -> Value {
     Value::Object(o)
 }
 
+/// canonical `CostEntry` is USD-per-1M-tokens (design 08-27-usage-correctness);
+/// pi's native `models.json` cost fields are USD-per-token. Convert on render
+/// so pi's own cost math isn't off by 1e6 (08-27-provider-form-piweb design §0).
 fn render_pi_cost(cost: &CostEntry) -> serde_json::Map<String, Value> {
     let mut c = serde_json::Map::new();
     if let Some(v) = cost.input {
-        c.insert("input".into(), json!(v));
+        c.insert("input".into(), json!(v / 1_000_000.0));
     }
     if let Some(v) = cost.output {
-        c.insert("output".into(), json!(v));
+        c.insert("output".into(), json!(v / 1_000_000.0));
     }
     if let Some(v) = cost.cache_read {
-        c.insert("cacheRead".into(), json!(v));
+        c.insert("cacheRead".into(), json!(v / 1_000_000.0));
     }
     if let Some(v) = cost.cache_write {
-        c.insert("cacheWrite".into(), json!(v));
+        c.insert("cacheWrite".into(), json!(v / 1_000_000.0));
     }
     c
 }
@@ -327,9 +330,10 @@ mod tests {
             ..Default::default()
         };
         let v = render_pi_model(&m);
-        assert_eq!(v["cost"]["input"], 0.1);
-        assert_eq!(v["cost"]["output"], 0.2);
-        assert_eq!(v["cost"]["cacheRead"], 0.3);
+        // canonical is $/M; pi's native schema wants $/token (÷1e6).
+        assert_eq!(v["cost"]["input"], 0.1 / 1_000_000.0);
+        assert_eq!(v["cost"]["output"], 0.2 / 1_000_000.0);
+        assert_eq!(v["cost"]["cacheRead"], 0.3 / 1_000_000.0);
         assert!(v["cost"].get("cacheWrite").is_none());
     }
 

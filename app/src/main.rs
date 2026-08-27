@@ -39,7 +39,7 @@ mod state;
 
 use routes::{
     buttons::{create_button, delete_button}, manifest::manifest,
-    models::{apply_agent, discover::discover, get_agents, get_config, import_pi, put_config, test::test, usage::usage},
+    models::{apply_agent, catalog::get_catalog, discover::discover, get_agents, get_config, import_pi, put_config, test::test, usage::usage},
     seam::seam, stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
 };
 use state::AppState;
@@ -105,6 +105,8 @@ async fn main() {
         .route("/api/models/apply/:agent", post(apply_agent))
         // M4: per-(agent,model) token usage aggregation (design §6).
         .route("/api/models/usage", get(usage))
+        // models.dev metadata catalog (1h cache, 08-27-provider-form-piweb).
+        .route("/api/models/catalog", get(get_catalog))
         // Reserved seams (design §13/§14C): 502 stub on any method. The bare
         // prefix, the trailing slash, and every sub-path are each covered.
         // `/api/manifest` and `/api/term/ws` above are static segments so they

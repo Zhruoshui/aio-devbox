@@ -209,6 +209,28 @@ export interface UsageResponse {
 /** The four agent tabs that carry a provider/model assignment. */
 export type AgentTab = "pi" | "opencode" | "claude" | "codex";
 
+// ── R1: models.dev catalog types ──────────────────────────────────
+
+export interface CatalogModel {
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  input?: string[];
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: CostEntry;
+}
+
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  models: CatalogModel[];
+}
+
+export interface CatalogResponse {
+  providers: CatalogProvider[];
+}
+
 // ── decoders (single boundary owner) ──────────────────────────────
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -293,6 +315,89 @@ export function decodeAgents(json: unknown): AgentsResponse {
     claude: dec(json.claude),
     codex: dec(json.codex),
   };
+}
+
+/** Decode the GET /api/models/catalog response (single boundary owner). */
+export function decodeCatalog(json: unknown): CatalogResponse {
+  const o = isObj(json) ? json : {};
+  const rawProviders = Array.isArray(o.providers) ? o.providers : [];
+  const providers: CatalogProvider[] = [];
+  for (const rp of rawProviders) {
+    if (!isObj(rp)) continue;
+    const rawModels = Array.isArray(rp.models) ? rp.models : [];
+    const models: CatalogModel[] = [];
+    for (const rm of rawModels) {
+      if (!isObj(rm) || typeof rm.id !== "string") continue;
+      const cost = isObj(rm.cost)
+        ? ({
+            input: typeof rm.cost.input === "number" ? rm.cost.input : undefined,
+            output: typeof rm.cost.output === "number" ? rm.cost.output : undefined,
+            cacheRead:
+              typeof rm.cost.cacheRead === "number" ? rm.cost.cacheRead : undefined,
+            cacheWrite:
+              typeof rm.cost.cacheWrite === "number" ? rm.cost.cacheWrite : undefined,
+          } as CostEntry)
+        : undefined;
+      models.push({
+        id: rm.id,
+        name: typeof rm.name === "string" ? rm.name : undefined,
+        reasoning: typeof rm.reasoning === "boolean" ? rm.reasoning : undefined,
+        input: Array.isArray(rm.input) ? rm.input.filter((x): x is string => typeof x === "string") : undefined,
+        contextWindow: typeof rm.contextWindow === "number" ? rm.contextWindow : undefined,
+        maxTokens: typeof rm.maxTokens === "number" ? rm.maxTokens : undefined,
+        cost,
+      });
+    }
+    if (typeof rp.id === "string" && typeof rp.name === "string") {
+      providers.push({ id: rp.id, name: rp.name, models });
+    }
+  }
+  return { providers };
+}
+
+/** Common provider-baseUrl-hostname -> models.dev provider id mapping, used by
+ * `catalogRecommend` to find the right catalog provider without the backend
+ * having to guess (design 08-27-provider-form-piweb §4.2). Extend as needed;
+ * an unmapped host just means models.dev fill-in falls back to unavailable. */
+const CATALOG_HOST_HINTS: Record<string, string> = {
+  "api.openai.com": "openai",
+  "api.anthropic.com": "anthropic",
+  "generativelanguage.googleapis.com": "google",
+  "api.deepseek.com": "deepseek",
+  "api.groq.com": "groq",
+  "api.mistral.ai": "mistral",
+  "api.moonshot.cn": "moonshot",
+  "api.moonshot.ai": "moonshot",
+  "openrouter.ai": "openrouter",
+  "api.x.ai": "xai",
+  "dashscope.aliyuncs.com": "alibaba",
+  "open.bigmodel.cn": "zhipuai",
+};
+
+/** Find the models.dev catalog entry for a model, given the provider being
+ * edited (its baseUrl decides which catalog provider to look in) and the
+ * model id to fill (case-insensitive exact match — design §4.2). Returns
+ * null when the host isn't recognized or the model isn't in that catalog
+ * provider's list. */
+export function catalogRecommend(
+  catalog: CatalogResponse,
+  baseUrl: string,
+  modelId: string,
+): CatalogModel | null {
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const catalogProviderId = Object.entries(CATALOG_HOST_HINTS).find(([h]) =>
+    host === h || host.endsWith(`.${h}`),
+  )?.[1];
+  if (!catalogProviderId) return null;
+  const provider = catalog.providers.find((p) => p.id === catalogProviderId);
+  if (!provider) return null;
+  const needle = modelId.toLowerCase();
+  return provider.models.find((m) => m.id.toLowerCase() === needle) ?? null;
 }
 
 // ── helpers ───────────────────────────────────────────────────────

@@ -10,11 +10,13 @@
 //   GET  /api/models/agents       — per-agent installed + live readback (design §3)
 //   POST /api/models/apply/:agent — render canonical assignment to the agent's files
 //   GET  /api/models/usage        — per-(agent,model) token aggregation (design §6)
+//   GET  /api/models/catalog      — models.dev metadata catalog (1h cache, 08-27-provider-form-piweb)
 //
 // All writes are serialized by `state.models_lock` (per design §3). Corrupt
 // files are moved aside (models.json.corrupt-<ts>) and the error surfaced;
 // the next PUT succeeds on a fresh file.
 
+pub mod catalog;
 pub mod discover;
 pub mod render;
 pub mod store;

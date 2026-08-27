@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
-import { ModelTable } from "./ModelTable";
+import { ModelRow, type CatalogFillState } from "./ModelRow";
 import {
   API_PROTOCOLS,
   bindingAgents,
@@ -42,6 +42,7 @@ export function ProviderEditor({
   showAdvanced,
   testState,
   discover,
+  catalogFillState,
   onClose,
   onPatchProvider,
   onPatchModel,
@@ -57,6 +58,7 @@ export function ProviderEditor({
   onFetchModels,
   onDiscoverSet,
   onDiscoverAddSelected,
+  onFillFromCatalog,
   onJumpToAgent,
   onDeleteProvider,
   lang,
@@ -72,6 +74,7 @@ export function ProviderEditor({
   showAdvanced: boolean;
   testState: TestStateMap;
   discover: DiscoverState | null;
+  catalogFillState: Record<string, CatalogFillState>;
   onClose: () => void;
   onPatchProvider: (patch: Partial<ProviderEntry>) => void;
   onPatchModel: (idx: number, patch: Partial<ModelEntry>) => void;
@@ -87,6 +90,7 @@ export function ProviderEditor({
   onFetchModels: () => void;
   onDiscoverSet: (d: DiscoverState | null) => void;
   onDiscoverAddSelected: () => void;
+  onFillFromCatalog: (idx: number) => void;
   onJumpToAgent: (agent: AgentTab) => void;
   onDeleteProvider: () => void;
   lang: Lang;
@@ -210,18 +214,28 @@ export function ProviderEditor({
               </button>
             </div>
           </div>
-          <div className="ml-model-table-wrap">
-            <ModelTable
-              providerId={providerId}
-              models={provider.models}
-              testState={testState}
-              onPatchModel={onPatchModel}
-              onDeleteModel={onDeleteModel}
-              onUpdateCost={onUpdateCost}
-              onTest={onTest}
-              onResetTest={onResetTest}
-              lang={lang}
-            />
+          <div className="ml-model-list">
+            {provider.models.length === 0 ? (
+              <span className="ml-hint">{t(lang, "mcDiscoverEmpty")}</span>
+            ) : (
+              provider.models.map((m, idx) => (
+                <ModelRow
+                  key={idx}
+                  providerId={providerId}
+                  model={m}
+                  idx={idx}
+                  testState={testState}
+                  catalogFillState={catalogFillState[`${providerId}:${m.id}`]}
+                  onPatchModel={onPatchModel}
+                  onDeleteModel={onDeleteModel}
+                  onUpdateCost={onUpdateCost}
+                  onTest={onTest}
+                  onResetTest={onResetTest}
+                  onFillFromCatalog={onFillFromCatalog}
+                  lang={lang}
+                />
+              ))
+            )}
           </div>
 
           {/* ── binding overview ── */}

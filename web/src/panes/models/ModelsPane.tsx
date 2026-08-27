@@ -20,8 +20,11 @@ import { PresetList } from "./PresetList";
 import { ProviderEditor } from "./ProviderEditor";
 import { ProviderGrid } from "./ProviderGrid";
 import { UsageTab, type UsageWindow } from "./UsageTab";
+import type { CatalogFillState } from "./ModelRow";
 import {
+  catalogRecommend,
   decodeAgents,
+  decodeCatalog,
   decodeConfig,
   decodeUsage,
   emptyProvider,
@@ -32,6 +35,7 @@ import {
   type AnyPreset,
   type ApplyResponse,
   type CanonicalConfig,
+  type CatalogResponse,
   type CostEntry,
   type DiscoverState,
   type DiscoveredModel,
@@ -93,6 +97,13 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   // M2: per-(provider,model) test pills + discover modal.
   const [testState, setTestState] = useState<TestStateMap>({});
   const [discover, setDiscover] = useState<DiscoverState | null>(null);
+
+  // R1: models.dev catalog (lazy-fetched once, kept in memory for the pane's
+  // lifetime — the catalog changes rarely, no refresh button needed).
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [catalogFillState, setCatalogFillState] = useState<
+    Record<string, CatalogFillState>
+  >({});
 
   // M3: agent tabs.
   const [agentsStatus, setAgentsStatus] = useState<AgentsResponse | null>(null);
@@ -491,6 +502,54 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     });
     setDirty(true);
   }, [selectedId, discover]);
+
+  // Lazy-fetch the models.dev catalog once and cache it in state; subsequent
+  // fill clicks reuse it without another request.
+  const fetchCatalogOnce = useCallback(async (): Promise<CatalogResponse | null> => {
+    if (catalog) return catalog;
+    try {
+      const r = await fetch("/api/models/catalog");
+      if (!r.ok) return null;
+      const c = decodeCatalog(await r.json());
+      setCatalog(c);
+      return c;
+    } catch {
+      return null;
+    }
+  }, [catalog]);
+
+  const handleCatalogFill = useCallback(
+    async (providerId: string, idx: number): Promise<void> => {
+      const provider = config?.providers[providerId];
+      const model = provider?.models[idx];
+      if (!provider || !model || !model.id) return;
+      const key = `${providerId}:${model.id}`;
+      setCatalogFillState((prev) => ({ ...prev, [key]: "loading" }));
+      const c = await fetchCatalogOnce();
+      if (!c) {
+        setCatalogFillState((prev) => ({ ...prev, [key]: "error" }));
+        return;
+      }
+      const hit = catalogRecommend(c, provider.baseUrl, model.id);
+      if (!hit) {
+        setCatalogFillState((prev) => ({ ...prev, [key]: "notfound" }));
+        return;
+      }
+      setCatalogFillState((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      updateModel(providerId, idx, {
+        name: hit.name,
+        reasoning: hit.reasoning,
+        contextWindow: hit.contextWindow,
+        maxTokens: hit.maxTokens,
+        cost: hit.cost,
+      });
+    },
+    [config, fetchCatalogOnce, updateModel],
+  );
 
   // ── M3: agents ──────────────────────────────────────────────────
 
@@ -898,6 +957,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
                 showAdvanced={showAdvanced}
                 testState={testState}
                 discover={discover}
+                catalogFillState={catalogFillState}
                 onClose={() => setSelectedId(null)}
                 onPatchProvider={(patch) => updateProvider(selectedId, patch)}
                 onPatchModel={(idx, patch) => updateModel(selectedId, idx, patch)}
@@ -915,6 +975,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
                 onFetchModels={() => void handleFetchModels()}
                 onDiscoverSet={setDiscover}
                 onDiscoverAddSelected={handleDiscoverAddSelected}
+                onFillFromCatalog={(idx) => void handleCatalogFill(selectedId, idx)}
                 onJumpToAgent={jumpToAgent}
                 onDeleteProvider={() => deleteProvider(selectedId)}
                 lang={lang}
