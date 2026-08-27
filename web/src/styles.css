@@ -1229,6 +1229,124 @@ input {
   color: var(--muted);
 }
 
+/* ── preset list (claude/codex, cc-switch style) ─────────────────── */
+.ml-preset-list {
+  max-width: 640px;
+  margin: var(--space-4) auto;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ml-preset-toolbar {
+  display: flex;
+  gap: var(--space-2);
+}
+.ml-preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: box-shadow var(--motion-fast) ease;
+}
+.ml-preset-card:hover {
+  box-shadow: var(--elev-ring), 0 2px 6px 0 oklch(0% 0 0 / 0.1);
+}
+.ml-preset-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.ml-preset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.ml-preset-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.ml-preset-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.ml-preset-meta code {
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+.ml-preset-sep {
+  opacity: 0.5;
+}
+.ml-preset-divider {
+  border-top: 1px solid var(--border-soft);
+  margin: var(--space-1) 0;
+}
+.ml-badge-current {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.ml-warn-line {
+  font-size: var(--text-sm);
+  color: var(--warn);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in oklch, var(--warn) 10%, transparent);
+  border-radius: var(--radius-md);
+}
+.ml-preset-form-wrap {
+  padding: var(--space-3);
+  background: var(--surface-warm);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ml-preset-form-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ml-preset-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ml-preset-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* small + danger button variants */
+.btn-sm {
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+.btn-danger {
+  background: color-mix(in oklch, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+.btn-danger:hover {
+  background: color-mix(in oklch, var(--danger) 26%, transparent);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── usage tab ──────────────────────────────────────────────────── */
 .ml-usage {
   max-width: 1080px;

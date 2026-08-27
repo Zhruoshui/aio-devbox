@@ -16,6 +16,7 @@ import type { ServiceEntry } from "../../types";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
 import { AgentTabs } from "./AgentTabs";
+import { PresetList } from "./PresetList";
 import { ProviderEditor } from "./ProviderEditor";
 import { ProviderGrid } from "./ProviderGrid";
 import { UsageTab, type UsageWindow } from "./UsageTab";
@@ -28,12 +29,14 @@ import {
   safeStringify,
   type AgentTab,
   type AgentsResponse,
+  type AnyPreset,
   type ApplyResponse,
   type CanonicalConfig,
   type CostEntry,
   type DiscoverState,
   type DiscoveredModel,
   type ModelEntry,
+  type PresetAgent,
   type ProviderEntry,
   type TestStateMap,
   type UsageRow,
@@ -508,11 +511,11 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   }, [tab, fetchAgents]);
 
   const updateAgentAssignment = useCallback(
-    (agent: AgentTab, patch: Record<string, unknown>): void => {
+    (agent: "pi" | "opencode", patch: Record<string, unknown>): void => {
       setConfig((prev) => {
         if (!prev) return prev;
-        const current = prev.agents[agent] as Record<string, unknown> | undefined;
-        const next = { ...(current ?? {}), ...patch };
+        const current = prev.agents[agent];
+        const next = { ...(current ?? { provider: "", model: "" }), ...patch };
         // When the provider changed, reset the model if it's not in the new
         // provider's model list.
         if (
@@ -521,7 +524,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         ) {
           const p = prev.providers[patch.provider as string];
           const models = p?.models.map((m) => m.id) ?? [];
-          if (!models.includes(next.model as string)) {
+          if (!models.includes(next.model)) {
             next.model = models[0] ?? "";
           }
         }
@@ -531,6 +534,161 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       setApplyResult(null);
     },
     [],
+  );
+
+  // ── claude/codex preset CRUD (design §4) ──────────────────────
+  //
+  // All five edit the local canonical state and mark the agent dirty; the
+  // user commits via the shared save bar (same PUT /api/models/config
+  // channel). Switch is the exception - it setCurrent + save + apply in one
+  // click so a preset takes effect immediately.
+
+  /** Replace the preset list block for a switch-style agent. */
+  const setPresets = useCallback(
+    (
+      agent: PresetAgent,
+      build: (block: { presets: AnyPreset[]; current?: string | null } | undefined) => {
+        presets: AnyPreset[];
+        current?: string | null;
+      },
+    ): void => {
+      setConfig((prev) => {
+        if (!prev) return prev;
+        const existing =
+          agent === "claude" ? prev.agents.claude : prev.agents.codex;
+        const next = build(
+          existing
+            ? { presets: existing.presets, current: existing.current }
+            : undefined,
+        );
+        return {
+          ...prev,
+          agents: { ...prev.agents, [agent]: next },
+        };
+      });
+      setAgentDirty((prev) => new Set(prev).add(agent));
+      setApplyResult(null);
+    },
+    [],
+  );
+
+  const addPreset = useCallback(
+    (agent: PresetAgent, preset: AnyPreset): void => {
+      setPresets(agent, (block) => {
+        const presets = [...(block?.presets ?? []), preset];
+        // First preset auto-becomes current (sent as "" until the backend
+        // backfills the id - design §2). Otherwise leave current alone.
+        const current =
+          (block?.presets?.length ?? 0) === 0 ? "" : block?.current ?? null;
+        return { presets, current };
+      });
+    },
+    [setPresets],
+  );
+
+  const updatePreset = useCallback(
+    (agent: PresetAgent, id: string, preset: AnyPreset): void => {
+      setPresets(agent, (block) => {
+        const presets = (block?.presets ?? []).map((p) =>
+          p.id === id ? { ...preset, id } : p,
+        );
+        return { presets, current: block?.current ?? null };
+      });
+    },
+    [setPresets],
+  );
+
+  const deletePreset = useCallback(
+    (agent: PresetAgent, id: string): void => {
+      setPresets(agent, (block) => {
+        const presets = (block?.presets ?? []).filter((p) => p.id !== id);
+        // Deleting the current preset: shift current to the first remaining
+        // (or null). Never dangle (PRD AC; design §2).
+        let current = block?.current ?? null;
+        if (current === id) {
+          current = presets[0]?.id ?? null;
+        }
+        return { presets, current };
+      });
+    },
+    [setPresets],
+  );
+
+  const duplicatePreset = useCallback(
+    (agent: PresetAgent, id: string): void => {
+      setPresets(agent, (block) => {
+        const src = (block?.presets ?? []).find((p) => p.id === id);
+        if (!src) return { presets: block?.presets ?? [], current: block?.current ?? null };
+        // New id (backend backfills); name gets the copy suffix; insert right
+        // after the source so it appears adjacent (design §4).
+        const copy: AnyPreset = {
+          ...(src as object),
+          id: "",
+          name: `${src.name} ${t(lang, "maCopySuffix")}`,
+        } as AnyPreset;
+        const presets: AnyPreset[] = [];
+        for (const p of block?.presets ?? []) {
+          presets.push(p);
+          if (p.id === id) presets.push(copy);
+        }
+        return { presets, current: block?.current ?? null };
+      });
+    },
+    [setPresets, lang],
+  );
+
+  /** Switch = setCurrent + save + apply, one click (design §4). */
+  const handleSwitchPreset = useCallback(
+    async (agent: PresetAgent, id: string): Promise<void> => {
+      if (!config || id === "") return;
+      const block = agent === "claude" ? config.agents.claude : config.agents.codex;
+      const next =
+        id === (block?.current ?? null)
+          ? config // already current -> just apply
+          : {
+              ...config,
+              agents: { ...config.agents, [agent]: { ...block, current: id } },
+            };
+      setConfig(next);
+      setSaving(true);
+      setAgentSaveMsg(null);
+      setApplyResult(null);
+      try {
+        const r = await fetch("/api/models/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        if (!r.ok) {
+          setAgentSaveMsg({ ok: false, text: await r.text() });
+          return;
+        }
+        await fetchConfig();
+        setAgentDirty((prev) => {
+          const n = new Set(prev);
+          n.delete(agent);
+          return n;
+        });
+        // Apply the now-current preset to the agent's native files.
+        setApplying(true);
+        const ar = await fetch(`/api/models/apply/${agent}`, { method: "POST" });
+        setApplyResult((await ar.json()) as ApplyResponse);
+        await fetchAgents();
+      } catch (e) {
+        setApplyResult({
+          ok: false,
+          written: [],
+          errors: [
+            { path: agent, message: e instanceof Error ? e.message : String(e) },
+          ],
+        });
+      } finally {
+        setSaving(false);
+        setApplying(false);
+        window.setTimeout(() => setAgentSaveMsg(null), 3000);
+      }
+    },
+    [config, fetchConfig, fetchAgents],
   );
 
   const handleSaveAssignment = useCallback(
@@ -672,9 +830,27 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
             onRefresh={() => void fetchUsage(usageWindow, true)}
             lang={lang}
           />
+        ) : tab === "claude" || tab === "codex" ? (
+          <PresetList
+            agent={tab}
+            config={config ?? { version: 1, providers: {}, agents: {} }}
+            agentsStatus={agentsStatus}
+            agentDirty={agentDirty}
+            saving={saving}
+            applying={applying}
+            applyResult={applyResult}
+            agentSaveMsg={agentSaveMsg}
+            onAddPreset={addPreset}
+            onUpdatePreset={updatePreset}
+            onDeletePreset={deletePreset}
+            onDuplicatePreset={duplicatePreset}
+            onSwitchPreset={(a, id) => void handleSwitchPreset(a, id)}
+            onSaveAssignment={(a) => void handleSaveAssignment(a)}
+            lang={lang}
+          />
         ) : tab !== "providers" ? (
           <AgentTabs
-            agent={tab as AgentTab}
+            agent={tab as "pi" | "opencode"}
             config={config ?? { version: 1, providers: {}, agents: {} }}
             agentsStatus={agentsStatus}
             agentDirty={agentDirty}

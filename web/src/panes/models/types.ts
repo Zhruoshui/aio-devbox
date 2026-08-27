@@ -43,24 +43,58 @@ export interface CostEntry {
   cacheWrite?: number;
 }
 
-export interface AgentsConfig {
-  pi?: { provider: string; model: string };
-  opencode?: { provider: string; model: string };
-  claude?: {
-    provider: string;
-    model: string;
-    haikuModel?: string | null;
-    sonnetModel?: string | null;
-    opusModel?: string | null;
-    authField: string;
-  };
-  codex?: {
-    provider: string;
-    model: string;
-    reasoningEffort?: string | null;
-    wireApi: string;
-  };
+/** claude is a switch-style agent: N presets, one `current` takes effect. */
+export interface ClaudePreset {
+  /** Backend-generated short id; "" on a freshly-created preset (backfilled on PUT). */
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  haikuModel?: string | null;
+  sonnetModel?: string | null;
+  opusModel?: string | null;
+  authField: string;
 }
+
+export interface ClaudePresets {
+  presets: ClaudePreset[];
+  /** id of the active preset; unset or dangling => apply refuses. */
+  current?: string | null;
+}
+
+/** codex is a switch-style agent (mirror of ClaudePresets). */
+export interface CodexPreset {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  reasoningEffort?: string | null;
+  wireApi: string;
+}
+
+export interface CodexPresets {
+  presets: CodexPreset[];
+  current?: string | null;
+}
+
+/** pi/opencode keep a single assignment (incremental agents - design §5). */
+export interface AgentAssignment {
+  provider: string;
+  model: string;
+}
+
+export interface AgentsConfig {
+  pi?: AgentAssignment;
+  opencode?: AgentAssignment;
+  claude?: ClaudePresets;
+  codex?: CodexPresets;
+}
+
+/** The preset-list agents (switch-style); narrows the AgentTab union. */
+export type PresetAgent = "claude" | "codex";
+
+/** Union of both preset shapes, keyed by agent for generic helpers. */
+export type AnyPreset = ClaudePreset | CodexPreset;
 
 export interface PutResponse {
   ok: boolean;
@@ -332,7 +366,8 @@ export function liveReadbackText(
   }
 }
 
-/** Which agents bind a given provider id (for card chips + editor overview). */
+/** Which agents bind a given provider id (for card chips + editor overview).
+ *  For switch-style agents, a provider is "bound" when ANY preset references it. */
 export function bindingAgents(
   config: CanonicalConfig,
   providerId: string,
@@ -341,9 +376,46 @@ export function bindingAgents(
   const a = config.agents;
   if (a.pi?.provider === providerId) out.push("pi");
   if (a.opencode?.provider === providerId) out.push("opencode");
-  if (a.claude?.provider === providerId) out.push("claude");
-  if (a.codex?.provider === providerId) out.push("codex");
+  if (a.claude?.presets.some((p) => p.provider === providerId)) out.push("claude");
+  if (a.codex?.presets.some((p) => p.provider === providerId)) out.push("codex");
   return out;
+}
+
+/** The currently-effective preset for a switch-style agent (null when unset/dangling). */
+export function currentPreset(
+  config: CanonicalConfig,
+  agent: PresetAgent,
+): AnyPreset | null {
+  const block =
+    agent === "claude" ? config.agents.claude : config.agents.codex;
+  if (!block || !block.current) return null;
+  return block.presets.find((p) => p.id === block.current) ?? null;
+}
+
+/** A blank claude preset (id empty - backend backfills on PUT). */
+export function emptyClaudePreset(): ClaudePreset {
+  return {
+    id: "",
+    name: "",
+    provider: "",
+    model: "",
+    haikuModel: null,
+    sonnetModel: null,
+    opusModel: null,
+    authField: "AUTH_TOKEN",
+  };
+}
+
+/** A blank codex preset (id empty - backend backfills on PUT). */
+export function emptyCodexPreset(): CodexPreset {
+  return {
+    id: "",
+    name: "",
+    provider: "",
+    model: "",
+    reasoningEffort: null,
+    wireApi: "responses",
+  };
 }
 
 /** Short human label for a provider protocol. */

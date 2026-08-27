@@ -10,6 +10,7 @@
 // for the canonical shape and its pi-web/cc-switch lineage.
 
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -49,9 +50,9 @@ pub struct AgentsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opencode: Option<AgentAssignment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub claude: Option<ClaudeAssignment>,
+    pub claude: Option<ClaudePresets>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub codex: Option<CodexAssignment>,
+    pub codex: Option<CodexPresets>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,9 +62,32 @@ pub struct AgentAssignment {
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// ── claude/codex presets (cc-switch style, design §1) ─────────────
+//
+// claude and codex are switch-style agents: exactly one preset takes effect
+// at a time. A preset derives from the unified provider library (provider id
+// + model + override fields) — it never copies the provider's key/headers
+// blob; credentials stay in the provider library (SSOT).
+
+/// N named claude presets + the currently-selected one. `current` is a preset
+/// id; unset or dangling (apply refuses, validate rejects on PUT).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", from = "ClaudePresetsShadow")]
+pub struct ClaudePresets {
+    pub presets: Vec<ClaudePreset>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ClaudeAssignment {
+pub struct ClaudePreset {
+    /// Backend-generated short kebab id (`preset-<hex>`); backfilled on PUT
+    /// when the frontend creates a preset without one (design §2).
+    #[serde(default)]
+    pub id: String,
+    #[serde(default = "default_preset_name")]
+    pub name: String,
     pub provider: String,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -80,9 +104,92 @@ fn default_auth_field() -> String {
     "AUTH_TOKEN".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn default_preset_name() -> String {
+    "默认配置".to_string()
+}
+
+impl ClaudePresets {
+    /// The preset `current` points at; None when current is unset or dangling.
+    pub fn current_preset(&self) -> Option<&ClaudePreset> {
+        self.current
+            .as_ref()
+            .and_then(|id| self.presets.iter().find(|p| &p.id == id))
+    }
+}
+
+/// Deserialization shadow: eats both the new shape (`presets`+`current`) and
+/// the pre-preset single-assignment shape (`provider`/`model`/... at the top
+/// level), converting the latter into a one-preset list (design §1). No
+/// version field — the migration is shape-lossless (single assignment ⊂
+/// presets) and old keys drop out on the next save.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CodexAssignment {
+struct ClaudePresetsShadow {
+    #[serde(default)]
+    presets: Vec<ClaudePreset>,
+    #[serde(default)]
+    current: Option<String>,
+    // Old single-assignment fields (migration input when `presets` is empty).
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    haiku_model: Option<String>,
+    #[serde(default)]
+    sonnet_model: Option<String>,
+    #[serde(default)]
+    opus_model: Option<String>,
+    #[serde(default)]
+    auth_field: Option<String>,
+}
+
+impl From<ClaudePresetsShadow> for ClaudePresets {
+    fn from(s: ClaudePresetsShadow) -> Self {
+        if !s.presets.is_empty() {
+            return ClaudePresets {
+                presets: s.presets,
+                current: s.current,
+            };
+        }
+        // Old shape: hoist the single assignment into one default preset and
+        // make it current.
+        if let Some(provider) = s.provider.filter(|p| !p.is_empty()) {
+            let preset = ClaudePreset {
+                id: "default".into(),
+                name: default_preset_name(),
+                provider,
+                model: s.model.unwrap_or_default(),
+                haiku_model: s.haiku_model,
+                sonnet_model: s.sonnet_model,
+                opus_model: s.opus_model,
+                auth_field: s.auth_field.unwrap_or_else(default_auth_field),
+            };
+            return ClaudePresets {
+                presets: vec![preset],
+                current: Some("default".into()),
+            };
+        }
+        ClaudePresets::default()
+    }
+}
+
+/// N named codex presets + the currently-selected one (mirror of ClaudePresets).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", from = "CodexPresetsShadow")]
+pub struct CodexPresets {
+    pub presets: Vec<CodexPreset>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPreset {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default = "default_preset_name")]
+    pub name: String,
     pub provider: String,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,6 +200,133 @@ pub struct CodexAssignment {
 
 fn default_wire_api() -> String {
     "responses".to_string()
+}
+
+impl CodexPresets {
+    /// The preset `current` points at; None when current is unset or dangling.
+    pub fn current_preset(&self) -> Option<&CodexPreset> {
+        self.current
+            .as_ref()
+            .and_then(|id| self.presets.iter().find(|p| &p.id == id))
+    }
+}
+
+/// Deserialization shadow for codex (see ClaudePresetsShadow).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexPresetsShadow {
+    #[serde(default)]
+    presets: Vec<CodexPreset>,
+    #[serde(default)]
+    current: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
+    #[serde(default)]
+    wire_api: Option<String>,
+}
+
+impl From<CodexPresetsShadow> for CodexPresets {
+    fn from(s: CodexPresetsShadow) -> Self {
+        if !s.presets.is_empty() {
+            return CodexPresets {
+                presets: s.presets,
+                current: s.current,
+            };
+        }
+        if let Some(provider) = s.provider.filter(|p| !p.is_empty()) {
+            let preset = CodexPreset {
+                id: "default".into(),
+                name: default_preset_name(),
+                provider,
+                model: s.model.unwrap_or_default(),
+                reasoning_effort: s.reasoning_effort,
+                wire_api: s.wire_api.unwrap_or_else(default_wire_api),
+            };
+            return CodexPresets {
+                presets: vec![preset],
+                current: Some("default".into()),
+            };
+        }
+        CodexPresets::default()
+    }
+}
+
+// ── preset id generation (design §2) ──────────────────────────────
+
+/// Generate a short preset id: `preset-<5 hex>` from a nanos+counter-seeded
+/// splitmix64 (std-only — no rand dep). Uniqueness within an agent domain is
+/// guaranteed by `assign_missing_ids` regenerating on collision.
+pub fn gen_preset_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut z = nanos ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    // splitmix64 finalizer.
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    format!("preset-{:05x}", z & 0xF_FFFF)
+}
+
+/// Assign ids to presets that lack one (frontend creates presets without
+/// ids; PUT backfills here), keeping ids unique within the slice. Returns
+/// the id assigned to the FIRST id-less preset (used to resolve a
+/// `current: ""` placeholder).
+fn assign_missing_ids<T>(
+    presets: &mut [T],
+    id_of: impl Fn(&T) -> &str,
+    mut set_id: impl FnMut(&mut T, String),
+) -> Option<String> {
+    let existing: HashSet<String> = presets
+        .iter()
+        .map(|p| id_of(p))
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    let mut taken = existing;
+    let mut first_assigned: Option<String> = None;
+    for preset in presets.iter_mut() {
+        if id_of(preset).is_empty() {
+            let mut id = gen_preset_id();
+            while taken.contains(&id) {
+                id = gen_preset_id();
+            }
+            taken.insert(id.clone());
+            if first_assigned.is_none() {
+                first_assigned = Some(id.clone());
+            }
+            set_id(preset, id);
+        }
+    }
+    first_assigned
+}
+
+/// Backfill preset ids for both preset-style agents (call on every PUT,
+/// after merge, before validate — design §2). Also resolves the frontend's
+/// `current: ""` placeholder ("the preset I just created") to the new id —
+/// the frontend cannot know the backend-generated id when it marks a
+/// freshly-added preset current.
+pub fn ensure_preset_ids(config: &mut CanonicalConfig) {
+    if let Some(presets) = config.agents.claude.as_mut() {
+        let first = assign_missing_ids(&mut presets.presets, |p| p.id.as_str(), |p, id| p.id = id);
+        if presets.current.as_deref() == Some("") {
+            presets.current = first.or_else(|| presets.presets.first().map(|p| p.id.clone()));
+        }
+    }
+    if let Some(presets) = config.agents.codex.as_mut() {
+        let first = assign_missing_ids(&mut presets.presets, |p| p.id.as_str(), |p, id| p.id = id);
+        if presets.current.as_deref() == Some("") {
+            presets.current = first.or_else(|| presets.presets.first().map(|p| p.id.clone()));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -308,11 +542,11 @@ pub fn validate(config: &CanonicalConfig) -> Result<(), Vec<String>> {
     if let Some(a) = &config.agents.opencode {
         validate_assignment("opencode", &a.provider, &a.model, &config.providers, &mut errors);
     }
-    if let Some(a) = &config.agents.claude {
-        validate_assignment("claude", &a.provider, &a.model, &config.providers, &mut errors);
+    if let Some(presets) = &config.agents.claude {
+        validate_presets("claude", &presets.presets, &presets.current, &config.providers, &mut errors);
     }
-    if let Some(a) = &config.agents.codex {
-        validate_assignment("codex", &a.provider, &a.model, &config.providers, &mut errors);
+    if let Some(presets) = &config.agents.codex {
+        validate_presets("codex", &presets.presets, &presets.current, &config.providers, &mut errors);
     }
 
     if errors.is_empty() {
@@ -350,6 +584,98 @@ fn validate_assignment(
             "agent '{}' model '{}' not found in provider '{}'",
             agent, model, provider
         ));
+    }
+}
+
+/// Validate an agent's preset list: every preset's provider/model references
+/// must resolve (even non-current presets must not be broken — design §3),
+/// ids must be unique, and `current` must not dangle (design §6). Errors
+/// carry the preset name so the user can find the offending card.
+fn validate_presets<T>(
+    agent: &str,
+    presets: &[T],
+    current: &Option<String>,
+    providers: &BTreeMap<String, ProviderEntry>,
+    errors: &mut Vec<String>,
+) where
+    T: PresetRef,
+{
+    let mut seen: HashSet<&str> = HashSet::new();
+    for preset in presets {
+        if !seen.insert(preset.id()) {
+            errors.push(format!(
+                "agent '{}' has duplicate preset id '{}'",
+                agent,
+                preset.id()
+            ));
+        }
+        if !providers.contains_key(preset.provider()) {
+            errors.push(format!(
+                "agent '{}' preset '{}' references unknown provider '{}'",
+                agent,
+                preset.name(),
+                preset.provider()
+            ));
+        } else if !providers[preset.provider()]
+            .models
+            .iter()
+            .any(|m| m.id == preset.model())
+        {
+            errors.push(format!(
+                "agent '{}' preset '{}' model '{}' not found in provider '{}'",
+                agent,
+                preset.name(),
+                preset.model(),
+                preset.provider()
+            ));
+        }
+    }
+    if let Some(id) = current {
+        if !presets.iter().any(|p| p.id() == id.as_str()) {
+            errors.push(format!(
+                "agent '{}' current preset '{}' not found (dangling)",
+                agent, id
+            ));
+        }
+    }
+}
+
+/// Read-only view of a preset for the generic validator (ClaudePreset and
+/// CodexPreset share the validated fields: id/name/provider/model).
+trait PresetRef {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+    fn provider(&self) -> &str;
+    fn model(&self) -> &str;
+}
+
+impl PresetRef for ClaudePreset {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn provider(&self) -> &str {
+        &self.provider
+    }
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
+impl PresetRef for CodexPreset {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn provider(&self) -> &str {
+        &self.provider
+    }
+    fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -774,5 +1100,308 @@ mod tests {
         let result = import_from_pi(&pi_path, &current).unwrap();
         assert!(result.imported.is_empty());
         assert_eq!(result.skipped, vec!["existing"]);
+    }
+
+    // --- preset shape migration (design §1 shadow) ---
+
+    #[test]
+    fn old_single_claude_assignment_migrates_to_default_preset() {
+        let json = r#"{
+  "agents": {
+    "claude": {
+      "provider": "aruoshui",
+      "model": "claude-sonnet-4",
+      "haikuModel": "claude-haiku-4",
+      "authField": "API_KEY"
+    }
+  }
+}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let claude = cfg.agents.claude.as_ref().unwrap();
+        assert_eq!(claude.presets.len(), 1);
+        assert_eq!(claude.current.as_deref(), Some("default"));
+        let p = &claude.presets[0];
+        assert_eq!(p.id, "default");
+        assert_eq!(p.provider, "aruoshui");
+        assert_eq!(p.model, "claude-sonnet-4");
+        assert_eq!(p.haiku_model.as_deref(), Some("claude-haiku-4"));
+        assert_eq!(p.auth_field, "API_KEY");
+    }
+
+    #[test]
+    fn old_single_codex_assignment_migrates_with_defaults() {
+        let json = r#"{
+  "agents": {
+    "codex": {"provider": "prov", "model": "m1"}
+  }
+}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let codex = cfg.agents.codex.as_ref().unwrap();
+        assert_eq!(codex.presets.len(), 1);
+        assert_eq!(codex.current.as_deref(), Some("default"));
+        let p = &codex.presets[0];
+        // Defaults applied for fields the old shape omitted.
+        assert_eq!(p.name, "默认配置");
+        assert_eq!(p.wire_api, "responses");
+        assert!(p.reasoning_effort.is_none());
+    }
+
+    #[test]
+    fn old_shape_missing_model_still_migrates() {
+        let json = r#"{"agents": {"claude": {"provider": "prov"}}}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let claude = cfg.agents.claude.as_ref().unwrap();
+        assert_eq!(claude.presets.len(), 1);
+        assert_eq!(claude.presets[0].model, "");
+    }
+
+    #[test]
+    fn empty_presets_with_old_provider_migrates() {
+        // New-shape empty array + old provider field: presets wins only when
+        // non-empty, so the old provider still migrates (design §1).
+        let json = r#"{
+  "agents": {
+    "claude": {"presets": [], "provider": "prov", "model": "m1"}
+  }
+}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let claude = cfg.agents.claude.as_ref().unwrap();
+        assert_eq!(claude.presets.len(), 1);
+        assert_eq!(claude.presets[0].provider, "prov");
+    }
+
+    #[test]
+    fn empty_agent_block_becomes_empty_presets() {
+        let json = r#"{"agents": {"claude": {}, "codex": {}}}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let claude = cfg.agents.claude.as_ref().unwrap();
+        assert!(claude.presets.is_empty());
+        assert!(claude.current.is_none());
+    }
+
+    #[test]
+    fn new_shape_round_trips() {
+        let json = r#"{
+  "agents": {
+    "claude": {
+      "presets": [
+        {"id": "preset-aaa", "name": "工作", "provider": "p1", "model": "m1"},
+        {"id": "preset-bbb", "name": "备用", "provider": "p2", "model": "m2",
+         "authField": "API_KEY"}
+      ],
+      "current": "preset-bbb"
+    }
+  }
+}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let claude = cfg.agents.claude.as_ref().unwrap();
+        assert_eq!(claude.presets.len(), 2);
+        assert_eq!(claude.current_preset().unwrap().name, "备用");
+
+        // Round-trip: serialize keeps only the new shape (old fields gone).
+        let text = serde_json::to_string(&cfg).unwrap();
+        let back: CanonicalConfig = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            back.agents.claude.as_ref().unwrap().presets.len(),
+            2
+        );
+        assert!(!text.contains("\"provider\":\"p1\",\"model\":\"m1\"") || text.contains("presets"));
+    }
+
+    #[test]
+    fn old_residual_keys_are_dropped() {
+        // Pre-R1 residual keys (e.g. an `anthropic` block) must not break
+        // deserialization and vanish on the next save.
+        let json = r#"{
+  "agents": {
+    "claude": {"provider": "prov", "model": "m1", "anthropic": {"baseUrl": "https://x"}}
+  }
+}"#;
+        let cfg: CanonicalConfig = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&cfg).unwrap();
+        assert!(!text.contains("anthropic"));
+    }
+
+    // --- preset id generation (design §2) ---
+
+    #[test]
+    fn gen_preset_id_format() {
+        let id = gen_preset_id();
+        assert!(id.starts_with("preset-"), "got {id}");
+        assert_eq!(id.len(), "preset-".len() + 5);
+        assert!(id["preset-".len()..]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn ensure_preset_ids_resolves_empty_current_placeholder() {
+        // The frontend marks a freshly-added (id-less) preset current by
+        // sending current:"" — resolve it to the backfilled id (design §2).
+        let mut cfg = CanonicalConfig::default();
+        cfg.agents.claude = Some(ClaudePresets {
+            presets: vec![ClaudePreset {
+                id: String::new(),
+                name: "新".into(),
+                provider: "p".into(),
+                model: "m".into(),
+                ..Default::default()
+            }],
+            current: Some(String::new()),
+        });
+        ensure_preset_ids(&mut cfg);
+        let block = cfg.agents.claude.as_ref().unwrap();
+        let new_id = &block.presets[0].id;
+        assert!(!new_id.is_empty());
+        assert_eq!(block.current.as_deref(), Some(new_id.as_str()));
+    }
+
+    #[test]
+    fn ensure_preset_ids_backfills_and_avoids_collisions() {
+        let mut cfg = CanonicalConfig::default();
+        cfg.agents.claude = Some(ClaudePresets {
+            presets: vec![
+                ClaudePreset {
+                    id: String::new(), // no id -> backfilled
+                    name: "A".into(),
+                    provider: "p".into(),
+                    model: "m".into(),
+                    ..Default::default()
+                },
+                ClaudePreset {
+                    id: "preset-fixed".into(),
+                    name: "B".into(),
+                    provider: "p".into(),
+                    model: "m".into(),
+                    ..Default::default()
+                },
+                ClaudePreset {
+                    id: String::new(), // second backfill must differ from the first
+                    name: "C".into(),
+                    provider: "p".into(),
+                    model: "m".into(),
+                    ..Default::default()
+                },
+            ],
+            current: None,
+        });
+        ensure_preset_ids(&mut cfg);
+        let presets = &cfg.agents.claude.as_ref().unwrap().presets;
+        assert!(!presets[0].id.is_empty());
+        assert_eq!(presets[1].id, "preset-fixed");
+        assert!(!presets[2].id.is_empty());
+        assert_ne!(presets[0].id, presets[2].id);
+        // All ids pairwise unique.
+        let ids: HashSet<&str> = presets.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids.len(), 3);
+    }
+
+    // --- validate over presets ---
+
+    /// Provider with model m1, for validate tests.
+    fn one_provider_config() -> CanonicalConfig {
+        let mut cfg = CanonicalConfig::default();
+        cfg.providers.insert(
+            "prov".into(),
+            ProviderEntry {
+                name: "P".into(),
+                base_url: "https://x".into(),
+                api: "openai-completions".into(),
+                models: vec![ModelEntry {
+                    id: "m1".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        cfg
+    }
+
+    #[test]
+    fn validate_non_current_preset_unknown_provider_reports_name() {
+        let mut cfg = one_provider_config();
+        cfg.agents.codex = Some(CodexPresets {
+            presets: vec![
+                CodexPreset {
+                    id: "a".into(),
+                    name: "好的".into(),
+                    provider: "prov".into(),
+                    model: "m1".into(),
+                    ..Default::default()
+                },
+                CodexPreset {
+                    id: "b".into(),
+                    name: "坏的".into(),
+                    provider: "ghost".into(),
+                    model: "m1".into(),
+                    ..Default::default()
+                },
+            ],
+            current: Some("a".into()),
+        });
+        let errs = validate(&cfg).unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("preset '坏的'") && e.contains("ghost")),
+            "errors: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn validate_dangling_current_rejected() {
+        let mut cfg = one_provider_config();
+        cfg.agents.claude = Some(ClaudePresets {
+            presets: vec![ClaudePreset {
+                id: "a".into(),
+                name: "A".into(),
+                provider: "prov".into(),
+                model: "m1".into(),
+                ..Default::default()
+            }],
+            current: Some("deleted-id".into()),
+        });
+        let errs = validate(&cfg).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("dangling")));
+
+        // Also: presets empty + current set.
+        cfg.agents.claude.as_mut().unwrap().presets.clear();
+        let errs = validate(&cfg).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("dangling")));
+    }
+
+    #[test]
+    fn validate_duplicate_preset_id_rejected() {
+        let mut cfg = one_provider_config();
+        let preset = ClaudePreset {
+            id: "dup".into(),
+            name: "A".into(),
+            provider: "prov".into(),
+            model: "m1".into(),
+            ..Default::default()
+        };
+        cfg.agents.claude = Some(ClaudePresets {
+            presets: vec![preset.clone(), preset],
+            current: Some("dup".into()),
+        });
+        let errs = validate(&cfg).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("duplicate preset id 'dup'")));
+    }
+
+    #[test]
+    fn validate_multi_preset_current_none_ok() {
+        // Presets present but no current yet: valid config (user is
+        // mid-setup); apply is what refuses (design §6).
+        let mut cfg = one_provider_config();
+        cfg.agents.claude = Some(ClaudePresets {
+            presets: vec![ClaudePreset {
+                id: "a".into(),
+                name: "A".into(),
+                provider: "prov".into(),
+                model: "m1".into(),
+                ..Default::default()
+            }],
+            current: None,
+        });
+        assert!(validate(&cfg).is_ok());
     }
 }

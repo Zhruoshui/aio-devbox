@@ -1,7 +1,9 @@
 // codex renderer: writes ~/.codex/auth.json + ~/.codex/config.toml.
 //
-// auth.json: set only OPENAI_API_KEY, preserve others. config.toml: set
-// model_provider="aio", model, optional model_reasoning_effort, and
+// Applies the *current* codex preset (design §3): codex is a switch-style
+// agent with N presets, only the one `agents.codex.current` points at takes
+// effect. auth.json: set only OPENAI_API_KEY, preserve others. config.toml:
+// set model_provider="aio", model, optional model_reasoning_effort, and
 // [model_providers.aio]{name, base_url(/v1 normalized), wire_api, requires_openai_auth}.
 // Preserve every other table/key. Write auth first; if config.toml fails
 // (backup / read / serialize / write), roll auth.json back from its backup
@@ -15,17 +17,24 @@ use toml::Value as TomlValue;
 use crate::routes::models::render::common::{
     atomic_write, backup_file, read_json_object, ApplyResult, ReadError,
 };
-use crate::routes::models::store::{CanonicalConfig, CodexAssignment, ProviderEntry};
+use crate::routes::models::store::{CanonicalConfig, CodexPreset, ProviderEntry};
 
-/// Apply the codex assignment to ~/.codex/.
+/// Apply the current codex preset to ~/.codex/. When there is no current
+/// preset (codex block absent, `current` unset, or dangling), push an error
+/// and write nothing (design §3: never a half-applied file).
 pub fn apply_codex(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
     let mut result = ApplyResult::new();
 
     let auth_path = home.join(".codex/auth.json");
     let config_path = home.join(".codex/config.toml");
 
-    let Some(assignment) = &canonical.agents.codex else {
-        result.push_err(config_path.clone(), "no codex assignment".into());
+    let Some(assignment) = canonical
+        .agents
+        .codex
+        .as_ref()
+        .and_then(|p| p.current_preset())
+    else {
+        result.push_err(config_path.clone(), "no current codex preset".into());
         return result;
     };
     let Some(provider) = canonical.providers.get(&assignment.provider) else {
@@ -117,7 +126,7 @@ fn write_auth_json(
 fn write_config_toml(
     path: &Path,
     provider: &ProviderEntry,
-    assignment: &CodexAssignment,
+    assignment: &CodexPreset,
     backup: &Option<String>,
     result: &mut ApplyResult,
 ) -> Result<(), String> {
@@ -259,7 +268,7 @@ pub fn wire_api_for(wire_api: &str, provider_api: &str) -> String {
 mod tests {
     use super::*;
     use crate::routes::models::store::{
-        CanonicalConfig, CodexAssignment, ModelEntry, ProviderEntry,
+        CanonicalConfig, CodexPreset, CodexPresets, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -288,11 +297,16 @@ mod tests {
                 ..Default::default()
             },
         );
-        c.agents.codex = Some(CodexAssignment {
-            provider: "aruoshui".into(),
-            model: "deepseek-v4-pro".into(),
-            reasoning_effort: Some("medium".into()),
-            wire_api: "responses".into(),
+        c.agents.codex = Some(CodexPresets {
+            presets: vec![CodexPreset {
+                id: "p1".into(),
+                name: "默认配置".into(),
+                provider: "aruoshui".into(),
+                model: "deepseek-v4-pro".into(),
+                reasoning_effort: Some("medium".into()),
+                wire_api: "responses".into(),
+            }],
+            current: Some("p1".into()),
         });
         c
     }
@@ -464,8 +478,9 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
     fn apply_codex_wire_api_derived_when_empty() {
         let home = temp_home();
         let mut cfg = sample_config();
-        cfg.agents.codex.as_mut().unwrap().wire_api = String::new();
-        cfg.agents.codex.as_mut().unwrap().reasoning_effort = None;
+        let preset = &mut cfg.agents.codex.as_mut().unwrap().presets[0];
+        preset.wire_api = String::new();
+        preset.reasoning_effort = None;
         apply_codex(&home, &cfg);
         let toml_str = std::fs::read_to_string(home.join(".codex/config.toml")).unwrap();
         // openai-completions -> chat
@@ -556,6 +571,56 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         cfg.agents.codex = None;
         let r = apply_codex(&home, &cfg);
         assert!(!r.ok);
-        assert!(r.errors[0].message.contains("no codex assignment"));
+        assert!(r.errors[0].message.contains("no current codex preset"));
+    }
+
+    #[test]
+    fn apply_codex_unset_current_errors() {
+        // Presets exist but `current` is None — refuse to write either file.
+        let home = temp_home();
+        let mut cfg = sample_config();
+        cfg.agents.codex.as_mut().unwrap().current = None;
+        let r = apply_codex(&home, &cfg);
+        assert!(!r.ok);
+        assert!(r.errors[0].message.contains("no current codex preset"));
+        assert!(!home.join(".codex/auth.json").exists());
+        assert!(!home.join(".codex/config.toml").exists());
+    }
+
+    #[test]
+    fn apply_codex_dangling_current_errors() {
+        // `current` points at a preset id that doesn't exist — refuse.
+        let home = temp_home();
+        let mut cfg = sample_config();
+        cfg.agents.codex.as_mut().unwrap().current = Some("nope".into());
+        let r = apply_codex(&home, &cfg);
+        assert!(!r.ok);
+        assert!(r.errors[0].message.contains("no current codex preset"));
+        assert!(!home.join(".codex/auth.json").exists());
+    }
+
+    #[test]
+    fn apply_codex_multi_preset_applies_current() {
+        // Two presets; current points at the second — its model/effort win.
+        let home = temp_home();
+        let mut cfg = sample_config();
+        let presets = cfg.agents.codex.as_mut().unwrap();
+        presets.presets.push(CodexPreset {
+            id: "p2".into(),
+            name: "备用".into(),
+            provider: "aruoshui".into(),
+            model: "deepseek-v4-lite".into(),
+            reasoning_effort: None,
+            wire_api: "chat".into(),
+        });
+        presets.current = Some("p2".into());
+
+        let r = apply_codex(&home, &cfg);
+        assert!(r.ok, "errors: {:?}", r.errors);
+        let toml_str = std::fs::read_to_string(home.join(".codex/config.toml")).unwrap();
+        assert!(toml_str.contains("model = \"deepseek-v4-lite\""));
+        assert!(toml_str.contains("wire_api = \"chat\""));
+        // p1's reasoning effort must not leak (p2 has none).
+        assert!(!toml_str.contains("model_reasoning_effort"));
     }
 }

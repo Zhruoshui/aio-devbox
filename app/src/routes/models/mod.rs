@@ -33,8 +33,8 @@ use crate::config::{command_exists, resolve_path_dirs};
 use crate::state::AppState;
 use render::{home_dir, ApplyResult, Agent};
 use store::{
-    merge_api_keys, mask_config, read_config, validate, write_config, CanonicalConfig,
-    ImportResponse, PutResponse, StoreError,
+    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
+    CanonicalConfig, ImportResponse, PutResponse, StoreError,
 };
 
 /// GET /api/models/config — return the full canonical config with masked keys.
@@ -81,6 +81,10 @@ pub async fn put_config(
 
     // Merge masked-echo keys (frontend sends mask back when unchanged).
     merge_api_keys(&stored, &mut incoming);
+
+    // Backfill preset ids for presets the frontend created without one
+    // (design §2: backend owns id generation, frontend makes no assumptions).
+    ensure_preset_ids(&mut incoming);
 
     // Validate.
     validate(&incoming).map_err(|errs| (StatusCode::BAD_REQUEST, errs.join("; ")))?;
