@@ -1,12 +1,13 @@
 // claude renderer: writes ~/.claude/settings.json (env-key merge).
 //
-// Sets ONLY the env keys: ANTHROPIC_BASE_URL (anthropic baseUrl when the
-// block exists, else provider.baseUrl), ANTHROPIC_AUTH_TOKEN or
-// ANTHROPIC_API_KEY (per agents.claude.authField), ANTHROPIC_MODEL, and
-// optional ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL. Preserves every
-// other key at every level (permissions, hooks, unrelated env vars).
-// claude binary may be absent — the file is still written so it activates
-// the moment claude is installed (design §4).
+// Sets ONLY the env keys: ANTHROPIC_BASE_URL (provider.baseUrl — protocol
+// selection decides the endpoint; an anthropic-messages provider's baseUrl
+// IS the anthropic URL), ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY (per
+// agents.claude.authField), ANTHROPIC_MODEL, and optional
+// ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL. Preserves every other key at
+// every level (permissions, hooks, unrelated env vars). claude binary may be
+// absent — the file is still written so it activates the moment claude is
+// installed (design §4).
 
 use std::path::Path;
 
@@ -59,16 +60,10 @@ pub fn apply_claude(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
     }
     let env_obj = env.as_object_mut().unwrap();
 
-    // Anthropic baseUrl: anthropic block wins when present (per the compat
-    // matrix the assignment UI already guarantees one of these is valid).
-    let anthropic_base = provider
-        .anthropic
-        .as_ref()
-        .and_then(|a| a.base_url.as_deref())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(&provider.base_url);
-
-    env_obj.insert("ANTHROPIC_BASE_URL".into(), json!(anthropic_base));
+    // Anthropic baseUrl: the provider's baseUrl IS the anthropic endpoint
+    // (protocol selection decides compatibility — R1 removed the separate
+    // anthropic override block).
+    env_obj.insert("ANTHROPIC_BASE_URL".into(), json!(provider.base_url));
 
     let auth_key = match assignment.auth_field.as_str() {
         "API_KEY" => "ANTHROPIC_API_KEY",
@@ -117,7 +112,7 @@ pub fn apply_claude(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
 mod tests {
     use super::*;
     use crate::routes::models::store::{
-        AnthropicBlock, CanonicalConfig, ClaudeAssignment, ModelEntry, ProviderEntry,
+        CanonicalConfig, ClaudeAssignment, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -130,7 +125,7 @@ mod tests {
         p
     }
 
-    fn sample_config(anthropic: Option<AnthropicBlock>) -> CanonicalConfig {
+    fn sample_config() -> CanonicalConfig {
         let mut c = CanonicalConfig::default();
         c.providers.insert(
             "aruoshui".into(),
@@ -139,7 +134,6 @@ mod tests {
                 base_url: "https://ai.aruoshui.com/v1".into(),
                 api: "anthropic-messages".into(),
                 api_key: Some("sk-real-key-xxxx".into()),
-                anthropic,
                 models: vec![ModelEntry {
                     id: "claude-sonnet-4".into(),
                     ..Default::default()
@@ -171,7 +165,7 @@ mod tests {
         )
         .unwrap();
 
-        let r = apply_claude(&home, &sample_config(None));
+        let r = apply_claude(&home, &sample_config());
         assert!(r.ok);
         let after: Value = serde_json::from_str(
             &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
@@ -195,42 +189,9 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_block_base_url_wins_when_present() {
-        let home = temp_home();
-        let cfg = sample_config(Some(AnthropicBlock {
-            base_url: Some("https://ai.aruoshui.com/anthropic".into()),
-        }));
-        apply_claude(&home, &cfg);
-        let after: Value = serde_json::from_str(
-            &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            after["env"]["ANTHROPIC_BASE_URL"],
-            "https://ai.aruoshui.com/anthropic"
-        );
-    }
-
-    #[test]
-    fn anthropic_block_empty_falls_back_to_provider_base_url() {
-        let home = temp_home();
-        // anthropic block present but empty baseUrl -> fall back to provider.baseUrl.
-        let cfg = sample_config(Some(AnthropicBlock { base_url: None }));
-        apply_claude(&home, &cfg);
-        let after: Value = serde_json::from_str(
-            &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            after["env"]["ANTHROPIC_BASE_URL"],
-            "https://ai.aruoshui.com/v1"
-        );
-    }
-
-    #[test]
     fn auth_field_api_key_writes_anthropic_api_key() {
         let home = temp_home();
-        let mut cfg = sample_config(None);
+        let mut cfg = sample_config();
         cfg.agents.claude.as_mut().unwrap().auth_field = "API_KEY".into();
         apply_claude(&home, &cfg);
         let after: Value = serde_json::from_str(
@@ -244,7 +205,7 @@ mod tests {
     #[test]
     fn empty_api_key_omits_auth_field() {
         let home = temp_home();
-        let mut cfg = sample_config(None);
+        let mut cfg = sample_config();
         cfg.providers
             .get_mut("aruoshui")
             .unwrap()
@@ -261,7 +222,7 @@ mod tests {
     #[test]
     fn apply_claude_creates_file_0600() {
         let home = temp_home();
-        let r = apply_claude(&home, &sample_config(None));
+        let r = apply_claude(&home, &sample_config());
         assert!(r.ok);
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(home.join(".claude/settings.json"))
@@ -276,7 +237,7 @@ mod tests {
     fn apply_claude_corrupt_aborts() {
         let home = temp_home();
         std::fs::write(home.join(".claude/settings.json"), "{{not json").unwrap();
-        let r = apply_claude(&home, &sample_config(None));
+        let r = apply_claude(&home, &sample_config());
         assert!(!r.ok);
         assert!(r.errors[0].message.contains("corrupt"));
         assert_eq!(
@@ -288,7 +249,7 @@ mod tests {
     #[test]
     fn apply_claude_missing_assignment_errors() {
         let home = temp_home();
-        let mut cfg = sample_config(None);
+        let mut cfg = sample_config();
         cfg.agents.claude = None;
         let r = apply_claude(&home, &cfg);
         assert!(!r.ok);
@@ -312,7 +273,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut cfg = sample_config(None);
+        let mut cfg = sample_config();
         cfg.agents.claude.as_mut().unwrap().haiku_model = None;
         cfg.agents.claude.as_mut().unwrap().sonnet_model = None;
         cfg.agents.claude.as_mut().unwrap().opus_model = None;

@@ -46,7 +46,7 @@ import { Statusbar } from "./Statusbar";
 import { useStats } from "./useStats";
 import { RegisterDialog } from "./RegisterDialog";
 import { IframePane } from "./panes/IframePane";
-import { ModelsPane } from "./panes/ModelsPane";
+import { ModelsPane } from "./panes/models";
 import { XtermPane } from "./panes/XtermPane";
 import "./styles.css";
 

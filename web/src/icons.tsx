@@ -32,6 +32,10 @@ const PATHS = {
   reset: '<path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 3v6h6"/>',
   sliders:
     '<path d="M3 8h18"/><path d="M3 16h18"/><circle cx="9" cy="8" r="2.5"/><circle cx="15" cy="16" r="2.5"/>',
+  edit: '<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  "eye-off":
+    '<path d="M17.9 17.9A11 11 0 0 1 1 12s4-8 11-8 11 8 11 8a11 11 0 0 1-1.2 2.8"/><path d="M9.9 4.2A9 9 0 0 1 23 12a9 9 0 0 1-1.2 2.8"/><path d="M1 1l22 22"/><path d="M7.6 7.6a5 5 0 0 0 6.8 6.8"/>',
 } as const;
 
 /** Mount once (app root): the shared <symbol> sprite every <Icon> references. */

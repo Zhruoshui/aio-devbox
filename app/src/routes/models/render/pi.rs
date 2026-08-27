@@ -12,7 +12,7 @@ use crate::routes::models::render::common::{
     backup_write_verify_json, read_json_object, ApplyResult, ReadError,
 };
 use crate::routes::models::store::{
-    AgentAssignment, AnthropicBlock, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
+    AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
 };
 
 /// Apply the pi assignment to ~/.pi/agent/. `home` is injectable so tests
@@ -224,11 +224,6 @@ fn render_pi_cost(cost: &CostEntry) -> serde_json::Map<String, Value> {
     }
     c
 }
-
-// silence the unused import warning for AnthropicBlock — it's only here to
-// keep the provider shape near the canonical types; remove if/when dead.
-#[allow(dead_code)]
-type _Unused = AnthropicBlock;
 
 // ── tests ─────────────────────────────────────────────────────────
 

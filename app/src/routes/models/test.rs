@@ -93,19 +93,10 @@ pub async fn test(
         .clone()
         .unwrap_or_else(|| provider.api.clone());
 
-    // When testing the anthropic protocol, prefer provider.anthropic.baseUrl
-    // if the block is present; otherwise fall back to the main baseUrl
-    // (design §3 / handler spec).
-    let base_url = if protocol == "anthropic-messages" {
-        provider
-            .anthropic
-            .as_ref()
-            .and_then(|a| a.base_url.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| provider.base_url.clone())
-    } else {
-        provider.base_url.clone()
-    };
+    // R1: the provider's baseUrl IS the endpoint for every protocol —
+    // protocol selection decides the request shape, so test against it
+    // directly (no separate anthropic override block).
+    let base_url = provider.base_url.clone();
 
     // No key => error, but still HTTP 200 with ok:false (UI decides).
     let key = provider.api_key.clone();

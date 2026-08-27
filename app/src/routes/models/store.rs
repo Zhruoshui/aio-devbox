@@ -110,21 +110,12 @@ pub struct ProviderEntry {
     pub headers: BTreeMap<String, String>,
     #[serde(default)]
     pub compat: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub anthropic: Option<AnthropicBlock>,
     #[serde(default)]
     pub models: Vec<ModelEntry>,
 }
 
 fn default_api() -> String {
     "openai-completions".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnthropicBlock {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -375,7 +366,8 @@ pub struct ImportResult {
 /// - id = pi provider key if already kebab-case, else sanitized
 /// - name = original key (when provider.name is empty)
 /// - api/baseUrl/apiKey/headers/compat/models carried over
-/// - anthropic block set when api == "anthropic-messages"
+/// - R1: no separate anthropic block — protocol selection alone decides
+///   the endpoint, so an anthropic-messages provider carries no override.
 /// Providers whose id already exists in `current` are skipped.
 pub fn import_from_pi(
     pi_path: &Path,
@@ -402,12 +394,6 @@ pub fn import_from_pi(
 
         if provider.name.is_empty() {
             provider.name = key.clone();
-        }
-
-        if provider.api == "anthropic-messages" && provider.anthropic.is_none() {
-            provider.anthropic = Some(AnthropicBlock {
-                base_url: Some(provider.base_url.clone()),
-            });
         }
 
         new_providers.insert(id.clone(), provider);
@@ -758,14 +744,12 @@ mod tests {
         assert_eq!(p.name, "My-Provider");
         assert_eq!(p.base_url, "https://api.test.com/v1");
         assert_eq!(p.api, "openai-completions");
-        assert!(p.anthropic.is_none());
 
         let a = &result.providers["anthropic-prov"];
-        assert!(a.anthropic.is_some());
-        assert_eq!(
-            a.anthropic.as_ref().unwrap().base_url.as_deref(),
-            Some("https://api.anthropic.com")
-        );
+        assert_eq!(a.base_url, "https://api.anthropic.com");
+        assert_eq!(a.api, "anthropic-messages");
+        // R1: no separate anthropic block — protocol selection alone decides
+        // the endpoint, so a pi import carries no override.
     }
 
     #[test]
