@@ -1034,17 +1034,21 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           />
         ) : config ? (
           <>
-            {Object.keys(config.providers).length > 0 && (
-              <div className="ml-toolbar">
+            <div className="ml-sec-head">
+              <div>
+                <h2>{t(lang, "mcProviders")}</h2>
+                <p>{t(lang, "mcProvidersSub")}</p>
+              </div>
+              <div className="ml-sec-actions">
+                <button className="btn btn-secondary" onClick={() => void handleImport()}>
+                  {t(lang, "mcImportPi")}
+                </button>
                 <button className="btn btn-primary" onClick={addProvider}>
                   <Icon name="plus" />
                   {t(lang, "mcAddProvider")}
                 </button>
-                <button className="btn btn-secondary" onClick={() => void handleImport()}>
-                  {t(lang, "mcImportPi")}
-                </button>
               </div>
-            )}
+            </div>
             <ProviderGrid
               config={config}
               onSelect={setSelectedId}
@@ -1054,46 +1058,48 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
               onJumpToAgent={jumpToAgent}
               lang={lang}
             />
-            {selectedId && selected && (
-              <ProviderEditor
-                providerId={selectedId}
-                provider={selected}
-                config={config}
-                dirty={dirty}
-                saving={saving}
-                saveMsg={saveMsg}
-                headersText={headersText}
-                compatText={compatText}
-                showAdvanced={showAdvanced}
-                testState={testState}
-                discover={discover}
-                catalogFillState={catalogFillState}
-                onClose={() => setSelectedId(null)}
-                onPatchProvider={(patch) => updateProvider(selectedId, patch)}
-                onPatchModel={(idx, patch) => updateModel(selectedId, idx, patch)}
-                onAddModel={() => addModel(selectedId)}
-                onDeleteModel={(idx) => deleteModel(selectedId, idx)}
-                onUpdateCost={(idx, field, val) =>
-                  updateCost(selectedId, idx, field, val)
-                }
-                onHeadersChange={setHeadersText}
-                onCompatChange={setCompatText}
-                onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-                onSave={() => void handleSave()}
-                onTest={(modelId) => void handleTest(selectedId, modelId)}
-                onResetTest={resetTest}
-                onFetchModels={() => void handleFetchModels()}
-                onDiscoverSet={setDiscover}
-                onDiscoverAddSelected={handleDiscoverAddSelected}
-                onFillFromCatalog={(idx) => void handleCatalogFill(selectedId, idx)}
-                onJumpToAgent={jumpToAgent}
-                onDeleteProvider={() => deleteProvider(selectedId)}
-                lang={lang}
-              />
-            )}
           </>
         ) : null}
       </div>
+
+      {/* Drawer anchors to .pane-models (position: relative), not .ml-body —
+       * a sibling of the scrollable body so its scrim/drawer cover the whole
+       * pane and never scroll away with the provider grid (design §drawer). */}
+      {tab === "providers" && config && selectedId && selected && (
+        <ProviderEditor
+          providerId={selectedId}
+          provider={selected}
+          config={config}
+          dirty={dirty}
+          saving={saving}
+          saveMsg={saveMsg}
+          headersText={headersText}
+          compatText={compatText}
+          showAdvanced={showAdvanced}
+          testState={testState}
+          discover={discover}
+          catalogFillState={catalogFillState}
+          onClose={() => setSelectedId(null)}
+          onPatchProvider={(patch) => updateProvider(selectedId, patch)}
+          onPatchModel={(idx, patch) => updateModel(selectedId, idx, patch)}
+          onAddModel={() => addModel(selectedId)}
+          onDeleteModel={(idx) => deleteModel(selectedId, idx)}
+          onUpdateCost={(idx, field, val) => updateCost(selectedId, idx, field, val)}
+          onHeadersChange={setHeadersText}
+          onCompatChange={setCompatText}
+          onToggleAdvanced={() => setShowAdvanced((v) => !v)}
+          onSave={() => void handleSave()}
+          onTest={(modelId) => void handleTest(selectedId, modelId)}
+          onResetTest={resetTest}
+          onFetchModels={() => void handleFetchModels()}
+          onDiscoverSet={setDiscover}
+          onDiscoverAddSelected={handleDiscoverAddSelected}
+          onFillFromCatalog={(idx) => void handleCatalogFill(selectedId, idx)}
+          onJumpToAgent={jumpToAgent}
+          onDeleteProvider={() => deleteProvider(selectedId)}
+          lang={lang}
+        />
+      )}
     </div>
   );
 }

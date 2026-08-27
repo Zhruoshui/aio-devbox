@@ -1,15 +1,21 @@
 // ProviderEditor — right-side drawer editing one provider.
 //
-// Overlay drawer (absolute within the pane, 250ms slide): basic info
-// (name/baseUrl/protocol/apiKey with show-hide), a collapsed advanced section
-// (headers/compat JSON), the model library table with discover/test, a
-// binding overview (agents that use this provider, click to jump), and a save
-// bar. The discover modal renders here from the `discover` state that
-// ModelsPane owns.
+// Kumo redesign (08-27-model-config-redesign): pane-scoped scrim + absolute
+// drawer sliding in from the pane's right edge (the design's full-page fixed
+// drawer adapted to the golden-layout pane context). Sections are dgroups:
+// basic info (name/baseUrl/protocol/apiKey with show-hide), a collapsed
+// advanced section (headers/compat JSON), the model library list with
+// discover/test, a binding overview (agents that use this provider, click to
+// jump), and a save bar (danger-text delete · cancel · save). Escape / scrim
+// click / cancel all close. The discover modal renders here from the
+// `discover` state that ModelsPane owns.
+//
+// `open` starts false and flips on a rAF after mount so the drawer + scrim
+// animate in; closing unmounts immediately (no exit animation).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "../../icons";
-import { t, type Lang } from "../../i18n";
+import { fmt, t, type Lang } from "../../i18n";
 import { ModelRow, type CatalogFillState } from "./ModelRow";
 import {
   API_PROTOCOLS,
@@ -96,11 +102,40 @@ export function ProviderEditor({
   lang: Lang;
 }): JSX.Element {
   const [showKey, setShowKey] = useState(false);
+  // Slide-in: mount hidden, flip .open on the next frame so the CSS
+  // translateX/scrim transition runs once.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  // Escape closes the drawer (design §drawer).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const bound = bindingAgents(config, providerId);
 
   return (
     <>
-      <div className="ml-drawer" data-od-id="provider-editor">
+      {/* pane-scoped scrim: only covers .pane-models, not sibling panes */}
+      <div
+        className={`ml-scrim${open ? " open" : ""}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <div
+        className={`ml-drawer${open ? " open" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={provider.name || t(lang, "mcNewProvider")}
+        data-od-id="provider-editor"
+      >
         {/* header */}
         <div className="ml-drawer-head">
           <span className="ml-drawer-title">
@@ -118,129 +153,149 @@ export function ProviderEditor({
 
         <div className="ml-drawer-body">
           {/* ── basic info ── */}
-          <div className="ml-section-title">{t(lang, "mcBasic")}</div>
-          <div className="field">
-            <label>{t(lang, "mcName")}</label>
-            <input
-              value={provider.name}
-              onChange={(e) => onPatchProvider({ name: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcBaseUrl")}</label>
-            <input
-              value={provider.baseUrl}
-              onChange={(e) => onPatchProvider({ baseUrl: e.target.value })}
-              placeholder="https://api.example.com/v1"
-            />
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcApi")}</label>
-            <select
-              value={provider.api}
-              onChange={(e) => onPatchProvider({ api: e.target.value })}
-            >
-              {API_PROTOCOLS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcApiKey")}</label>
-            <div className="ml-key-row">
+          <div className="ml-dgroup">
+            <h3 className="ml-section-title">{t(lang, "mcBasic")}</h3>
+            <div className="field">
+              <label>{t(lang, "mcName")}</label>
               <input
-                type={showKey ? "text" : "password"}
-                value={provider.apiKey ?? ""}
-                placeholder={t(lang, "mcApiKeyPh")}
-                onChange={(e) => onPatchProvider({ apiKey: e.target.value })}
+                value={provider.name}
+                onChange={(e) => onPatchProvider({ name: e.target.value })}
               />
-              <button
-                className="icon-btn"
-                aria-label={showKey ? t(lang, "mcHideKey") : t(lang, "mcShowKey")}
-                title={showKey ? t(lang, "mcHideKey") : t(lang, "mcShowKey")}
-                onClick={() => setShowKey((v) => !v)}
-              >
-                <Icon name={showKey ? "eye-off" : "eye"} />
-              </button>
+            </div>
+            <div className="field">
+              <label>{t(lang, "mcBaseUrl")}</label>
+              <input
+                value={provider.baseUrl}
+                onChange={(e) => onPatchProvider({ baseUrl: e.target.value })}
+                placeholder="https://api.example.com/v1"
+              />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label>{t(lang, "mcApi")}</label>
+                <select
+                  value={provider.api}
+                  onChange={(e) => onPatchProvider({ api: e.target.value })}
+                >
+                  {API_PROTOCOLS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>{t(lang, "mcApiKey")}</label>
+                <div className="ml-key-row">
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={provider.apiKey ?? ""}
+                    placeholder={t(lang, "mcApiKeyPh")}
+                    onChange={(e) => onPatchProvider({ apiKey: e.target.value })}
+                  />
+                  <button
+                    className="icon-btn"
+                    aria-label={
+                      showKey ? t(lang, "mcHideKey") : t(lang, "mcShowKey")
+                    }
+                    title={showKey ? t(lang, "mcHideKey") : t(lang, "mcShowKey")}
+                    onClick={() => setShowKey((v) => !v)}
+                  >
+                    <Icon name={showKey ? "eye-off" : "eye"} />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* ── advanced ── */}
-          <button className="ml-adv-toggle" onClick={onToggleAdvanced}>
-            {t(lang, "mcAdvanced")}
-            <Icon name={showAdvanced ? "chev-r" : "chev-l"} />
-          </button>
-          {showAdvanced && (
-            <div className="ml-advanced">
-              <div className="field">
-                <label>{t(lang, "mcHeaders")}</label>
-                <textarea
-                  className="ml-json-area"
-                  value={headersText}
-                  onChange={(e) => onHeadersChange(e.target.value)}
-                  rows={4}
-                  spellCheck={false}
-                />
+          {/* ── advanced (collapsible dgroup) ── */}
+          <div className="ml-dgroup">
+            <button
+              className={`ml-dgroup-toggle${showAdvanced ? "" : " collapsed"}`}
+              onClick={onToggleAdvanced}
+              aria-expanded={showAdvanced}
+            >
+              <h3 className="ml-section-title">{t(lang, "mcAdvanced")}</h3>
+              <Icon name="chev-down" />
+            </button>
+            {showAdvanced && (
+              <div className="ml-dgroup-content">
+                <div className="field">
+                  <label>{t(lang, "mcHeaders")}</label>
+                  <textarea
+                    className="ml-json-area"
+                    value={headersText}
+                    onChange={(e) => onHeadersChange(e.target.value)}
+                    rows={4}
+                    spellCheck={false}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t(lang, "mcCompat")}</label>
+                  <textarea
+                    className="ml-json-area"
+                    value={compatText}
+                    onChange={(e) => onCompatChange(e.target.value)}
+                    rows={4}
+                    spellCheck={false}
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>{t(lang, "mcCompat")}</label>
-                <textarea
-                  className="ml-json-area"
-                  value={compatText}
-                  onChange={(e) => onCompatChange(e.target.value)}
-                  rows={4}
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* ── models ── */}
-          <div className="ml-models-head">
-            <span className="ml-section-title">{t(lang, "mcModels")}</span>
-            <div className="ml-models-actions">
-              <button
-                className="btn btn-secondary ml-sm"
-                onClick={onFetchModels}
-                disabled={!provider.baseUrl}
-              >
-                {t(lang, "mcFetchModels")}
-              </button>
-              <button className="btn btn-secondary ml-sm" onClick={onAddModel}>
-                <Icon name="plus" />
-                {t(lang, "mcAddModel")}
-              </button>
-            </div>
-          </div>
-          <div className="ml-model-list">
-            {provider.models.length === 0 ? (
-              <span className="ml-hint">{t(lang, "mcDiscoverEmpty")}</span>
-            ) : (
-              provider.models.map((m, idx) => (
-                <ModelRow
-                  key={idx}
-                  providerId={providerId}
-                  model={m}
-                  idx={idx}
-                  testState={testState}
-                  catalogFillState={catalogFillState[`${providerId}:${m.id}`]}
-                  onPatchModel={onPatchModel}
-                  onDeleteModel={onDeleteModel}
-                  onUpdateCost={onUpdateCost}
-                  onTest={onTest}
-                  onResetTest={onResetTest}
-                  onFillFromCatalog={onFillFromCatalog}
-                  lang={lang}
-                />
-              ))
             )}
           </div>
 
+          {/* ── models ── */}
+          <div className="ml-dgroup">
+            <div className="ml-models-head">
+              <span className="ml-section-title">
+                {t(lang, "mcModels")} ({provider.models.length})
+              </span>
+              <div className="ml-models-actions">
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={onFetchModels}
+                  disabled={!provider.baseUrl}
+                >
+                  <Icon name="download" />
+                  {t(lang, "mcFetchModels")}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={onAddModel}>
+                  <Icon name="plus" />
+                  {t(lang, "mcAddModel")}
+                </button>
+              </div>
+            </div>
+            <div className="ml-model-list">
+              {provider.models.length === 0 ? (
+                <span className="ml-hint">{t(lang, "mcDiscoverEmpty")}</span>
+              ) : (
+                provider.models.map((m, idx) => (
+                  <ModelRow
+                    key={idx}
+                    providerId={providerId}
+                    model={m}
+                    idx={idx}
+                    testState={testState}
+                    catalogFillState={catalogFillState[`${providerId}:${m.id}`]}
+                    onPatchModel={onPatchModel}
+                    onDeleteModel={onDeleteModel}
+                    onUpdateCost={onUpdateCost}
+                    onTest={onTest}
+                    onResetTest={onResetTest}
+                    onFillFromCatalog={onFillFromCatalog}
+                    lang={lang}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+
           {/* ── binding overview ── */}
-          <div className="ml-bindings">
-            <span className="ml-section-title">{t(lang, "mcBoundAgents")}</span>
+          <div className="ml-dgroup">
+            <h3 className="ml-section-title">{t(lang, "mcBoundAgents")}</h3>
+            <p className="sub" style={{ margin: "0 0 var(--space-2)" }}>
+              {t(lang, "mcBoundAgentsSub")}
+            </p>
             {bound.length === 0 ? (
               <span className="ml-hint">{t(lang, "mcNoBindings")}</span>
             ) : (
@@ -260,19 +315,25 @@ export function ProviderEditor({
         </div>
 
         {/* save bar */}
-        <div className="ml-save-bar ml-drawer-foot">
+        <div className="ml-drawer-savebar">
+          <button
+            className="btn btn-danger-text"
+            aria-label={t(lang, "mcDeleteProvider")}
+            title={t(lang, "mcDeleteProvider")}
+            onClick={onDeleteProvider}
+          >
+            <Icon name="trash" />
+            {t(lang, "mcDeleteProvider")}
+          </button>
+          <span className="spacer" />
           {dirty && <span className="ml-dirty">{t(lang, "mcDirty")}</span>}
           {saveMsg && (
             <span className={`ml-msg${saveMsg.ok ? " ok" : " err"}`}>
               {saveMsg.text}
             </span>
           )}
-          <button
-            className="btn btn-secondary"
-            aria-label={t(lang, "mcDeleteProvider")}
-            onClick={onDeleteProvider}
-          >
-            <Icon name="x" />
+          <button className="btn btn-secondary" onClick={onClose}>
+            {t(lang, "cancel")}
           </button>
           <button
             className="btn btn-primary"
@@ -290,7 +351,10 @@ export function ProviderEditor({
         <div className="overlay open" data-od-id="discover-modal">
           <div className="dialog ml-discover">
             <div className="dialog-head">
-              <span>{t(lang, "mcFetchModels")}</span>
+              <div>
+                <h2>{t(lang, "mcFetchModels")}</h2>
+                <p className="endpoint mono">{discover.endpoint}</p>
+              </div>
               <button
                 className="icon-btn"
                 title={t(lang, "mcClose")}
@@ -308,25 +372,26 @@ export function ProviderEditor({
                 </div>
               ) : (
                 <>
-                  <div className="ml-discover-endpoint">
-                    {t(lang, "mcDiscoverEndpoint")}
-                    <code>{discover.endpoint}</code>
-                  </div>
                   {discover.models.length === 0 ? (
                     <div className="ml-hint">{t(lang, "mcDiscoverEmpty")}</div>
                   ) : (
                     <>
-                      <input
-                        className="ml-discover-search"
-                        placeholder={t(lang, "mcSearch")}
-                        value={discover.filter}
-                        onChange={(e) =>
-                          onDiscoverSet({ ...discover, filter: e.target.value })
-                        }
-                      />
+                      <div className="ml-discover-search-wrap">
+                        <Icon name="search" />
+                        <input
+                          className="ml-discover-search"
+                          placeholder={t(lang, "mcSearch")}
+                          value={discover.filter}
+                          onChange={(e) =>
+                            onDiscoverSet({ ...discover, filter: e.target.value })
+                          }
+                        />
+                      </div>
                       <div className="ml-discover-list">
                         {(() => {
-                          const existing = new Set(provider.models.map((m) => m.id));
+                          const existing = new Set(
+                            provider.models.map((m) => m.id),
+                          );
                           const q = discover.filter.trim().toLowerCase();
                           const shown = discover.models.filter(
                             (m) =>
@@ -339,7 +404,8 @@ export function ProviderEditor({
                           }
                           return shown.map((m) => {
                             const already = existing.has(m.id);
-                            const checked = already || discover.selected.has(m.id);
+                            const checked =
+                              already || discover.selected.has(m.id);
                             return (
                               <label
                                 key={m.id}
@@ -370,9 +436,11 @@ export function ProviderEditor({
                       </div>
                       <div className="ml-discover-actions">
                         <button
-                          className="btn btn-secondary ml-sm"
+                          className="btn btn-ghost btn-sm"
                           onClick={() => {
-                            const existing = new Set(provider.models.map((m) => m.id));
+                            const existing = new Set(
+                              provider.models.map((m) => m.id),
+                            );
                             const q = discover.filter.trim().toLowerCase();
                             const shown = discover.models.filter(
                               (m) =>
@@ -390,7 +458,7 @@ export function ProviderEditor({
                           {t(lang, "mcSelectAllPage")}
                         </button>
                         <button
-                          className="btn btn-secondary ml-sm"
+                          className="btn btn-ghost btn-sm"
                           onClick={() =>
                             onDiscoverSet({ ...discover, selected: new Set() })
                           }
@@ -398,10 +466,17 @@ export function ProviderEditor({
                           {t(lang, "mcClearSel")}
                         </button>
                         <span className="ml-discover-count">
-                          {discover.selected.size}
+                          {fmt(lang, "mcSelectedCount", discover.selected.size)}
                         </span>
+                        <span className="spacer" />
                         <button
-                          className="btn btn-primary ml-sm"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => onDiscoverSet(null)}
+                        >
+                          {t(lang, "cancel")}
+                        </button>
+                        <button
+                          className="btn btn-primary btn-sm"
                           disabled={discover.selected.size === 0}
                           onClick={() => {
                             onDiscoverAddSelected();

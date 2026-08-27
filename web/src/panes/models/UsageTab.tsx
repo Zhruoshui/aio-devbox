@@ -99,23 +99,27 @@ export function UsageTab({
 
   return (
     <div className="ml-usage">
-      <div className="ml-usage-bar">
-        {WINDOWS.map((w) => (
-          <button
-            key={w.key}
-            className={`ml-tab ml-sm${window === w.key ? " active" : ""}`}
-            onClick={() => onWindowChange(w.key)}
-          >
-            {t(lang, w.label)}
-          </button>
-        ))}
+      <div className="ml-usage-toolbar">
+        <h2>{t(lang, "mcUsage")}</h2>
+        <div className="ml-window-switch" role="group" aria-label="time window">
+          {WINDOWS.map((w) => (
+            <button
+              key={w.key}
+              aria-pressed={window === w.key}
+              onClick={() => onWindowChange(w.key)}
+            >
+              {t(lang, w.label)}
+            </button>
+          ))}
+        </div>
         <button
-          className="btn btn-secondary ml-sm"
+          className="icon-btn"
           disabled={loading}
+          aria-label={t(lang, "mcUsageRefresh")}
+          title={t(lang, "mcUsageRefresh")}
           onClick={onRefresh}
         >
-          {loading ? <Icon name="refresh" /> : null}
-          {loading ? t(lang, "mcUsageRefreshing") : t(lang, "mcUsageRefresh")}
+          <Icon name="refresh" />
         </button>
         {generatedAt && (
           <span className="ml-usage-gen">

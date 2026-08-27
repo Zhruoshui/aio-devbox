@@ -33,6 +33,15 @@ const PATHS = {
   sliders:
     '<path d="M3 8h18"/><path d="M3 16h18"/><circle cx="9" cy="8" r="2.5"/><circle cx="15" cy="16" r="2.5"/>',
   edit: '<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+  // Model-config icons (Kumo reference set from screens_model-config.html).
+  play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  "check-circle": '<path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M22 4 12 14.01l-3-3"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/>',
+  alert: '<path d="M10.3 3.6 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><circle cx="12" cy="16.5" r="0.5" fill="currentColor"/>',
+  "chev-down": '<path d="m6 9 6 6 6-6"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   "eye-off":
     '<path d="M17.9 17.9A11 11 0 0 1 1 12s4-8 11-8 11 8 11 8a11 11 0 0 1-1.2 2.8"/><path d="M9.9 4.2A9 9 0 0 1 23 12a9 9 0 0 1-1.2 2.8"/><path d="M1 1l22 22"/><path d="M7.6 7.6a5 5 0 0 0 6.8 6.8"/>',

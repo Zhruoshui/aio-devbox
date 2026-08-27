@@ -13,7 +13,6 @@ import {
   emptyClaudePreset,
   emptyCodexPreset,
   incompatibleReason,
-  liveReadbackText,
   protocolLabel,
   type AgentStatus,
   type AgentsResponse,
@@ -89,42 +88,55 @@ export function PresetList({
 
   return (
     <div className="ml-agent ml-preset-list">
-      {/* install badge + live readback (shared header with the pi/opencode tabs) */}
+      {/* agent-head: 2xl name + install + consistency badges */}
       <div className="ml-agent-head">
+        <span className="ml-agent-name">
+          {agent === "claude" ? "Claude" : "Codex"}
+        </span>
         <span
           className={`ml-badge ${status?.installed ? "ml-badge-ok" : "ml-badge-warn"}`}
           title={status?.bin ?? undefined}
         >
+          <span className="dot" />
           {status?.installed ? t(lang, "mcInstalled") : t(lang, "mcNotInstalled")}
-        </span>
-        <span className="ml-agent-live">
-          {t(lang, "mcLive")} <code>{liveReadbackText(agent, status)}</code>
         </span>
         {liveMatch !== null && (
           <span
             className={`ml-badge ${liveMatch ? "ml-badge-ok" : "ml-badge-warn"}`}
             title={t(lang, liveMatch ? "maLiveMatchTip" : "maLiveMismatchTip")}
           >
+            <span className="dot" />
             {t(lang, liveMatch ? "maLiveMatch" : "maLiveMismatch")}
           </span>
         )}
       </div>
 
+      {/* paradigm strip */}
+      <div className="ml-paradigm-strip">
+        <Icon name="cube" />
+        <span>{t(lang, "maParadigmSwitcher")}</span>
+      </div>
+
+      {/* sec-head: preset count + new-preset entry */}
+      <div className="ml-sec-head">
+        <h2>
+          {t(lang, "maPresetHeading")} ({presets.length})
+        </h2>
+        <div className="ml-sec-actions">
+          <button
+            className="btn btn-primary"
+            disabled={editing !== null || isDirty || saving}
+            onClick={() => setEditing("")}
+          >
+            <Icon name="plus" />
+            {t(lang, "maNewPreset")}
+          </button>
+        </div>
+      </div>
+
       {presets.length === 0 && editing === null && (
         <div className="ml-empty">{t(lang, "maNoPresets")}</div>
       )}
-
-      {/* new-preset entry */}
-      <div className="ml-preset-toolbar">
-        <button
-          className="btn btn-primary btn-sm"
-          disabled={editing !== null || isDirty || saving}
-          onClick={() => setEditing("")}
-        >
-          <Icon name="plus" />
-          {t(lang, "maNewPreset")}
-        </button>
-      </div>
 
       {/* new-preset form */}
       {editing === "" && (
@@ -150,7 +162,7 @@ export function PresetList({
         const provider = config.providers[preset.provider];
         const incompat = provider ? incompatibleReason(agent, provider) : null;
         return (
-          <div key={preset.id} className="ml-preset-card">
+          <div key={preset.id} className={`ml-preset-card${isCurrent ? " is-current" : ""}`}>
             <div className="ml-preset-card-row">
               <span className="ml-preset-name">{preset.name || t(lang, "maDefaultPreset")}</span>
               {provider && (
@@ -169,45 +181,51 @@ export function PresetList({
                 <span className="ml-badge ml-badge-current">{t(lang, "maCurrent")}</span>
               )}
               <span className="ml-preset-actions">
+                {!isCurrent && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={isDirty || saving || applying}
+                    onClick={() => onSwitchPreset(agent, preset.id)}
+                  >
+                    {t(lang, "maSetCurrent")}
+                  </button>
+                )}
                 <button
-                  className="btn btn-secondary btn-sm"
-                  disabled={isCurrent || isDirty || saving || applying}
-                  title={isCurrent ? t(lang, "maAlreadyCurrent") : undefined}
-                  onClick={() => onSwitchPreset(agent, preset.id)}
-                >
-                  {t(lang, "maSetCurrent")}
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
+                  className="icon-btn"
                   disabled={isDirty || saving}
+                  aria-label={t(lang, "mcEdit")}
+                  title={t(lang, "mcEdit")}
                   onClick={() => setEditing(editing === preset.id ? null : preset.id)}
                 >
-                  {t(lang, "mcEdit")}
+                  <Icon name="edit" />
                 </button>
                 <button
-                  className="btn btn-secondary btn-sm"
+                  className="icon-btn"
                   disabled={isDirty || saving}
+                  aria-label={t(lang, "maDuplicate")}
+                  title={t(lang, "maDuplicate")}
                   onClick={() => onDuplicatePreset(agent, preset.id)}
                 >
-                  {t(lang, "maDuplicate")}
+                  <Icon name="copy" />
                 </button>
                 <button
-                  className="btn btn-danger btn-sm"
+                  className="icon-btn ml-cell-del"
                   disabled={isDirty || saving}
+                  aria-label={t(lang, "mcDeleteProvider")}
+                  title={t(lang, "mcDeleteProvider")}
                   onClick={() => {
                     if (confirm(t(lang, "maDeletePresetConfirm"))) {
                       onDeletePreset(agent, preset.id);
                     }
                   }}
-                  title={t(lang, "mcDeleteProvider")}
                 >
-                  <Icon name="x" />
+                  <Icon name="trash" />
                 </button>
               </span>
             </div>
             <div className="ml-preset-meta">
               <code>{preset.provider || "—"}</code>
-              <span className="ml-preset-sep">/</span>
+              <span className="arrow">→</span>
               <code>{preset.model || "—"}</code>
             </div>
 
@@ -236,17 +254,26 @@ export function PresetList({
        * placeholder (backend backfills the id on PUT), not "unset"; only a
        * genuinely null/absent current warns. */}
       {presets.length > 0 && currentId == null && (
-        <div className="ml-warn-line">{t(lang, "maNoCurrentPreset")}</div>
+        <div className="ml-warn-strip">
+          <Icon name="alert" />
+          {t(lang, "maNoCurrentPreset")}
+        </div>
       )}
 
       {/* save + apply bar (shared with pi/opencode tabs) */}
-      <div className="ml-save-bar">
-        {isDirty && <span className="ml-dirty">{t(lang, "mcDirty")}</span>}
+      <div className="ml-savebar">
+        {isDirty && (
+          <span className="dirty">
+            <span className="dot" />
+            {t(lang, "mcDirty")}
+          </span>
+        )}
         {agentSaveMsg && (
           <span className={`ml-msg${agentSaveMsg.ok ? " ok" : " err"}`}>
             {agentSaveMsg.text}
           </span>
         )}
+        <span className="spacer" />
         <button
           className="btn btn-secondary"
           disabled={!isDirty || saving}

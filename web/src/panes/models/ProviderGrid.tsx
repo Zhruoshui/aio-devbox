@@ -79,10 +79,12 @@ export function ProviderGrid({
             }}
           >
             <div className="ml-card-head">
-              <span className="ml-badge ml-badge-protocol" title={p.api}>
-                {protocolLabel(p.api)}
-              </span>
-              <span className="ml-card-name">{p.name || id}</span>
+              <div className="ml-card-main">
+                <span className="ml-badge ml-badge-protocol" title={p.api}>
+                  {protocolLabel(p.api)}
+                </span>
+                <span className="ml-card-name">{p.name || id}</span>
+              </div>
               <span className="ml-card-actions">
                 <button
                   className="icon-btn"
@@ -104,7 +106,7 @@ export function ProviderGrid({
                     onDelete(id);
                   }}
                 >
-                  <Icon name="x" />
+                  <Icon name="trash" />
                 </button>
               </span>
             </div>
@@ -117,14 +119,15 @@ export function ProviderGrid({
               <span>
                 {p.models.length} {t(lang, "mcModels")}
               </span>
+              <span className="dot">·</span>
               <span className="ml-card-key">
                 {p.apiKey && p.apiKey.length > 0 ? p.apiKey : "—"}
               </span>
             </div>
 
-            {bound.length > 0 && (
-              <div className="ml-card-chips">
-                {bound.map((a) => (
+            <div className="ml-card-chips">
+              {bound.length > 0 ? (
+                bound.map((a) => (
                   <button
                     key={a}
                     className="ml-chip"
@@ -135,9 +138,11 @@ export function ProviderGrid({
                   >
                     {AGENT_LABEL[a]}
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                <span className="none">{t(lang, "mcNoBoundAgents")}</span>
+              )}
+            </div>
           </div>
         );
       })}

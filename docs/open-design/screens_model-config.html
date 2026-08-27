@@ -1,0 +1,1611 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AIO 沙箱 · 模型配置</title>
+<style>
+/* Cloudflare Kumo UI — Open Design semantic bindings.
+ * Official sources:
+ * - https://kumo-ui.com/colors/
+ * - https://github.com/cloudflare/kumo/tree/0c5832575c99988917b81cd752002e10f3dc9c7a
+ * - packages/kumo/scripts/theme-generator/config.ts at that commit
+ *
+ * Upstream token values are adapted from @cloudflare/kumo 2.9.2,
+ * Copyright (c) 2026 Cloudflare, Inc., licensed under the MIT License.
+ * This is an Open Design curated integration, not an official Cloudflare package.
+ */
+
+:root {
+  --bg: oklch(98.75% 0 0);
+  --surface: #ffffff;
+  --surface-warm: oklch(96% 0 0);
+  --fg: oklch(21% 0.006 285.885);
+  --fg-2: var(--fg);
+  --muted: oklch(55.6% 0 0);
+  --meta: var(--muted);
+  --border: oklch(14.5% 0 0 / 0.1);
+  --border-soft: oklch(93.5% 0 0);
+  --accent: oklch(0.5772 0.2324 260);
+  --accent-on: #ffffff;
+  --accent-hover: oklch(48.8% 0.243 264.376);
+  --accent-active: var(--accent-hover);
+  --success: oklch(59.6% 0.145 163.225);
+  --warn: oklch(73.9% 0.177 58.2);
+  --danger: oklch(63.7% 0.237 25.331);
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --leading-body: 1.5;
+  --leading-tight: 1.2;
+  --tracking-display: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --section-y-desktop: 64px;
+  --section-y-tablet: 48px;
+  --section-y-phone: 32px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 9999px;
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--border);
+  --elev-raised: 0 1px 2px 0 oklch(0% 0 0 / 0.08);
+  --focus-ring: 0 0 0 2px oklch(15% 0 0);
+  --motion-fast: 150ms;
+  --motion-base: 250ms;
+  --ease-standard: cubic-bezier(0.77, 0, 0.175, 1);
+  --container-max: 1200px;
+  --container-gutter-desktop: 24px;
+  --container-gutter-tablet: 16px;
+  --container-gutter-phone: 12px;
+
+  /* Kumo chart palettes — documented upstream chart-color guidance, not
+     invented values. Categorical (nominal series) and semantic (status). */
+  --chart-cat-1: #4290F0;
+  --chart-cat-2: #F5B647;
+  --chart-cat-3: #E8649D;
+  --chart-cat-4: #8D58EE;
+  --chart-cat-5: #50C3B6;
+  --chart-cat-6: #D37536;
+  --chart-sem-danger: #FC574A;
+  --chart-sem-warn: #F8A054;
+  --chart-sem-success: #00A63E;
+  --chart-sem-neutral: #B9D6FF;
+  --chart-sem-disabled: #CBCBCB;
+  --chart-sem-skeleton: #DDDDDD;
+}
+
+[data-theme="dark"],
+[data-mode="dark"] {
+  --bg: oklch(10% 0 0);
+  --surface: oklch(17% 0 0);
+  --surface-warm: oklch(15% 0 0);
+  --fg: oklch(97% 0 0);
+  --fg-2: var(--fg);
+  --muted: oklch(70.8% 0 0);
+  --meta: var(--muted);
+  --border: oklch(32% 0 0);
+  --border-soft: oklch(26.9% 0 0);
+  --accent: color-mix(in oklch, oklch(0.5772 0.2324 260), black 10%);
+  --accent-on: #ffffff;
+  --accent-hover: oklch(48.8% 0.243 264.376);
+  --accent-active: var(--accent-hover);
+  --success: oklch(76.5% 0.177 163.223);
+  --warn: oklch(64.5% 0.168 50);
+  --danger: oklch(57.7% 0.245 27.325);
+  --elev-raised: 0 1px 2px 0 oklch(0% 0 0 / 0.3);
+  --focus-ring: 0 0 0 2px oklch(93.5% 0 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-fast: 0ms; --motion-base: 0ms; }
+}
+
+/* ─── base ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm);
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.icon { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ─── shell ──────────────────────────────────────────────────────── */
+.shell { max-width: var(--container-max); margin: 0 auto; padding: 0 var(--container-gutter-desktop) var(--space-12); }
+.crumb {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  padding: var(--space-4) 0 var(--space-3);
+  background: color-mix(in oklch, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-6);
+}
+.crumb-left { display: flex; align-items: center; gap: var(--space-3); min-width: 0; flex-wrap: wrap; row-gap: var(--space-1); }
+.backlink {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 var(--space-2);
+  color: var(--muted); font-size: var(--text-sm); text-decoration: none;
+  border-radius: var(--radius-md);
+}
+.backlink:hover { color: var(--fg); background: color-mix(in oklch, var(--fg) 7%, transparent); }
+.crumb h1 { margin: 0; font-size: var(--text-lg); font-weight: 600; white-space: nowrap; }
+.crumb .sep { color: var(--border-soft); }
+.crumb-right { display: flex; align-items: center; gap: var(--space-2); }
+
+.lang-toggle {
+  display: inline-flex; align-items: center; height: 30px; padding: 2px;
+  background: var(--surface-warm); border-radius: var(--radius-pill); gap: 2px;
+}
+.lang-toggle button {
+  height: 26px; padding: 0 var(--space-3); border-radius: var(--radius-pill);
+  font-size: var(--text-xs); font-weight: 500; color: var(--muted);
+}
+.lang-toggle button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--elev-ring); }
+.lang-toggle button:hover:not([aria-pressed="true"]) { color: var(--fg); }
+
+/* ─── primary tabs (segmented) ──────────────────────────────────── */
+.tabs-primary {
+  display: inline-flex; flex-wrap: wrap; gap: 2px;
+  padding: 3px; margin-bottom: var(--space-6);
+  background: var(--surface-warm); border-radius: var(--radius-lg);
+}
+.tab-item {
+  height: 34px; padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm); font-weight: 500; color: var(--muted);
+  white-space: nowrap;
+}
+.tab-item:hover { color: var(--fg); }
+.tab-item[aria-selected="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--elev-ring); }
+
+.tabpanel { display: none; }
+.tabpanel.active { display: block; }
+
+/* ─── section heading ────────────────────────────────────────────── */
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); flex-wrap: wrap; }
+.sec-head h2 { margin: 0; font-size: var(--text-xl); font-weight: 600; }
+.sec-head p { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--muted); }
+.sec-actions { display: flex; gap: var(--space-2); }
+
+/* ─── buttons ────────────────────────────────────────────────────── */
+.btn {
+  height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: 0 var(--space-4); border-radius: var(--radius-lg); border: 0;
+  font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+}
+.btn-sm { height: 28px; padding: 0 var(--space-3); font-size: var(--text-xs); border-radius: var(--radius-md); }
+.btn-primary { background: var(--accent); color: var(--accent-on); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-active); }
+.btn-primary:disabled { background: color-mix(in oklch, var(--accent) 40%, var(--surface-warm)); color: color-mix(in oklch, var(--accent-on) 70%, var(--surface-warm)); cursor: not-allowed; }
+.btn-secondary { background: var(--surface); color: var(--fg); box-shadow: var(--elev-ring); }
+.btn-secondary:hover { background: color-mix(in oklch, var(--surface) 88%, var(--fg)); }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--fg); background: color-mix(in oklch, var(--fg) 7%, transparent); }
+.btn-danger-text { background: transparent; color: var(--danger); }
+.btn-danger-text:hover { background: color-mix(in oklch, var(--danger) 12%, transparent); }
+.icon-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md); color: var(--muted); border: 0;
+}
+.icon-btn:hover { color: var(--fg); background: color-mix(in oklch, var(--fg) 7%, transparent); }
+.icon-btn.danger:hover { color: var(--danger); background: color-mix(in oklch, var(--danger) 12%, transparent); }
+
+/* ─── badges ─────────────────────────────────────────────────────── */
+.ml-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 20px; padding: 0 8px; border-radius: var(--radius-pill);
+  font-size: var(--text-xs); font-weight: 500; white-space: nowrap;
+}
+.ml-badge .dot { width: 6px; height: 6px; border-radius: var(--radius-pill); flex-shrink: 0; }
+.ml-badge-neutral { background: var(--surface-warm); color: var(--muted); }
+.ml-badge-neutral .dot { background: var(--muted); }
+.ml-badge-success { background: color-mix(in oklch, var(--success) 16%, transparent); color: var(--success); }
+.ml-badge-success .dot { background: var(--success); }
+.ml-badge-warn { background: color-mix(in oklch, var(--warn) 18%, transparent); color: var(--warn); }
+.ml-badge-warn .dot { background: var(--warn); }
+.ml-badge-danger { background: color-mix(in oklch, var(--danger) 16%, transparent); color: var(--danger); }
+.ml-badge-danger .dot { background: var(--danger); }
+.ml-badge-info { background: color-mix(in oklch, var(--accent) 16%, transparent); color: color-mix(in oklch, var(--accent) 70%, white); }
+.ml-badge-info .dot { background: var(--accent); }
+
+.protocol-badge {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+  background: var(--surface-warm); color: var(--fg-2); box-shadow: var(--elev-ring);
+}
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 9px; border-radius: var(--radius-pill);
+  background: var(--surface-warm); color: var(--fg); font-size: var(--text-xs); border: 0;
+}
+.chip:hover { background: color-mix(in oklch, var(--accent) 16%, var(--surface-warm)); color: color-mix(in oklch, var(--accent) 65%, white); }
+
+/* ─── cards / providers grid ────────────────────────────────────── */
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.card {
+  background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), var(--elev-raised);
+  padding: var(--space-4); transition: background var(--motion-fast);
+}
+.provider-card { cursor: pointer; }
+.provider-card:hover, .provider-card:focus-within { background: color-mix(in oklch, var(--surface) 92%, var(--fg)); }
+.pc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.pc-name { font-size: var(--text-base); font-weight: 600; margin: 0 0 6px; }
+.pc-tools { display: flex; gap: 2px; opacity: 0; transition: opacity var(--motion-fast); }
+.provider-card:hover .pc-tools, .provider-card:focus-within .pc-tools { opacity: 1; }
+.pc-tools .icon-btn:focus-visible { opacity: 1; }
+.pc-url { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: var(--space-3); }
+.pc-meta { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-3); }
+.pc-meta .key { font-family: var(--font-mono); }
+.pc-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: var(--space-3); border-top: 1px solid var(--border-soft); }
+.pc-chips .none { font-size: var(--text-xs); color: var(--muted); }
+
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);
+  padding: var(--space-8); text-align: center; color: var(--muted);
+  background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring);
+}
+.empty-state h3 { margin: 0; font-size: var(--text-lg); color: var(--fg); font-weight: 600; }
+.empty-state p { margin: 0; font-size: var(--text-sm); max-width: 42ch; }
+.empty-state .row { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
+
+/* ─── drawer ─────────────────────────────────────────────────────── */
+.scrim { position: fixed; inset: 0; z-index: 40; background: color-mix(in oklch, var(--bg) 60%, transparent); opacity: 0; pointer-events: none; transition: opacity var(--motion-base) var(--ease-standard); }
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(460px, 100vw);
+  background: var(--surface); box-shadow: var(--elev-ring), -8px 0 24px oklch(0% 0 0 / 0.35);
+  transform: translateX(100%); transition: transform var(--motion-base) var(--ease-standard);
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-soft); }
+.drawer-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.drawer-body { flex: 1; overflow-y: auto; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-6); }
+.drawer-savebar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-soft); }
+
+.dgroup h3 { margin: 0 0 var(--space-3); font-size: var(--text-sm); font-weight: 600; color: var(--muted); text-transform: none; }
+.dgroup-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: var(--space-3); }
+.dgroup-toggle h3 { margin: 0; }
+.dgroup-toggle .icon { color: var(--muted); transition: transform var(--motion-fast); }
+.dgroup-toggle[aria-expanded="false"] + .dgroup-content { display: none; }
+.dgroup-toggle[aria-expanded="false"] .icon { transform: rotate(-90deg); }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-3); }
+.field:last-child { margin-bottom: 0; }
+.field label { font-size: var(--text-xs); font-weight: 500; color: var(--muted); }
+.field .input, .field select, .field textarea {
+  height: 34px; padding: 0 var(--space-3); background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-sm);
+}
+.field select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2370708a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 14px; padding-right: 32px; }
+.field textarea { height: auto; min-height: 84px; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.field .input:hover, .field select:hover, .field textarea:hover { border-color: color-mix(in oklch, var(--border) 40%, var(--fg)); }
+.field .input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { box-shadow: var(--focus-ring); border-color: var(--accent); }
+.field .input[aria-invalid="true"], .field textarea[aria-invalid="true"] { border-color: var(--danger); }
+.field-error { font-size: var(--text-xs); color: var(--danger); display: none; }
+.field-error.show { display: block; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-3); }
+.field-row-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-3); }
+.input-with-icon { position: relative; }
+.input-with-icon .input { padding-right: 36px; width: 100%; }
+.input-with-icon .icon-btn { position: absolute; right: 3px; top: 3px; }
+
+/* ─── model rows ─────────────────────────────────────────────────── */
+.model-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.model-row { background: var(--bg); border-radius: var(--radius-md); box-shadow: var(--elev-ring); overflow: hidden; }
+.model-row-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2) var(--space-2) 6px; cursor: pointer; }
+.model-row-head .chev { color: var(--muted); transition: transform var(--motion-fast); flex-shrink: 0; }
+.model-row.expanded .chev { transform: rotate(90deg); }
+.model-row-id { font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
+.model-row-name { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row-cost { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.model-row-body { display: none; padding: 0 var(--space-3) var(--space-3) var(--space-3); border-top: 1px solid var(--border-soft); }
+.model-row.expanded .model-row-body { display: block; padding-top: var(--space-3); }
+.model-row-actions { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.check-inline { display: flex; align-items: center; gap: 6px; height: 34px; font-size: var(--text-sm); }
+.check-inline input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ─── test pill ──────────────────────────────────────────────────── */
+.test-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+  border-radius: var(--radius-pill); font-size: 11px; font-weight: 500; border: 0;
+  background: var(--surface-warm); color: var(--fg-2); box-shadow: var(--elev-ring);
+}
+.test-pill:hover:not(:disabled) { background: color-mix(in oklch, var(--surface-warm) 80%, var(--fg)); }
+.test-pill:disabled { cursor: default; }
+.test-pill .spin { width: 10px; height: 10px; border: 1.5px solid color-mix(in oklch, var(--fg) 30%, transparent); border-top-color: var(--fg); border-radius: 50%; animation: rot .8s linear infinite; }
+.test-pill.ok { background: color-mix(in oklch, var(--success) 16%, transparent); color: var(--success); box-shadow: none; }
+.test-pill.fail { background: color-mix(in oklch, var(--danger) 16%, transparent); color: var(--danger); box-shadow: none; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .test-pill .spin { animation: none; } }
+
+/* ─── modal (discover) ───────────────────────────────────────────── */
+.overlay { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: color-mix(in oklch, var(--bg) 68%, transparent); backdrop-filter: blur(2px); }
+.overlay.open { display: flex; }
+.modal { width: min(520px, calc(100vw - 32px)); max-height: 80vh; display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), var(--elev-raised), 0 12px 32px oklch(0% 0 0 / 0.35); }
+.modal-head { padding: var(--space-4) var(--space-5) var(--space-3); border-bottom: 1px solid var(--border-soft); }
+.modal-head h2 { margin: 0 0 4px; font-size: var(--text-lg); font-weight: 600; }
+.modal-head p { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.modal-search { padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border-soft); }
+.modal-list { flex: 1; overflow-y: auto; padding: var(--space-2) var(--space-3); }
+.discover-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2); border-radius: var(--radius-md); }
+.discover-row:hover { background: color-mix(in oklch, var(--fg) 6%, transparent); }
+.discover-row input { width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+.discover-row.exists { opacity: 0.55; }
+.discover-row .id { font-family: var(--font-mono); font-size: 12px; }
+.discover-row .name { font-size: var(--text-xs); color: var(--muted); margin-left: 8px; }
+.discover-row .tag { margin-left: auto; font-size: 11px; color: var(--muted); }
+.modal-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-soft); }
+
+/* ─── agent panels (incremental) ─────────────────────────────────── */
+.agent-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-5); }
+.agent-head .name { font-size: var(--text-2xl); font-weight: 600; margin-right: var(--space-1); }
+.paradigm-strip {
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  background: var(--surface-warm); border-radius: var(--radius-md); margin-bottom: var(--space-6);
+  font-size: var(--text-xs); color: var(--muted);
+}
+.paradigm-strip strong { color: var(--fg); font-weight: 600; }
+
+.form-card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), var(--elev-raised); padding: var(--space-5); margin-bottom: var(--space-4); }
+.form-card h3 { margin: 0 0 var(--space-4); font-size: var(--text-base); font-weight: 600; }
+.opt-disabled { color: var(--muted); }
+
+.savebar {
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  background: var(--surface-warm); border-radius: var(--radius-lg); flex-wrap: wrap;
+}
+.savebar .dirty { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--warn); }
+.savebar .dirty .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.savebar .msg { font-size: var(--text-xs); color: var(--success); display: none; align-items: center; gap: 6px; }
+.savebar .msg.show { display: inline-flex; }
+.savebar .spacer { flex: 1; }
+
+.result-panel { margin-top: var(--space-4); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--elev-ring); }
+.result-panel.ok { box-shadow: 0 0 0 1px color-mix(in oklch, var(--success) 40%, var(--border)); }
+.result-panel.err { box-shadow: 0 0 0 1px color-mix(in oklch, var(--danger) 40%, var(--border)); }
+.result-panel .rp-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: 600; }
+.result-panel.ok .rp-head { color: var(--success); }
+.result-panel.err .rp-head { color: var(--danger); }
+.result-panel .path { font-family: var(--font-mono); font-size: 12px; color: var(--muted); word-break: break-all; }
+.result-panel .path + .path { margin-top: 4px; }
+.result-panel ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); font-size: var(--text-xs); color: var(--danger); }
+
+.native-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.native-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--elev-ring); flex-wrap: wrap; }
+.native-row .nm { font-weight: 500; font-size: var(--text-sm); }
+.native-row .url { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.native-row .actions { margin-left: auto; display: flex; gap: 6px; }
+
+/* ─── switcher agent presets ─────────────────────────────────────── */
+.preset-list { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-5); }
+.preset-card { background: var(--surface); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--elev-ring), var(--elev-raised); }
+.preset-card.current { box-shadow: 0 0 0 1.5px var(--accent), var(--elev-raised); }
+.preset-top { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.preset-name { font-size: var(--text-base); font-weight: 600; }
+.preset-meta { font-size: var(--text-xs); color: var(--muted); margin-top: 2px; }
+.preset-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.preset-form { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-soft); display: none; }
+.preset-form.open { display: block; }
+.warn-strip { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); background: color-mix(in oklch, var(--warn) 14%, var(--surface)); border-radius: var(--radius-md); color: var(--warn); font-size: var(--text-sm); margin-bottom: var(--space-4); }
+
+/* ─── usage tab ──────────────────────────────────────────────────── */
+.window-switch { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-warm); border-radius: var(--radius-pill); }
+.window-switch button { height: 28px; padding: 0 var(--space-3); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--muted); }
+.window-switch button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--elev-ring); }
+.usage-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
+.usage-toolbar .gen-at { font-size: var(--text-xs); color: var(--muted); margin-left: auto; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
+@media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), var(--elev-raised); padding: var(--space-4); }
+.stat-card .lbl { font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-2); }
+.stat-card .val { font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; letter-spacing: -0.01em; }
+
+.chart-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--space-4); margin-bottom: var(--space-6); align-items: start; }
+@media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+.chart-card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), var(--elev-raised); padding: var(--space-5); }
+.chart-card h3 { margin: 0 0 var(--space-4); font-size: var(--text-base); font-weight: 600; }
+.bar-row { display: grid; grid-template-columns: 130px 1fr 74px; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.bar-row .lbl { font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 10px; background: var(--surface-warm); border-radius: var(--radius-pill); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: var(--radius-pill); }
+.bar-row .val { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: right; }
+
+.donut-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); }
+.donut { width: 168px; height: 168px; border-radius: 50%; display: grid; place-items: center; position: relative; }
+.donut::after { content: ""; position: absolute; inset: 22px; border-radius: 50%; background: var(--surface); }
+.donut-center { position: relative; z-index: 1; text-align: center; }
+.donut-center .amt { font-family: var(--font-mono); font-size: var(--text-xl); font-weight: 600; }
+.donut-center .cap { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.legend { width: 100%; display: flex; flex-direction: column; gap: var(--space-2); }
+.legend-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
+.legend-row .sw { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.legend-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-row .amt { font-family: var(--font-mono); color: var(--muted); }
+.legend-row .pct { font-family: var(--font-mono); color: var(--muted); width: 40px; text-align: right; }
+.donut-empty { text-align: center; color: var(--muted); font-size: var(--text-sm); padding: var(--space-6) 0; }
+
+.table-wrap { overflow-x: auto; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring); }
+table.data { width: 100%; border-collapse: collapse; font-size: var(--text-sm); min-width: 760px; }
+table.data th, table.data td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+table.data th { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: none; font-family: var(--font-mono); letter-spacing: 0.02em; }
+table.data td.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+table.data tbody tr:hover { background: color-mix(in oklch, var(--fg) 4%, transparent); }
+table.data tfoot td { border-bottom: 0; border-top: 1px solid var(--border); font-weight: 600; }
+
+/* ─── toast ──────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);
+  z-index: 60; display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: var(--radius-lg);
+  background: var(--surface); color: var(--fg); box-shadow: var(--elev-ring), 0 8px 24px oklch(0% 0 0 / 0.35);
+  font-size: var(--text-sm); opacity: 0; pointer-events: none; transition: opacity var(--motion-fast), transform var(--motion-fast);
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 720px) {
+  .field-row, .field-row-3, .field-row-4 { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .drawer { width: 100vw; }
+}
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 4.2-5.2M9.9 4.2A9.8 9.8 0 0 1 12 4c6.5 0 10 7 10 7a18.4 18.4 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M22 4 12 14.01l-3-3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.6 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><circle cx="12" cy="16.5" r="0.5" fill="currentColor"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5z"/><path d="M3 7l9 5 9-5"/><path d="M12 12v10"/></symbol>
+</svg>
+
+<div class="shell">
+  <header class="crumb" data-od-id="page-crumb">
+    <div class="crumb-left">
+      <a class="backlink" href="../index.html">
+        <svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>
+        <span data-i18n="crumb.overview">总览</span>
+      </a>
+      <span class="sep">/</span>
+      <a class="backlink" href="workspace.html">
+        <span data-i18n="crumb.workspace">工作台</span>
+      </a>
+      <span class="sep">/</span>
+      <h1 data-i18n="crumb.title">模型配置</h1>
+    </div>
+    <div class="crumb-right">
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" id="langZh" aria-pressed="true">中文</button>
+        <button type="button" id="langEn" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="tabs-primary" role="tablist" aria-label="模型配置" data-od-id="primary-tabs">
+    <button class="tab-item" role="tab" data-tab="providers" aria-selected="true" data-i18n="tab.providers">供应商库</button>
+    <button class="tab-item" role="tab" data-tab="pi" aria-selected="false">pi</button>
+    <button class="tab-item" role="tab" data-tab="opencode" aria-selected="false">opencode</button>
+    <button class="tab-item" role="tab" data-tab="claude" aria-selected="false">Claude</button>
+    <button class="tab-item" role="tab" data-tab="codex" aria-selected="false">Codex</button>
+    <button class="tab-item" role="tab" data-tab="usage" aria-selected="false" data-i18n="tab.usage">用量统计</button>
+  </div>
+
+  <section class="tabpanel active" id="panel-providers" data-od-id="panel-providers"></section>
+  <section class="tabpanel" id="panel-pi" data-od-id="panel-pi"></section>
+  <section class="tabpanel" id="panel-opencode" data-od-id="panel-opencode"></section>
+  <section class="tabpanel" id="panel-claude" data-od-id="panel-claude"></section>
+  <section class="tabpanel" id="panel-codex" data-od-id="panel-codex"></section>
+  <section class="tabpanel" id="panel-usage" data-od-id="panel-usage"></section>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" data-od-id="provider-drawer"></aside>
+
+<div class="overlay" id="discoverOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="discoverTitle" data-od-id="discover-modal">
+    <div class="modal-head">
+      <h2 id="discoverTitle" data-i18n="discover.title">从端点拉取模型</h2>
+      <p id="discoverEndpoint" class="mono"></p>
+    </div>
+    <div class="modal-search">
+      <div class="input-with-icon">
+        <input class="input" id="discoverSearch" style="width:100%;padding-left:34px" data-i18n-attr="placeholder:discover.search" placeholder="搜索模型 ID 或名称" />
+        <svg class="icon" style="position:absolute;left:10px;top:9px;color:var(--muted)" aria-hidden="true"><use href="#i-search"/></svg>
+      </div>
+    </div>
+    <div class="modal-list" id="discoverList"></div>
+    <div class="modal-foot">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn btn-ghost btn-sm" id="discoverAll" data-i18n="discover.selectAll">全选</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="discoverNone" data-i18n="discover.selectNone">清空</button>
+        <span class="mono" id="discoverCount" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-secondary" id="discoverCancel" data-i18n="common.cancel">取消</button>
+        <button type="button" class="btn btn-primary" id="discoverAdd" data-i18n="discover.addSelected">添加所选</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════
+   I18N
+   ════════════════════════════════════════════════════════════════ */
+var LANG = "zh";
+var I18N = {
+  zh: {
+    "crumb.overview": "总览", "crumb.workspace": "工作台", "crumb.title": "模型配置",
+    "tab.providers": "供应商库", "tab.usage": "用量统计",
+    "common.cancel": "取消", "common.save": "保存", "common.delete": "删除", "common.edit": "编辑", "common.copy": "复制",
+    "common.apply": "应用", "common.none": "无", "common.models": "个模型", "common.unsaved": "有未保存改动",
+    "providers.heading": "供应商库", "providers.sub": "统一管理各 agent 使用的 API 供应商、密钥与模型目录。",
+    "providers.add": "新增供应商", "providers.importPi": "从 pi 导入",
+    "providers.emptyTitle": "暂无供应商", "providers.emptyBody": "添加一个供应商后，即可在下方 agent 标签页中绑定模型。",
+    "providers.boundNone": "未被任何 agent 绑定",
+    "drawer.title": "编辑供应商", "drawer.titleNew": "新增供应商",
+    "drawer.basic": "基本信息", "drawer.name": "名称", "drawer.baseUrl": "Base URL", "drawer.protocol": "协议", "drawer.apiKey": "API Key",
+    "drawer.advanced": "高级设置", "drawer.headers": "自定义 Headers（JSON）", "drawer.compat": "兼容性覆盖（JSON）",
+    "drawer.models": "模型列表", "drawer.fetchModels": "从端点拉取模型", "drawer.addModel": "添加模型",
+    "drawer.bindings": "绑定概览", "drawer.bindingsSub": "以下 agent 正在使用这个供应商：",
+    "drawer.dirty": "有未保存改动", "drawer.saved": "已保存",
+    "model.override": "协议覆盖", "model.inherit": "跟随供应商", "model.name": "显示名称", "model.reasoning": "推理模型",
+    "model.contextWindow": "上下文窗口", "model.maxTokens": "最大输出", "model.costInput": "输入 $/M", "model.costOutput": "输出 $/M",
+    "model.costCacheRead": "缓存读 $/M", "model.costCacheWrite": "缓存写 $/M", "model.fillFromDev": "从 models.dev 填充",
+    "model.test": "测试连通性", "model.testing": "测试中…", "model.testOk": "OK", "model.testFail": "失败",
+    "discover.title": "从端点拉取模型", "discover.search": "搜索模型 ID 或名称", "discover.selectAll": "全选", "discover.selectNone": "清空",
+    "discover.addSelected": "添加所选", "discover.exists": "已存在",
+    "agent.installed": "已安装", "agent.notInstalled": "未安装",
+    "agent.live": "Live 回读", "agent.liveSub": "agent 原生配置文件当前实际生效的供应商与模型",
+    "agent.consistent": "一致", "agent.inconsistent": "不一致", "agent.unknown": "未知",
+    "agent.paradigmIncremental": "增量式 agent —— 单一「供应商 + 模型」绑定，通过下拉直接选择。",
+    "agent.paradigmSwitcher": "切换式 agent —— 维护多个命名预设，恰好一个当前生效（cc-switch 风格）。",
+    "agent.assign": "分配", "agent.provider": "供应商", "agent.model": "模型", "agent.pickModel": "选择模型",
+    "agent.incompatible": "协议不兼容",
+    "agent.saveAssign": "保存分配", "agent.applyNow": "应用到配置文件",
+    "agent.applyOk": "已写入原生配置", "agent.applyErr": "写入失败", "agent.simulateFail": "模拟失败",
+    "agent.nativeHeading": "原生配置 Live 管理", "agent.nativeSub": "agent 原生配置文件中检测到的全部供应商节点（不一定来自本库）",
+    "agent.sync": "同步到供应商库", "agent.synced": "已在库中",
+    "preset.heading": "预设", "preset.new": "新增预设", "preset.setCurrent": "设为当前", "preset.current": "当前",
+    "preset.mainModel": "主模型", "preset.noCurrentWarn": "尚未设置当前生效预设，agent 将无法正常调用。",
+    "preset.name": "预设名称", "preset.haiku": "Haiku 档", "preset.sonnet": "Sonnet 档", "preset.opus": "Opus 档",
+    "preset.followMain": "留空跟随主模型", "preset.authToken": "ANTHROPIC_AUTH_TOKEN", "preset.authKey": "ANTHROPIC_API_KEY",
+    "preset.reasoningEffort": "Reasoning Effort", "preset.wireApi": "Wire API", "preset.cancel": "取消",
+    "usage.heading": "用量统计", "usage.today": "今日", "usage.week": "7 天", "usage.all": "全部", "usage.refresh": "刷新",
+    "usage.genAt": "生成于", "usage.inputTokens": "输入 tokens", "usage.outputTokens": "输出 tokens",
+    "usage.cacheTokens": "缓存 tokens", "usage.cost": "成本（$）",
+    "usage.byModel": "按模型 · Top 8", "usage.costByAgent": "成本占比 · 按 agent", "usage.total": "合计",
+    "usage.tableHeading": "明细", "usage.col.agent": "Agent", "usage.col.provider": "供应商", "usage.col.model": "模型",
+    "usage.col.input": "输入", "usage.col.output": "输出", "usage.col.cacheRead": "缓存读", "usage.col.cacheWrite": "缓存写", "usage.col.cost": "成本"
+  },
+  en: {
+    "crumb.overview": "Overview", "crumb.workspace": "Workspace", "crumb.title": "Model Config",
+    "tab.providers": "Providers", "tab.usage": "Usage",
+    "common.cancel": "Cancel", "common.save": "Save", "common.delete": "Delete", "common.edit": "Edit", "common.copy": "Duplicate",
+    "common.apply": "Apply", "common.none": "None", "common.models": " models", "common.unsaved": "Unsaved changes",
+    "providers.heading": "Provider library", "providers.sub": "Manage API providers, keys, and model catalogs shared across agents.",
+    "providers.add": "Add provider", "providers.importPi": "Import from pi",
+    "providers.emptyTitle": "No providers yet", "providers.emptyBody": "Add a provider, then bind its models from the agent tabs below.",
+    "providers.boundNone": "Not bound to any agent",
+    "drawer.title": "Edit provider", "drawer.titleNew": "New provider",
+    "drawer.basic": "Basic info", "drawer.name": "Name", "drawer.baseUrl": "Base URL", "drawer.protocol": "Protocol", "drawer.apiKey": "API key",
+    "drawer.advanced": "Advanced", "drawer.headers": "Custom headers (JSON)", "drawer.compat": "Compat overrides (JSON)",
+    "drawer.models": "Models", "drawer.fetchModels": "Fetch models from endpoint", "drawer.addModel": "Add model",
+    "drawer.bindings": "Bindings", "drawer.bindingsSub": "Agents currently using this provider:",
+    "drawer.dirty": "Unsaved changes", "drawer.saved": "Saved",
+    "model.override": "Protocol override", "model.inherit": "Inherit provider", "model.name": "Display name", "model.reasoning": "Reasoning model",
+    "model.contextWindow": "Context window", "model.maxTokens": "Max output", "model.costInput": "Input $/M", "model.costOutput": "Output $/M",
+    "model.costCacheRead": "Cache read $/M", "model.costCacheWrite": "Cache write $/M", "model.fillFromDev": "Fill from models.dev",
+    "model.test": "Test connectivity", "model.testing": "Testing…", "model.testOk": "OK", "model.testFail": "Failed",
+    "discover.title": "Fetch models from endpoint", "discover.search": "Search model ID or name", "discover.selectAll": "Select all", "discover.selectNone": "Clear",
+    "discover.addSelected": "Add selected", "discover.exists": "Already added",
+    "agent.installed": "Installed", "agent.notInstalled": "Not installed",
+    "agent.live": "Live read", "agent.liveSub": "Provider/model currently in effect in the agent's native config file",
+    "agent.consistent": "Consistent", "agent.inconsistent": "Inconsistent", "agent.unknown": "Unknown",
+    "agent.paradigmIncremental": "Incremental agent — a single provider + model binding, picked from dropdowns.",
+    "agent.paradigmSwitcher": "Switcher agent — multiple named presets, exactly one is current (cc-switch style).",
+    "agent.assign": "Assignment", "agent.provider": "Provider", "agent.model": "Model", "agent.pickModel": "Choose a model",
+    "agent.incompatible": "Incompatible protocol",
+    "agent.saveAssign": "Save assignment", "agent.applyNow": "Apply to config file",
+    "agent.applyOk": "Written to native config", "agent.applyErr": "Write failed", "agent.simulateFail": "Simulate failure",
+    "agent.nativeHeading": "Native config — live management", "agent.nativeSub": "All provider entries detected in the agent's native config (not necessarily from this library)",
+    "agent.sync": "Sync into library", "agent.synced": "Already in library",
+    "preset.heading": "Presets", "preset.new": "New preset", "preset.setCurrent": "Set as current", "preset.current": "Current",
+    "preset.mainModel": "Main model", "preset.noCurrentWarn": "No current preset is set — the agent cannot be invoked.",
+    "preset.name": "Preset name", "preset.haiku": "Haiku tier", "preset.sonnet": "Sonnet tier", "preset.opus": "Opus tier",
+    "preset.followMain": "Leave blank to follow main model", "preset.authToken": "ANTHROPIC_AUTH_TOKEN", "preset.authKey": "ANTHROPIC_API_KEY",
+    "preset.reasoningEffort": "Reasoning effort", "preset.wireApi": "Wire API", "preset.cancel": "Cancel",
+    "usage.heading": "Usage", "usage.today": "Today", "usage.week": "7 days", "usage.all": "All time", "usage.refresh": "Refresh",
+    "usage.genAt": "Generated", "usage.inputTokens": "Input tokens", "usage.outputTokens": "Output tokens",
+    "usage.cacheTokens": "Cache tokens", "usage.cost": "Cost ($)",
+    "usage.byModel": "By model · Top 8", "usage.costByAgent": "Cost share · by agent", "usage.total": "Total",
+    "usage.tableHeading": "Detail", "usage.col.agent": "Agent", "usage.col.provider": "Provider", "usage.col.model": "Model",
+    "usage.col.input": "Input", "usage.col.output": "Output", "usage.col.cacheRead": "Cache read", "usage.col.cacheWrite": "Cache write", "usage.col.cost": "Cost"
+  }
+};
+function t(key) { return (I18N[LANG] && I18N[LANG][key]) || key; }
+function applyI18n(root) {
+  (root || document).querySelectorAll("[data-i18n]").forEach(function (el) {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  (root || document).querySelectorAll("[data-i18n-attr]").forEach(function (el) {
+    el.getAttribute("data-i18n-attr").split(";").forEach(function (pair) {
+      var parts = pair.split(":"); if (parts.length !== 2) return;
+      el.setAttribute(parts[0].trim(), t(parts[1].trim()));
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DATA
+   ════════════════════════════════════════════════════════════════ */
+var PROTOCOLS = {
+  "openai-chat": "OpenAI · Chat Completions",
+  "openai-resp": "OpenAI · Responses",
+  "anthropic": "Anthropic"
+};
+
+var PROVIDERS = [
+  {
+    id: "openai", name: "OpenAI 官方", protocol: "openai-chat",
+    baseUrl: "https://api.openai.com/v1", apiKey: "sk-proj-9fQ2mZ7tRq0LxWnE8dYc4bK1sHj6PfXk3F",
+    headers: "{}", compat: "{}",
+    models: [
+      { id: "gpt-4.1", name: "GPT-4.1", reasoning: false, ctx: 1047576, maxOut: 32768, cost: { i: 2.00, o: 8.00, cr: 0.50, cw: 2.00 } },
+      { id: "gpt-4.1-mini", name: "GPT-4.1 mini", reasoning: false, ctx: 1047576, maxOut: 32768, cost: { i: 0.40, o: 1.60, cr: 0.10, cw: 0.40 } },
+      { id: "o4-mini", name: "o4-mini", reasoning: true, ctx: 200000, maxOut: 100000, cost: { i: 1.10, o: 4.40, cr: 0.275, cw: 1.10 } }
+    ]
+  },
+  {
+    id: "anthropic", name: "Anthropic 官方", protocol: "anthropic",
+    baseUrl: "https://api.anthropic.com", apiKey: "sk-ant-api03-lK9pQaZ2mN6vXe1RtY8dCw",
+    headers: "{}", compat: "{}",
+    models: [
+      { id: "claude-sonnet-5", name: "Claude Sonnet 5", reasoning: true, ctx: 1000000, maxOut: 64000, cost: { i: 3.00, o: 15.00, cr: 0.30, cw: 3.75 } },
+      { id: "claude-opus-5", name: "Claude Opus 5", reasoning: true, ctx: 1000000, maxOut: 64000, cost: { i: 15.00, o: 75.00, cr: 1.50, cw: 18.75 } },
+      { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", reasoning: false, ctx: 200000, maxOut: 8192, cost: { i: 0.80, o: 4.00, cr: 0.08, cw: 1.00 } }
+    ]
+  },
+  {
+    id: "anthropic-proxy", name: "自建 Anthropic 代理（灰度）", protocol: "anthropic",
+    baseUrl: "https://relay.internal.aio/anthropic", apiKey: "sk-relay-7mNcQwErTy9pLk",
+    headers: '{\n  "x-relay-tag": "canary"\n}', compat: "{}",
+    models: [
+      { id: "claude-sonnet-5", name: "Claude Sonnet 5（中转）", reasoning: true, ctx: 1000000, maxOut: 64000, cost: { i: 3.00, o: 15.00, cr: 0.30, cw: 3.75 } }
+    ]
+  },
+  {
+    id: "deepseek", name: "DeepSeek", protocol: "openai-chat",
+    baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-6cVb8nMk2wPq5tRz7mNc",
+    headers: "{}", compat: "{}",
+    models: [
+      { id: "deepseek-chat", name: "DeepSeek Chat", reasoning: false, ctx: 65536, maxOut: 8192, cost: { i: 0.28, o: 0.42, cr: 0.028, cw: 0.28 } },
+      { id: "deepseek-reasoner", name: "DeepSeek Reasoner", reasoning: true, ctx: 65536, maxOut: 65536, cost: { i: 0.28, o: 0.42, cr: 0.028, cw: 0.28 } }
+    ]
+  },
+  {
+    id: "openrouter", name: "OpenRouter", protocol: "openai-resp",
+    baseUrl: "https://openrouter.ai/api/v1", apiKey: "sk-or-v1-b4Xk9pQ2mNc6vTyR8dW",
+    headers: '{\n  "HTTP-Referer": "https://aio.local"\n}', compat: "{}",
+    models: [
+      { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B", reasoning: false, ctx: 131072, maxOut: 8192, cost: { i: 0.12, o: 0.30, cr: 0.03, cw: 0.12 } },
+      { id: "qwen/qwen-2.5-72b", name: "Qwen 2.5 72B", reasoning: false, ctx: 131072, maxOut: 8192, cost: { i: 0.13, o: 0.34, cr: 0.03, cw: 0.13 } }
+    ]
+  },
+  {
+    id: "azure", name: "Azure OpenAI（备用）", protocol: "openai-chat",
+    baseUrl: "https://aio-dev.openai.azure.com", apiKey: "",
+    headers: "{}", compat: "{}", models: []
+  }
+];
+
+var AGENT_META = {
+  pi: { label: "pi", paradigm: "incremental" },
+  opencode: { label: "opencode", paradigm: "incremental" },
+  claude: { label: "Claude", paradigm: "switcher", allow: ["anthropic"] },
+  codex: { label: "Codex", paradigm: "switcher", deny: ["anthropic"] }
+};
+
+var INCREMENTAL = {
+  pi: {
+    installed: true,
+    live: { provider: "anthropic", model: "claude-sonnet-5" },
+    assigned: { provider: "anthropic", model: "claude-sonnet-5" },
+    native: [
+      { name: "anthropic", url: "https://api.anthropic.com", inLibrary: true },
+      { name: "openrouter", url: "https://openrouter.ai/api/v1", inLibrary: true }
+    ]
+  },
+  opencode: {
+    installed: true,
+    live: { provider: "deepseek", model: "deepseek-chat" },
+    assigned: { provider: "openai", model: "gpt-4.1-mini" },
+    native: [
+      { name: "deepseek", url: "https://api.deepseek.com/v1", inLibrary: true },
+      { name: "moonshot", url: "https://api.moonshot.cn/v1", inLibrary: false }
+    ]
+  }
+};
+
+var SWITCHER = {
+  claude: {
+    installed: true,
+    live: { provider: "anthropic", model: "claude-sonnet-5" },
+    currentPresetId: "cl-1",
+    presets: [
+      { id: "cl-1", name: "官方 Anthropic", provider: "anthropic", model: "claude-sonnet-5", haiku: "", sonnet: "", opus: "claude-opus-5" },
+      { id: "cl-2", name: "自建代理（灰度）", provider: "anthropic-proxy", model: "claude-sonnet-5", haiku: "", sonnet: "", opus: "" }
+    ]
+  },
+  codex: {
+    installed: false,
+    live: null,
+    currentPresetId: "cx-1",
+    presets: [
+      { id: "cx-1", name: "OpenAI 官方", provider: "openai", model: "gpt-4.1", effort: "medium", wireApi: "responses" },
+      { id: "cx-2", name: "DeepSeek 高性价比", provider: "deepseek", model: "deepseek-reasoner", effort: "high", wireApi: "chat" }
+    ]
+  }
+};
+
+var USAGE = {
+  today: { genAt: "2026-08-27 14:32", input: 812400, output: 96300, cache: 214800, cost: 6.82 },
+  week:  { genAt: "2026-08-27 14:32", input: 5384200, output: 641900, cache: 1520300, cost: 47.36 },
+  all:   { genAt: "2026-08-27 14:32", input: 21940600, output: 2601700, cache: 6104500, cost: 191.24 }
+};
+var USAGE_BY_MODEL = {
+  week: [
+    { model: "claude-sonnet-5", tokens: 2340000 }, { model: "gpt-4.1-mini", tokens: 1180000 },
+    { model: "deepseek-chat", tokens: 940000 }, { model: "gpt-4.1", tokens: 610000 },
+    { model: "claude-haiku-4-5", tokens: 480000 }, { model: "o4-mini", tokens: 310000 },
+    { model: "deepseek-reasoner", tokens: 260000 }, { model: "qwen/qwen-2.5-72b", tokens: 140000 }
+  ],
+  today: [
+    { model: "claude-sonnet-5", tokens: 402000 }, { model: "gpt-4.1-mini", tokens: 188000 },
+    { model: "deepseek-chat", tokens: 121000 }, { model: "o4-mini", tokens: 74000 }
+  ],
+  all: [
+    { model: "claude-sonnet-5", tokens: 9120000 }, { model: "gpt-4.1-mini", tokens: 4380000 },
+    { model: "deepseek-chat", tokens: 3260000 }, { model: "gpt-4.1", tokens: 2410000 },
+    { model: "claude-haiku-4-5", tokens: 1690000 }, { model: "o4-mini", tokens: 1120000 },
+    { model: "deepseek-reasoner", tokens: 840000 }, { model: "qwen/qwen-2.5-72b", tokens: 520000 }
+  ]
+};
+var USAGE_BY_AGENT_COST = {
+  week: [ { agent: "pi", cost: 18.40 }, { agent: "opencode", cost: 14.10 }, { agent: "claude", cost: 11.86 }, { agent: "codex", cost: 3.00 } ],
+  today: [ { agent: "pi", cost: 2.90 }, { agent: "opencode", cost: 2.10 }, { agent: "claude", cost: 1.62 }, { agent: "codex", cost: 0.20 } ],
+  all: [ { agent: "pi", cost: 76.30 }, { agent: "opencode", cost: 58.40 }, { agent: "claude", cost: 44.94 }, { agent: "codex", cost: 11.60 } ]
+};
+var USAGE_TABLE = {
+  week: [
+    { agent: "pi", provider: "anthropic", model: "claude-sonnet-5", i: 2340000, o: 298000, cr: 612000, cw: 84000, cost: 18.40 },
+    { agent: "opencode", provider: "openai", model: "gpt-4.1-mini", i: 1180000, o: 154000, cr: 220000, cw: 31000, cost: 14.10 },
+    { agent: "opencode", provider: "deepseek", model: "deepseek-chat", i: 940000, o: 88000, cr: 165000, cw: 12000, cost: 3.02 },
+    { agent: "claude", provider: "anthropic", model: "claude-sonnet-5", i: 720000, o: 96000, cr: 190000, cw: 22000, cost: 8.86 },
+    { agent: "claude", provider: "anthropic-proxy", model: "claude-sonnet-5", i: 210000, o: 25000, cr: 41000, cw: 6000, cost: 3.00 },
+    { agent: "codex", provider: "openai", model: "gpt-4.1", i: 610000, o: 61000, cr: 92000, cw: 9000, cost: 3.00 }
+  ]
+};
+
+var STATE = { activeTab: "providers", drawerProviderId: null, drawerIsNew: false, expandedModelKey: null, usageWindow: "week" };
+
+/* ════════════════════════════════════════════════════════════════
+   HELPERS
+   ════════════════════════════════════════════════════════════════ */
+function $(sel, root) { return (root || document).querySelector(sel); }
+function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function fmtNum(n) { return n.toLocaleString("en-US"); }
+function fmtTokens(n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n); }
+function fmtCost(n) { return "$" + n.toFixed(2); }
+function maskKey(k) { if (!k) return "—"; return k.slice(0, 6) + " •••• " + k.slice(-4); }
+function providerById(id) { return PROVIDERS.filter(function (p) { return p.id === id; })[0]; }
+function modelOf(provider, modelId) { return provider ? provider.models.filter(function (m) { return m.id === modelId; })[0] : null; }
+function boundAgentsOf(providerId) {
+  var out = [];
+  Object.keys(INCREMENTAL).forEach(function (a) { if (INCREMENTAL[a].assigned.provider === providerId) out.push(a); });
+  Object.keys(SWITCHER).forEach(function (a) {
+    SWITCHER[a].presets.forEach(function (p) { if (p.provider === providerId && out.indexOf(a) === -1) out.push(a); });
+  });
+  return out;
+}
+function protocolBadge(p) { return '<span class="protocol-badge">' + esc(PROTOCOLS[p] || p) + "</span>"; }
+function agentChip(agentId) {
+  return '<button type="button" class="chip" data-jump="' + agentId + '">' + esc(AGENT_META[agentId].label) + "</button>";
+}
+function toast(msg) {
+  var el = $("#toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(function () { el.classList.remove("show"); }, 2600);
+}
+function jumpToAgent(agentId) { selectTab(agentId); }
+
+/* ════════════════════════════════════════════════════════════════
+   TABS
+   ════════════════════════════════════════════════════════════════ */
+function selectTab(name) {
+  STATE.activeTab = name;
+  $all(".tab-item").forEach(function (b) { b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false"); });
+  $all(".tabpanel").forEach(function (p) { p.classList.toggle("active", p.id === "panel-" + name); });
+  renderActiveTab();
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+$all(".tab-item").forEach(function (btn) {
+  btn.addEventListener("click", function () { selectTab(btn.getAttribute("data-tab")); });
+});
+$(".tabs-primary").addEventListener("keydown", function (e) {
+  var tabs = $all(".tab-item"); var i = tabs.findIndex(function (b) { return b.getAttribute("aria-selected") === "true"; });
+  if (e.key === "ArrowRight") { e.preventDefault(); selectTab(tabs[(i + 1) % tabs.length].getAttribute("data-tab")); tabs[(i + 1) % tabs.length].focus(); }
+  if (e.key === "ArrowLeft") { e.preventDefault(); selectTab(tabs[(i - 1 + tabs.length) % tabs.length].getAttribute("data-tab")); tabs[(i - 1 + tabs.length) % tabs.length].focus(); }
+});
+
+function renderActiveTab() {
+  if (STATE.activeTab === "providers") renderProviders();
+  else if (STATE.activeTab === "pi" || STATE.activeTab === "opencode") renderIncremental(STATE.activeTab);
+  else if (STATE.activeTab === "claude" || STATE.activeTab === "codex") renderSwitcher(STATE.activeTab);
+  else if (STATE.activeTab === "usage") renderUsage();
+  applyI18n();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TAB 1 · PROVIDERS
+   ════════════════════════════════════════════════════════════════ */
+function renderProviders() {
+  var panel = $("#panel-providers");
+  var cardsHtml = PROVIDERS.map(function (p) {
+    var bound = boundAgentsOf(p.id);
+    var chips = bound.length
+      ? bound.map(agentChip).join("")
+      : '<span class="none" data-i18n="providers.boundNone">未被任何 agent 绑定</span>';
+    return (
+      '<div class="card provider-card" tabindex="0" role="button" data-open-provider="' + p.id + '" data-od-id="provider-card-' + p.id + '">' +
+      '  <div class="pc-head">' +
+      '    <div>' + protocolBadge(p.protocol) + '<p class="pc-name">' + esc(p.name) + "</p></div>" +
+      '    <div class="pc-tools">' +
+      '      <button type="button" class="icon-btn" data-edit-provider="' + p.id + '" aria-label="' + t("common.edit") + ' ' + esc(p.name) + '"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>' +
+      '      <button type="button" class="icon-btn danger" data-del-provider="' + p.id + '" aria-label="' + t("common.delete") + ' ' + esc(p.name) + '"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>' +
+      "    </div>" +
+      "  </div>" +
+      '  <p class="pc-url mono">' + esc(p.baseUrl) + "</p>" +
+      '  <div class="pc-meta"><span>' + p.models.length + '<span data-i18n="common.models">个模型</span></span><span>·</span><span class="key mono">' + esc(maskKey(p.apiKey)) + "</span></div>" +
+      '  <div class="pc-chips">' + chips + "</div>" +
+      "</div>"
+    );
+  }).join("");
+
+  panel.innerHTML =
+    '<div class="sec-head">' +
+    '  <div><h2 data-i18n="providers.heading">供应商库</h2><p data-i18n="providers.sub">统一管理各 agent 使用的 API 供应商、密钥与模型目录。</p></div>' +
+    '  <div class="sec-actions">' +
+    '    <button type="button" class="btn btn-secondary" id="btnImportPi" data-i18n="providers.importPi">从 pi 导入</button>' +
+    '    <button type="button" class="btn btn-primary" id="btnAddProvider" data-od-id="add-provider-button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="providers.add">新增供应商</span></button>' +
+    "  </div>" +
+    "</div>" +
+    (PROVIDERS.length
+      ? '<div class="grid-cards">' + cardsHtml + "</div>"
+      : '<div class="empty-state"><h3 data-i18n="providers.emptyTitle">暂无供应商</h3><p data-i18n="providers.emptyBody">添加一个供应商后，即可在下方 agent 标签页中绑定模型。</p>' +
+        '<div class="row"><button type="button" class="btn btn-primary" id="btnAddProvider2" data-i18n="providers.add">新增供应商</button><button type="button" class="btn btn-secondary" id="btnImportPi2" data-i18n="providers.importPi">从 pi 导入</button></div></div>');
+
+  $all("[data-open-provider]").forEach(function (el) {
+    el.addEventListener("click", function () { openDrawer(el.getAttribute("data-open-provider")); });
+    el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDrawer(el.getAttribute("data-open-provider")); } });
+  });
+  $all("[data-edit-provider]").forEach(function (el) { el.addEventListener("click", function (e) { e.stopPropagation(); openDrawer(el.getAttribute("data-edit-provider")); }); });
+  $all("[data-del-provider]").forEach(function (el) {
+    el.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var id = el.getAttribute("data-del-provider");
+      PROVIDERS = PROVIDERS.filter(function (p) { return p.id !== id; });
+      toast(t("common.delete") + " · " + id); renderProviders();
+    });
+  });
+  $all("[data-jump]").forEach(function (el) { el.addEventListener("click", function (e) { e.stopPropagation(); jumpToAgent(el.getAttribute("data-jump")); }); });
+  var addBtn = $("#btnAddProvider"), addBtn2 = $("#btnAddProvider2");
+  if (addBtn) addBtn.addEventListener("click", function () { openDrawer(null); });
+  if (addBtn2) addBtn2.addEventListener("click", function () { openDrawer(null); });
+  var impBtn = $("#btnImportPi"), impBtn2 = $("#btnImportPi2");
+  [impBtn, impBtn2].forEach(function (b) { if (b) b.addEventListener("click", function () { toast(LANG === "zh" ? "已从 pi 原生配置导入 2 个新供应商" : "Imported 2 new providers from pi's native config"); }); });
+}
+
+/* ─── drawer ─────────────────────────────────────────────────────── */
+var DRAFT = null;
+function openDrawer(providerId) {
+  STATE.drawerIsNew = !providerId;
+  var src = providerId ? providerById(providerId) : { id: "new-" + Date.now(), name: "", protocol: "openai-chat", baseUrl: "", apiKey: "", headers: "{}", compat: "{}", models: [] };
+  DRAFT = JSON.parse(JSON.stringify(src));
+  STATE.drawerProviderId = DRAFT.id;
+  STATE.expandedModelKey = null;
+  renderDrawer();
+  $("#scrim").classList.add("open");
+  $("#drawer").classList.add("open");
+  $("#drawer").setAttribute("aria-hidden", "false");
+}
+function closeDrawer() {
+  $("#scrim").classList.remove("open");
+  $("#drawer").classList.remove("open");
+  $("#drawer").setAttribute("aria-hidden", "true");
+}
+$("#scrim").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") {
+    if ($("#drawer").classList.contains("open")) closeDrawer();
+    if ($("#discoverOverlay").classList.contains("open")) closeDiscover();
+  }
+});
+
+function renderDrawer() {
+  var bound = STATE.drawerIsNew ? [] : boundAgentsOf(DRAFT.id);
+  var modelsHtml = DRAFT.models.map(function (m, idx) { return modelRowHtml(m, idx); }).join("");
+  $("#drawer").innerHTML =
+    '<div class="drawer-head"><h2 id="drawerTitle">' + (STATE.drawerIsNew ? t("drawer.titleNew") : t("drawer.title")) + '</h2>' +
+    '<button type="button" class="icon-btn" id="drawerClose" aria-label="' + t("common.cancel") + '"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>' +
+    '<div class="drawer-body">' +
+    '  <div class="dgroup"><h3>' + t("drawer.basic") + '</h3>' +
+    '    <div class="field"><label>' + t("drawer.name") + '</label><input class="input" id="fName" value="' + esc(DRAFT.name) + '" /></div>' +
+    '    <div class="field"><label>' + t("drawer.baseUrl") + '</label><input class="input mono" id="fBaseUrl" value="' + esc(DRAFT.baseUrl) + '" placeholder="https://api.example.com/v1" /></div>' +
+    '    <div class="field-row">' +
+    '      <div class="field"><label>' + t("drawer.protocol") + '</label><select id="fProtocol">' + Object.keys(PROTOCOLS).map(function (k) { return '<option value="' + k + '"' + (DRAFT.protocol === k ? " selected" : "") + ">" + PROTOCOLS[k] + "</option>"; }).join("") + "</select></div>" +
+    '      <div class="field"><label>' + t("drawer.apiKey") + '</label><div class="input-with-icon"><input class="input mono" type="password" id="fApiKey" value="' + esc(DRAFT.apiKey) + '" /><button type="button" class="icon-btn" id="toggleKey" aria-label="show/hide"><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg></button></div></div>' +
+    "    </div>" +
+    "  </div>" +
+
+    '  <div class="dgroup">' +
+    '    <div class="dgroup-toggle" role="button" tabindex="0" aria-expanded="false" id="advToggle"><h3>' + t("drawer.advanced") + '</h3><svg class="icon" aria-hidden="true"><use href="#i-chev-down"/></svg></div>' +
+    '    <div class="dgroup-content">' +
+    '      <div class="field"><label>' + t("drawer.headers") + '</label><textarea id="fHeaders">' + esc(DRAFT.headers) + '</textarea><span class="field-error" id="errHeaders">JSON 格式无效</span></div>' +
+    '      <div class="field"><label>' + t("drawer.compat") + '</label><textarea id="fCompat">' + esc(DRAFT.compat) + '</textarea><span class="field-error" id="errCompat">JSON 格式无效</span></div>' +
+    "    </div>" +
+    "  </div>" +
+
+    '  <div class="dgroup"><div class="dgroup-toggle" role="button" tabindex="0" aria-expanded="true" style="cursor:default"><h3>' + t("drawer.models") + " (" + DRAFT.models.length + ')</h3></div>' +
+    '    <div class="sec-actions" style="margin-bottom:var(--space-3)">' +
+    '      <button type="button" class="btn btn-secondary btn-sm" id="btnDiscover"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>' + t("drawer.fetchModels") + "</button>" +
+    '      <button type="button" class="btn btn-secondary btn-sm" id="btnAddModel"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>' + t("drawer.addModel") + "</button>" +
+    "    </div>" +
+    '    <div class="model-list" id="modelList">' + (modelsHtml || '<p style="font-size:var(--text-sm);color:var(--muted)">' + (LANG === "zh" ? "尚无模型" : "No models yet") + "</p>") + "</div>" +
+    "  </div>" +
+
+    (STATE.drawerIsNew ? "" :
+    '  <div class="dgroup"><h3>' + t("drawer.bindings") + '</h3><p style="font-size:var(--text-sm);color:var(--muted);margin:0 0 var(--space-2)">' + t("drawer.bindingsSub") + '</p>' +
+    '    <div style="display:flex;flex-wrap:wrap;gap:6px">' + (bound.length ? bound.map(agentChip).join("") : '<span class="none">' + t("providers.boundNone") + "</span>") + "</div>" +
+    "  </div>") +
+    "</div>" +
+
+    '<div class="drawer-savebar">' +
+    '  <button type="button" class="btn btn-danger-text" id="drawerDelete"' + (STATE.drawerIsNew ? " disabled" : "") + ">" + t("common.delete") + "</button>" +
+    '  <span class="spacer"></span>' +
+    '  <span class="mono" id="drawerMsg" style="font-size:12px;color:var(--success);display:none"></span>' +
+    '  <button type="button" class="btn btn-secondary" id="drawerCancel">' + t("common.cancel") + "</button>" +
+    '  <button type="button" class="btn btn-primary" id="drawerSave">' + t("common.save") + "</button>" +
+    "</div>";
+
+  $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#drawerCancel").addEventListener("click", closeDrawer);
+  $("#advToggle").addEventListener("click", function () { this.setAttribute("aria-expanded", this.getAttribute("aria-expanded") === "true" ? "false" : "true"); });
+  $("#advToggle").addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.click(); } });
+  $("#toggleKey").addEventListener("click", function () {
+    var inp = $("#fApiKey"); var show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    this.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#' + (show ? "i-eye-off" : "i-eye") + '"/></svg>';
+  });
+  $("#btnDiscover").addEventListener("click", openDiscover);
+  $("#btnAddModel").addEventListener("click", function () {
+    DRAFT.models.push({ id: "new-model", name: "New model", reasoning: false, ctx: 128000, maxOut: 8192, cost: { i: 0, o: 0, cr: 0, cw: 0 }, override: "inherit" });
+    STATE.expandedModelKey = DRAFT.models.length - 1;
+    renderDrawer();
+  });
+  $all("[data-toggle-model]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var idx = Number(el.getAttribute("data-toggle-model"));
+      STATE.expandedModelKey = STATE.expandedModelKey === idx ? null : idx;
+      renderDrawer();
+    });
+  });
+  $all("[data-del-model]").forEach(function (el) {
+    el.addEventListener("click", function (e) { e.stopPropagation(); DRAFT.models.splice(Number(el.getAttribute("data-del-model")), 1); renderDrawer(); });
+  });
+  $all("[data-test-model]").forEach(function (el) { el.addEventListener("click", function (e) { e.stopPropagation(); runModelTest(el); }); });
+  $all("[data-fill-dev]").forEach(function (el) {
+    el.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var idx = Number(el.getAttribute("data-fill-dev"));
+      var m = DRAFT.models[idx];
+      m.ctx = m.ctx || 128000; m.maxOut = m.maxOut || 8192;
+      toast(LANG === "zh" ? "已根据 " + DRAFT.baseUrl.replace(/^https?:\/\//, "").split("/")[0] + " 匹配 models.dev 目录" : "Matched models.dev catalog by hostname");
+    });
+  });
+  var delBtn = $("#drawerDelete");
+  if (!STATE.drawerIsNew) delBtn.addEventListener("click", function () {
+    PROVIDERS = PROVIDERS.filter(function (p) { return p.id !== DRAFT.id; });
+    closeDrawer(); renderProviders(); toast(t("common.delete") + " · " + DRAFT.name);
+  });
+  $("#drawerSave").addEventListener("click", saveDrawer);
+}
+
+function modelRowHtml(m, idx) {
+  var expanded = STATE.expandedModelKey === idx;
+  var costLine = "$" + m.cost.i.toFixed(2) + " / $" + m.cost.o.toFixed(2);
+  return (
+    '<div class="model-row' + (expanded ? " expanded" : "") + '">' +
+    '  <div class="model-row-head" data-toggle-model="' + idx + '">' +
+    '    <svg class="icon chev" aria-hidden="true"><use href="#i-chev"/></svg>' +
+    '    <span class="model-row-id">' + esc(m.id) + "</span>" +
+    '    <span class="model-row-name">' + esc(m.name) + "</span>" +
+    (m.reasoning ? '<span class="ml-badge ml-badge-info"><span class="dot"></span>推理</span>' : "") +
+    '    <span class="model-row-cost mono">' + costLine + "</span>" +
+    '    <span class="model-row-actions">' +
+    '      <button type="button" class="test-pill" data-test-model="' + idx + '"><svg class="icon" style="width:11px;height:11px" aria-hidden="true"><use href="#i-play"/></svg>' + t("model.test") + "</button>" +
+    '      <button type="button" class="icon-btn danger" data-del-model="' + idx + '" aria-label="' + t("common.delete") + '"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>' +
+    "    </span>" +
+    "  </div>" +
+    '  <div class="model-row-body">' +
+    '    <div class="field-row">' +
+    '      <div class="field"><label>' + t("model.name") + '</label><input class="input" data-m="name" data-i="' + idx + '" value="' + esc(m.name) + '" /></div>' +
+    '      <div class="field"><label>' + t("model.override") + '</label><select data-m="override" data-i="' + idx + '"><option value="inherit"' + (!m.override || m.override === "inherit" ? " selected" : "") + ">" + t("model.inherit") + "</option>" +
+           Object.keys(PROTOCOLS).map(function (k) { return '<option value="' + k + '"' + (m.override === k ? " selected" : "") + ">" + PROTOCOLS[k] + "</option>"; }).join("") + "</select></div>" +
+    "    </div>" +
+    '    <div class="field-row-3">' +
+    '      <div class="field"><label>' + t("model.contextWindow") + '</label><input class="input mono" type="number" data-m="ctx" data-i="' + idx + '" value="' + m.ctx + '" /></div>' +
+    '      <div class="field"><label>' + t("model.maxTokens") + '</label><input class="input mono" type="number" data-m="maxOut" data-i="' + idx + '" value="' + m.maxOut + '" /></div>' +
+    '      <div class="field"><label class="check-inline" style="margin-top:18px"><input type="checkbox" data-m="reasoning" data-i="' + idx + '"' + (m.reasoning ? " checked" : "") + " />" + t("model.reasoning") + "</label></div>" +
+    "    </div>" +
+    '    <div class="field-row-4">' +
+    '      <div class="field"><label>' + t("model.costInput") + '</label><input class="input mono" type="number" step="0.01" data-m="cost.i" data-i="' + idx + '" value="' + m.cost.i + '" /></div>' +
+    '      <div class="field"><label>' + t("model.costOutput") + '</label><input class="input mono" type="number" step="0.01" data-m="cost.o" data-i="' + idx + '" value="' + m.cost.o + '" /></div>' +
+    '      <div class="field"><label>' + t("model.costCacheRead") + '</label><input class="input mono" type="number" step="0.01" data-m="cost.cr" data-i="' + idx + '" value="' + m.cost.cr + '" /></div>' +
+    '      <div class="field"><label>' + t("model.costCacheWrite") + '</label><input class="input mono" type="number" step="0.01" data-m="cost.cw" data-i="' + idx + '" value="' + m.cost.cw + '" /></div>' +
+    "    </div>" +
+    '    <button type="button" class="btn btn-ghost btn-sm" data-fill-dev="' + idx + '"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>' + t("model.fillFromDev") + "</button>" +
+    "  </div>" +
+    "</div>"
+  );
+}
+
+function runModelTest(btn) {
+  if (btn.disabled) return;
+  btn.disabled = true; btn.className = "test-pill";
+  btn.innerHTML = '<span class="spin" aria-hidden="true"></span>' + t("model.testing");
+  setTimeout(function () {
+    var ok = Math.random() > 0.22;
+    var ms = 90 + Math.floor(Math.random() * 260);
+    if (ok) { btn.className = "test-pill ok"; btn.innerHTML = '<svg class="icon" style="width:11px;height:11px" aria-hidden="true"><use href="#i-check"/></svg>' + t("model.testOk") + " · " + ms + "ms"; }
+    else { btn.className = "test-pill fail"; btn.innerHTML = '<svg class="icon" style="width:11px;height:11px" aria-hidden="true"><use href="#i-x"/></svg>' + t("model.testFail") + " · 401"; }
+    btn.disabled = false;
+  }, 900);
+}
+
+function isValidJson(s) { if (!s.trim()) return true; try { JSON.parse(s); return true; } catch (e) { return false; } }
+
+function saveDrawer() {
+  DRAFT.name = $("#fName").value.trim();
+  DRAFT.baseUrl = $("#fBaseUrl").value.trim();
+  DRAFT.protocol = $("#fProtocol").value;
+  DRAFT.apiKey = $("#fApiKey").value;
+  var headers = $("#fHeaders").value, compat = $("#fCompat").value;
+  var okH = isValidJson(headers), okC = isValidJson(compat);
+  $("#fHeaders").setAttribute("aria-invalid", okH ? "false" : "true"); $("#errHeaders").classList.toggle("show", !okH);
+  $("#fCompat").setAttribute("aria-invalid", okC ? "false" : "true"); $("#errCompat").classList.toggle("show", !okC);
+  if (!okH || !okC) return;
+  DRAFT.headers = headers; DRAFT.compat = compat;
+  $all("[data-m]", $("#drawer")).forEach(function (el) {
+    var idx = Number(el.getAttribute("data-i")); var key = el.getAttribute("data-m"); var m = DRAFT.models[idx];
+    var val = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
+    if (key.indexOf("cost.") === 0) m.cost[key.split(".")[1]] = Number(val); else m[key] = val;
+  });
+
+  if (STATE.drawerIsNew) { DRAFT.id = (DRAFT.name || "provider").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || ("provider-" + Date.now()); PROVIDERS.push(DRAFT); }
+  else PROVIDERS = PROVIDERS.map(function (p) { return p.id === DRAFT.id ? DRAFT : p; });
+
+  var msg = $("#drawerMsg"); msg.textContent = t("drawer.saved"); msg.style.display = "inline";
+  setTimeout(function () { msg.style.display = "none"; }, 2400);
+  renderProviders();
+}
+
+/* ─── discover modal ─────────────────────────────────────────────── */
+var DISCOVER_CATALOG = {
+  "openai-chat": [ { id: "gpt-4.1", name: "GPT-4.1" }, { id: "gpt-4.1-mini", name: "GPT-4.1 mini" }, { id: "gpt-4o", name: "GPT-4o" }, { id: "o4-mini", name: "o4-mini" }, { id: "o3-mini", name: "o3-mini" } ],
+  "openai-resp": [ { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B" }, { id: "qwen/qwen-2.5-72b", name: "Qwen 2.5 72B" }, { id: "mistralai/mixtral-8x22b", name: "Mixtral 8x22B" } ],
+  "anthropic": [ { id: "claude-sonnet-5", name: "Claude Sonnet 5" }, { id: "claude-opus-5", name: "Claude Opus 5" }, { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" } ]
+};
+var DISCOVER_SELECTED = {};
+function openDiscover() {
+  DISCOVER_SELECTED = {};
+  $("#discoverEndpoint").textContent = DRAFT.baseUrl || "(no base url)";
+  $("#discoverSearch").value = "";
+  renderDiscoverList();
+  $("#discoverOverlay").classList.add("open");
+  $("#discoverSearch").focus();
+}
+function closeDiscover() { $("#discoverOverlay").classList.remove("open"); }
+function renderDiscoverList() {
+  var q = $("#discoverSearch").value.trim().toLowerCase();
+  var catalog = DISCOVER_CATALOG[DRAFT.protocol] || [];
+  var existing = DRAFT.models.map(function (m) { return m.id; });
+  var rows = catalog.filter(function (c) { return !q || c.id.toLowerCase().indexOf(q) > -1 || c.name.toLowerCase().indexOf(q) > -1; });
+  $("#discoverList").innerHTML = rows.map(function (c) {
+    var exists = existing.indexOf(c.id) > -1;
+    var checked = exists || DISCOVER_SELECTED[c.id];
+    return (
+      '<label class="discover-row' + (exists ? " exists" : "") + '">' +
+      '<input type="checkbox" data-disc="' + c.id + '"' + (checked ? " checked" : "") + (exists ? " disabled" : "") + " />" +
+      '<span class="id mono">' + esc(c.id) + '</span><span class="name">' + esc(c.name) + "</span>" +
+      (exists ? '<span class="tag">' + t("discover.exists") + "</span>" : "") +
+      "</label>"
+    );
+  }).join("") || '<p style="padding:var(--space-4);color:var(--muted);font-size:var(--text-sm)">' + (LANG === "zh" ? "无匹配结果" : "No matches") + "</p>";
+  $all("[data-disc]").forEach(function (el) {
+    el.addEventListener("change", function () { DISCOVER_SELECTED[el.getAttribute("data-disc")] = el.checked; updateDiscoverCount(); });
+  });
+  updateDiscoverCount();
+}
+function updateDiscoverCount() {
+  var n = Object.keys(DISCOVER_SELECTED).filter(function (k) { return DISCOVER_SELECTED[k]; }).length;
+  $("#discoverCount").textContent = n + (LANG === "zh" ? " 已选" : " selected");
+  $("#discoverAdd").disabled = n === 0;
+}
+$("#discoverSearch").addEventListener("input", renderDiscoverList);
+$("#discoverAll").addEventListener("click", function () {
+  (DISCOVER_CATALOG[DRAFT.protocol] || []).forEach(function (c) { DISCOVER_SELECTED[c.id] = true; }); renderDiscoverList();
+});
+$("#discoverNone").addEventListener("click", function () { DISCOVER_SELECTED = {}; renderDiscoverList(); });
+$("#discoverCancel").addEventListener("click", closeDiscover);
+$("#discoverAdd").addEventListener("click", function () {
+  var catalog = DISCOVER_CATALOG[DRAFT.protocol] || [];
+  Object.keys(DISCOVER_SELECTED).forEach(function (id) {
+    if (!DISCOVER_SELECTED[id]) return;
+    if (DRAFT.models.some(function (m) { return m.id === id; })) return;
+    var c = catalog.filter(function (x) { return x.id === id; })[0];
+    DRAFT.models.push({ id: id, name: c ? c.name : id, reasoning: false, ctx: 128000, maxOut: 8192, cost: { i: 0, o: 0, cr: 0, cw: 0 }, override: "inherit" });
+  });
+  closeDiscover(); renderDrawer();
+  toast(LANG === "zh" ? "已添加所选模型" : "Added selected models");
+});
+$("#discoverOverlay").addEventListener("mousedown", function (e) { if (e.target === $("#discoverOverlay")) closeDiscover(); });
+
+/* ════════════════════════════════════════════════════════════════
+   TAB 2/3 · INCREMENTAL AGENTS (pi / opencode)
+   ════════════════════════════════════════════════════════════════ */
+var INCR_DIRTY = { pi: false, opencode: false };
+var INCR_RESULT = { pi: null, opencode: null };
+
+function protoAllowed(agentId, providerProtocol) {
+  var meta = AGENT_META[agentId];
+  if (meta.allow) return meta.allow.indexOf(providerProtocol) > -1;
+  if (meta.deny) return meta.deny.indexOf(providerProtocol) < 0;
+  return true;
+}
+
+function renderIncremental(agentId) {
+  var st = INCREMENTAL[agentId];
+  var liveProvider = st.live ? providerById(st.live.provider) : null;
+  var liveConsistent = st.live && st.assigned.provider === st.live.provider && st.assigned.model === st.live.model;
+  var consistencyBadge = !st.live
+    ? '<span class="ml-badge ml-badge-neutral"><span class="dot"></span>' + t("agent.unknown") + "</span>"
+    : liveConsistent
+    ? '<span class="ml-badge ml-badge-success"><span class="dot"></span>' + t("agent.consistent") + "</span>"
+    : '<span class="ml-badge ml-badge-warn"><span class="dot"></span>' + t("agent.inconsistent") + "</span>";
+
+  var assignedProvider = providerById(st.assigned.provider);
+  var providerOptions = PROVIDERS.map(function (p) {
+    var ok = protoAllowed(agentId, p.protocol);
+    return '<option value="' + p.id + '"' + (p.id === st.assigned.provider ? " selected" : "") + (ok ? "" : " disabled") + ">" + esc(p.name) + (ok ? "" : " — " + t("agent.incompatible")) + "</option>";
+  }).join("");
+  var modelOptions = (assignedProvider ? assignedProvider.models : []).map(function (m) {
+    return '<option value="' + m.id + '"' + (m.id === st.assigned.model ? " selected" : "") + ">" + esc(m.name) + " (" + m.id + ")</option>";
+  }).join("");
+
+  var nativeRows = st.native.map(function (n) {
+    return (
+      '<div class="native-row">' +
+      '  <div><div class="nm">' + esc(n.name) + '</div><div class="url mono">' + esc(n.url) + "</div></div>" +
+      (n.inLibrary ? '<span class="ml-badge ml-badge-neutral"><span class="dot"></span>' + t("agent.synced") + "</span>" : "") +
+      '  <div class="actions">' +
+      (n.inLibrary ? "" : '<button type="button" class="btn btn-secondary btn-sm" data-sync-native="' + n.name + '" data-agent="' + agentId + '">' + t("agent.sync") + "</button>") +
+      '    <button type="button" class="icon-btn" aria-label="' + t("common.edit") + '"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>' +
+      '    <button type="button" class="icon-btn danger" aria-label="' + t("common.delete") + '"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>' +
+      "  </div>" +
+      "</div>"
+    );
+  }).join("");
+
+  var result = INCR_RESULT[agentId];
+  var resultHtml = !result ? "" : result.ok
+    ? '<div class="result-panel ok" role="status"><div class="rp-head"><svg class="icon" aria-hidden="true"><use href="#i-check-circle"/></svg>' + t("agent.applyOk") + '</div><div class="path">' + esc(result.path) + '</div><div class="path">' + (LANG === "zh" ? "备份" : "Backup") + ": " + esc(result.backup) + "</div></div>"
+    : '<div class="result-panel err" role="alert"><div class="rp-head"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>' + t("agent.applyErr") + "</div><ul>" + result.errors.map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + "</ul></div>";
+
+  var panel = $("#panel-" + agentId);
+  panel.innerHTML =
+    '<div class="agent-head">' +
+    '  <span class="name">' + AGENT_META[agentId].label + "</span>" +
+    '  <span class="ml-badge ' + (st.installed ? "ml-badge-success" : "ml-badge-warn") + '"><span class="dot"></span>' + (st.installed ? t("agent.installed") : t("agent.notInstalled")) + "</span>" +
+    (consistencyBadge) +
+    "</div>" +
+    '<div class="paradigm-strip"><svg class="icon" aria-hidden="true"><use href="#i-cube"/></svg><span data-i18n="agent.paradigmIncremental">' + t("agent.paradigmIncremental") + "</span></div>" +
+
+    '<div class="form-card"><h3>' + t("agent.live") + '</h3><p style="font-size:var(--text-sm);color:var(--muted);margin:0 0 var(--space-3)">' + t("agent.liveSub") + "</p>" +
+    (st.live
+      ? '<div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">' + protocolBadge(liveProvider ? liveProvider.protocol : "") + '<span class="mono" style="font-size:var(--text-sm)">' + esc(liveProvider ? liveProvider.name : st.live.provider) + " → " + esc(st.live.model) + "</span></div>"
+      : '<p style="color:var(--muted);font-size:var(--text-sm);margin:0">' + (LANG === "zh" ? "未检测到原生配置" : "No native config detected") + "</p>") +
+    "</div>" +
+
+    '<div class="form-card"><h3>' + t("agent.assign") + '</h3>' +
+    '  <div class="field-row">' +
+    '    <div class="field"><label>' + t("agent.provider") + '</label><select id="incrProvider">' + providerOptions + "</select></div>" +
+    '    <div class="field"><label>' + t("agent.model") + '</label><select id="incrModel">' + modelOptions + "</select></div>" +
+    "  </div>" +
+    '  <div class="savebar" style="margin-top:var(--space-2)">' +
+    (INCR_DIRTY[agentId] ? '<span class="dirty"><span class="dot"></span>' + t("common.unsaved") + "</span>" : "") +
+    '    <span class="msg" id="incrMsg">' + t("drawer.saved") + "</span>" +
+    '    <span class="spacer"></span>' +
+    '    <button type="button" class="btn btn-secondary" id="incrSave">' + t("agent.saveAssign") + "</button>" +
+    '    <button type="button" class="btn btn-primary" id="incrApply">' + t("agent.applyNow") + "</button>" +
+    "  </div>" +
+    resultHtml +
+    (result ? '<button type="button" class="btn btn-ghost btn-sm" id="incrSimFail" style="margin-top:var(--space-2)">' + t("agent.simulateFail") + "</button>" : "") +
+    "</div>" +
+
+    '<div class="form-card"><h3>' + t("agent.nativeHeading") + '</h3><p style="font-size:var(--text-sm);color:var(--muted);margin:0 0 var(--space-3)">' + t("agent.nativeSub") + '</p>' +
+    '  <div class="native-list">' + nativeRows + "</div>" +
+    "</div>";
+
+  $("#incrProvider").addEventListener("change", function () {
+    st.assigned.provider = this.value;
+    var np = providerById(this.value);
+    st.assigned.model = np && np.models[0] ? np.models[0].id : "";
+    INCR_DIRTY[agentId] = true;
+    renderIncremental(agentId);
+  });
+  $("#incrModel").addEventListener("change", function () { st.assigned.model = this.value; INCR_DIRTY[agentId] = true; renderIncremental(agentId); });
+  $("#incrSave").addEventListener("click", function () {
+    INCR_DIRTY[agentId] = false;
+    var msg = $("#incrMsg"); msg.classList.add("show"); setTimeout(function () { msg.classList.remove("show"); }, 2400);
+    renderIncremental(agentId);
+  });
+  $("#incrApply").addEventListener("click", function () {
+    var p = providerById(st.assigned.provider);
+    INCR_RESULT[agentId] = { ok: true, path: "~/.config/" + agentId + "/config.json", backup: "config.json.bak.20260827-1432" };
+    st.live = { provider: st.assigned.provider, model: st.assigned.model };
+    renderIncremental(agentId);
+  });
+  var simFail = $("#incrSimFail");
+  if (simFail) simFail.addEventListener("click", function () {
+    INCR_RESULT[agentId] = { ok: false, errors: [LANG === "zh" ? "无法写入 ~/.config/" + agentId + "/config.json：磁盘只读" : "Cannot write ~/.config/" + agentId + "/config.json: read-only filesystem", LANG === "zh" ? "已回滚到备份" : "Rolled back to backup"] };
+    renderIncremental(agentId);
+  });
+  $all("[data-sync-native]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var name = el.getAttribute("data-sync-native");
+      var n = st.native.filter(function (x) { return x.name === name; })[0];
+      if (n) n.inLibrary = true;
+      if (!providerById(name)) PROVIDERS.push({ id: name, name: name, protocol: "openai-chat", baseUrl: n.url, apiKey: "", headers: "{}", compat: "{}", models: [] });
+      toast((LANG === "zh" ? "已同步 " : "Synced ") + name);
+      renderIncremental(agentId);
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TAB 4/5 · SWITCHER AGENTS (Claude / Codex)
+   ════════════════════════════════════════════════════════════════ */
+var OPEN_PRESET_FORM = { claude: null, codex: null };
+var NEW_PRESET_OPEN = { claude: false, codex: false };
+
+function renderSwitcher(agentId) {
+  var st = SWITCHER[agentId];
+  var current = st.presets.filter(function (p) { return p.id === st.currentPresetId; })[0];
+  var liveConsistent = st.live && current && st.live.provider === current.provider && st.live.model === current.model;
+  var consistencyBadge = !current
+    ? '<span class="ml-badge ml-badge-neutral"><span class="dot"></span>' + t("agent.unknown") + "</span>"
+    : !st.live
+    ? '<span class="ml-badge ml-badge-neutral"><span class="dot"></span>' + t("agent.unknown") + "</span>"
+    : liveConsistent
+    ? '<span class="ml-badge ml-badge-success"><span class="dot"></span>' + t("agent.consistent") + "</span>"
+    : '<span class="ml-badge ml-badge-warn"><span class="dot"></span>' + t("agent.inconsistent") + "</span>";
+
+  var presetCards = st.presets.map(function (p) {
+    var provider = providerById(p.provider);
+    var isCurrent = p.id === st.currentPresetId;
+    var formOpen = OPEN_PRESET_FORM[agentId] === p.id;
+    return (
+      '<div class="preset-card' + (isCurrent ? " current" : "") + '" data-od-id="preset-' + agentId + "-" + p.id + '">' +
+      '  <div class="preset-top">' +
+      (provider ? protocolBadge(provider.protocol) : "") +
+      '    <div><div class="preset-name">' + esc(p.name) + (isCurrent ? ' <span class="ml-badge ml-badge-info" style="margin-left:6px"><span class="dot"></span>' + t("preset.current") + "</span>" : "") + '</div>' +
+      '    <div class="preset-meta mono">' + esc(provider ? provider.name : p.provider) + " → " + esc(p.model) + "</div></div>" +
+      '    <div class="preset-actions">' +
+      (isCurrent ? "" : '<button type="button" class="btn btn-primary btn-sm" data-set-current="' + p.id + '">' + t("preset.setCurrent") + "</button>") +
+      '      <button type="button" class="icon-btn" data-toggle-preset="' + p.id + '" aria-label="' + t("common.edit") + '"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>' +
+      '      <button type="button" class="icon-btn" data-dup-preset="' + p.id + '" aria-label="' + t("common.copy") + '"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>' +
+      '      <button type="button" class="icon-btn danger" data-del-preset="' + p.id + '" aria-label="' + t("common.delete") + '"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>' +
+      "    </div>" +
+      "  </div>" +
+      '  <div class="preset-form' + (formOpen ? " open" : "") + '" id="pform-' + p.id + '">' + presetFormFields(agentId, p) + "</div>" +
+      "</div>"
+    );
+  }).join("");
+
+  var newFormOpen = NEW_PRESET_OPEN[agentId];
+
+  var panel = $("#panel-" + agentId);
+  panel.innerHTML =
+    '<div class="agent-head">' +
+    '  <span class="name">' + AGENT_META[agentId].label + "</span>" +
+    '  <span class="ml-badge ' + (st.installed ? "ml-badge-success" : "ml-badge-warn") + '"><span class="dot"></span>' + (st.installed ? t("agent.installed") : t("agent.notInstalled")) + "</span>" +
+    consistencyBadge +
+    "</div>" +
+    '<div class="paradigm-strip"><svg class="icon" aria-hidden="true"><use href="#i-cube"/></svg><span>' + t("agent.paradigmSwitcher") + "</span></div>" +
+    (!current ? '<div class="warn-strip"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>' + t("preset.noCurrentWarn") + "</div>" : "") +
+    '<div class="sec-head"><h2>' + t("preset.heading") + " (" + st.presets.length + ')</h2>' +
+    '  <button type="button" class="btn btn-primary" id="btnNewPreset"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>' + t("preset.new") + "</button></div>" +
+    '<div class="preset-list">' + presetCards + "</div>" +
+    (newFormOpen ? '<div class="form-card" id="newPresetCard"><h3>' + t("preset.new") + '</h3>' + presetFormFields(agentId, null) + "</div>" : "") +
+    '<div class="savebar">' +
+    '  <span class="spacer"></span>' +
+    '  <button type="button" class="btn btn-secondary" id="switchApply">' + t("agent.applyNow") + "</button>" +
+    "</div>" +
+    '<div id="switchResult"></div>';
+
+  $all("[data-set-current]").forEach(function (el) { el.addEventListener("click", function () { st.currentPresetId = el.getAttribute("data-set-current"); toast(t("preset.setCurrent") + " · " + el.getAttribute("data-set-current")); st.live = null; renderSwitcher(agentId); }); });
+  $all("[data-toggle-preset]").forEach(function (el) { el.addEventListener("click", function () { var id = el.getAttribute("data-toggle-preset"); OPEN_PRESET_FORM[agentId] = OPEN_PRESET_FORM[agentId] === id ? null : id; renderSwitcher(agentId); }); });
+  $all("[data-dup-preset]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var src = st.presets.filter(function (p) { return p.id === el.getAttribute("data-dup-preset"); })[0];
+      var copy = JSON.parse(JSON.stringify(src)); copy.id = agentId.slice(0, 2) + "-" + Date.now(); copy.name = src.name + " copy";
+      st.presets.push(copy); renderSwitcher(agentId);
+    });
+  });
+  $all("[data-del-preset]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var id = el.getAttribute("data-del-preset");
+      st.presets = st.presets.filter(function (p) { return p.id !== id; });
+      if (st.currentPresetId === id) st.currentPresetId = null;
+      renderSwitcher(agentId);
+    });
+  });
+  var btnNew = $("#btnNewPreset");
+  if (btnNew) btnNew.addEventListener("click", function () { NEW_PRESET_OPEN[agentId] = !NEW_PRESET_OPEN[agentId]; renderSwitcher(agentId); });
+  bindPresetFormEvents(agentId, null);
+  st.presets.forEach(function (p) { bindPresetFormEvents(agentId, p); });
+
+  $("#switchApply").addEventListener("click", function () {
+    $("#switchResult").innerHTML = current
+      ? '<div class="result-panel ok" role="status"><div class="rp-head"><svg class="icon" aria-hidden="true"><use href="#i-check-circle"/></svg>' + t("agent.applyOk") + '</div><div class="path">' + (agentId === "claude" ? "~/.claude/settings.json" : "~/.codex/config.toml") + '</div><div class="path">' + (LANG === "zh" ? "备份" : "Backup") + ": " + (agentId === "claude" ? "settings.json.bak.20260827-1432" : "config.toml.bak.20260827-1432") + "</div></div>"
+      : '<div class="result-panel err" role="alert"><div class="rp-head"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>' + t("agent.applyErr") + "</div><ul><li>" + t("preset.noCurrentWarn") + "</li></ul></div>";
+  });
+}
+
+function presetFormFields(agentId, preset) {
+  var isClaude = agentId === "claude";
+  var p = preset || { name: "", provider: "", model: "", haiku: "", sonnet: "", opus: "", effort: "medium", wireApi: "responses" };
+  var eligible = PROVIDERS.filter(function (pv) { return protoAllowed(agentId, pv.protocol); });
+  var providerOpts = eligible.map(function (pv) { return '<option value="' + pv.id + '"' + (pv.id === p.provider ? " selected" : "") + ">" + esc(pv.name) + "</option>"; }).join("");
+  var provider = providerById(p.provider) || eligible[0];
+  var modelOpts = (provider ? provider.models : []).map(function (m) { return '<option value="' + m.id + '"' + (m.id === p.model ? " selected" : "") + ">" + esc(m.name) + "</option>"; }).join("");
+  var suffix = preset ? preset.id : "new-" + agentId;
+
+  var common =
+    '<div class="field-row">' +
+    '  <div class="field"><label>' + t("preset.name") + '</label><input class="input" id="pf-name-' + suffix + '" value="' + esc(p.name) + '" /></div>' +
+    '  <div class="field"><label>' + t("agent.provider") + '</label><select id="pf-provider-' + suffix + '">' + providerOpts + "</select></div>" +
+    "</div>" +
+    '<div class="field"><label>' + t("preset.mainModel") + '</label><select id="pf-model-' + suffix + '">' + modelOpts + "</select></div>";
+
+  var extra = isClaude
+    ? '<div class="field-row-3">' +
+      '  <div class="field"><label>' + t("preset.haiku") + '</label><input class="input mono" id="pf-haiku-' + suffix + '" value="' + esc(p.haiku) + '" placeholder="' + t("preset.followMain") + '" /></div>' +
+      '  <div class="field"><label>' + t("preset.sonnet") + '</label><input class="input mono" id="pf-sonnet-' + suffix + '" value="' + esc(p.sonnet) + '" placeholder="' + t("preset.followMain") + '" /></div>' +
+      '  <div class="field"><label>' + t("preset.opus") + '</label><input class="input mono" id="pf-opus-' + suffix + '" value="' + esc(p.opus) + '" placeholder="' + t("preset.followMain") + '" /></div>' +
+      "</div>" +
+      '<div class="field-row">' +
+      '  <div class="field"><label>' + t("preset.authToken") + '</label><input class="input mono" type="password" id="pf-tok-' + suffix + '" placeholder="••••••••" /></div>' +
+      '  <div class="field"><label>' + t("preset.authKey") + '</label><input class="input mono" type="password" id="pf-key-' + suffix + '" placeholder="••••••••" /></div>' +
+      "</div>"
+    : '<div class="field-row">' +
+      '  <div class="field"><label>' + t("preset.reasoningEffort") + '</label><select id="pf-effort-' + suffix + '">' + ["none", "low", "medium", "high"].map(function (v) { return '<option value="' + v + '"' + (p.effort === v ? " selected" : "") + ">" + v + "</option>"; }).join("") + "</select></div>" +
+      '  <div class="field"><label>' + t("preset.wireApi") + '</label><select id="pf-wire-' + suffix + '">' + ["responses", "chat"].map(function (v) { return '<option value="' + v + '"' + (p.wireApi === v ? " selected" : "") + ">" + v + "</option>"; }).join("") + "</select></div>" +
+      "</div>";
+
+  return common + extra +
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:var(--space-2)">' +
+    (preset
+      ? '<button type="button" class="btn btn-secondary btn-sm" data-cancel-pform="' + suffix + '">' + t("preset.cancel") + '</button><button type="button" class="btn btn-primary btn-sm" data-save-pform="' + suffix + '">' + t("common.save") + "</button>"
+      : '<button type="button" class="btn btn-secondary btn-sm" data-cancel-newpform>' + t("preset.cancel") + '</button><button type="button" class="btn btn-primary btn-sm" data-save-newpform>' + t("common.save") + "</button>") +
+    "</div>";
+}
+
+function bindPresetFormEvents(agentId, preset) {
+  var st = SWITCHER[agentId];
+  if (preset) {
+    var suffix = preset.id;
+    var cancelBtn = $("[data-cancel-pform='" + suffix + "']");
+    var saveBtn = $("[data-save-pform='" + suffix + "']");
+    if (cancelBtn) cancelBtn.addEventListener("click", function () { OPEN_PRESET_FORM[agentId] = null; renderSwitcher(agentId); });
+    if (saveBtn) saveBtn.addEventListener("click", function () {
+      preset.name = $("#pf-name-" + suffix).value.trim() || preset.name;
+      preset.provider = $("#pf-provider-" + suffix).value;
+      preset.model = $("#pf-model-" + suffix).value;
+      if (agentId === "claude") { preset.haiku = $("#pf-haiku-" + suffix).value; preset.sonnet = $("#pf-sonnet-" + suffix).value; preset.opus = $("#pf-opus-" + suffix).value; }
+      else { preset.effort = $("#pf-effort-" + suffix).value; preset.wireApi = $("#pf-wire-" + suffix).value; }
+      OPEN_PRESET_FORM[agentId] = null;
+      toast(t("common.save") + " · " + preset.name);
+      renderSwitcher(agentId);
+    });
+    var providerSel = $("#pf-provider-" + suffix);
+    if (providerSel) providerSel.addEventListener("change", function () { renderSwitcher(agentId); OPEN_PRESET_FORM[agentId] = suffix; });
+  } else {
+    var cancelNew = $("[data-cancel-newpform]");
+    var saveNew = $("[data-save-newpform]");
+    if (cancelNew) cancelNew.addEventListener("click", function () { NEW_PRESET_OPEN[agentId] = false; renderSwitcher(agentId); });
+    if (saveNew) saveNew.addEventListener("click", function () {
+      var suffix = "new-" + agentId;
+      var name = $("#pf-name-" + suffix).value.trim();
+      if (!name) { $("#pf-name-" + suffix).setAttribute("aria-invalid", "true"); $("#pf-name-" + suffix).focus(); return; }
+      var np = { id: agentId.slice(0, 2) + "-" + Date.now(), name: name, provider: $("#pf-provider-" + suffix).value, model: $("#pf-model-" + suffix).value };
+      if (agentId === "claude") { np.haiku = $("#pf-haiku-" + suffix).value; np.sonnet = $("#pf-sonnet-" + suffix).value; np.opus = $("#pf-opus-" + suffix).value; }
+      else { np.effort = $("#pf-effort-" + suffix).value; np.wireApi = $("#pf-wire-" + suffix).value; }
+      st.presets.push(np); NEW_PRESET_OPEN[agentId] = false;
+      toast((LANG === "zh" ? "已新增预设 " : "Preset added: ") + name);
+      renderSwitcher(agentId);
+    });
+    var providerSelNew = $("#pf-provider-new-" + agentId);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TAB 6 · USAGE
+   ════════════════════════════════════════════════════════════════ */
+function renderUsage() {
+  var w = STATE.usageWindow;
+  var sum = USAGE[w];
+  var byModel = (USAGE_BY_MODEL[w] || []).slice(0, 8);
+  var byAgent = USAGE_BY_AGENT_COST[w] || [];
+  var totalCost = byAgent.reduce(function (a, b) { return a + b.cost; }, 0);
+  var maxTok = Math.max.apply(null, byModel.map(function (x) { return x.tokens; }).concat([1]));
+  var catColors = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)", "var(--chart-cat-6)"];
+
+  var barsHtml = byModel.map(function (m, i) {
+    var pct = Math.round((m.tokens / maxTok) * 100);
+    return (
+      '<div class="bar-row">' +
+      '  <span class="lbl mono" title="' + esc(m.model) + '">' + esc(m.model) + "</span>" +
+      '  <div class="bar-track"><div class="bar-fill" style="width:' + pct + "%;background:" + catColors[i % catColors.length] + '"></div></div>' +
+      '  <span class="val">' + fmtTokens(m.tokens) + "</span>" +
+      "</div>"
+    );
+  }).join("");
+
+  var donutHtml;
+  if (totalCost <= 0) {
+    donutHtml = '<div class="donut-empty">' + (LANG === "zh" ? "本时间窗成本为 0，暂无占比可展示" : "No cost in this window") + "</div>";
+  } else {
+    var acc = 0;
+    var stops = byAgent.map(function (a, i) {
+      var frac = a.cost / totalCost; var start = acc * 360; acc += frac; var end = acc * 360;
+      return catColors[i % catColors.length] + " " + start.toFixed(1) + "deg " + end.toFixed(1) + "deg";
+    }).join(", ");
+    var legend = byAgent.map(function (a, i) {
+      var pct = Math.round((a.cost / totalCost) * 100);
+      return '<div class="legend-row"><span class="sw" style="background:' + catColors[i % catColors.length] + '"></span><span class="nm">' + esc(AGENT_META[a.agent].label) + '</span><span class="amt">' + fmtCost(a.cost) + '</span><span class="pct">' + pct + "%</span></div>";
+    }).join("");
+    donutHtml =
+      '<div class="donut-wrap"><div class="donut" style="background:conic-gradient(' + stops + ')" role="img" aria-label="' + t("usage.costByAgent") + '">' +
+      '<div class="donut-center"><div class="amt mono">' + fmtCost(totalCost) + '</div><div class="cap">' + t("usage.total") + "</div></div></div>" +
+      '<div class="legend">' + legend + "</div></div>";
+  }
+
+  var rows = (USAGE_TABLE.week || []);
+  var totals = rows.reduce(function (a, r) { a.i += r.i; a.o += r.o; a.cr += r.cr; a.cw += r.cw; a.cost += r.cost; return a; }, { i: 0, o: 0, cr: 0, cw: 0, cost: 0 });
+  var tableRows = rows.map(function (r) {
+    return "<tr><td>" + esc(AGENT_META[r.agent].label) + "</td><td>" + esc((providerById(r.provider) || {}).name || r.provider) + '</td><td class="mono">' + esc(r.model) + '</td><td class="num">' + fmtNum(r.i) + '</td><td class="num">' + fmtNum(r.o) + '</td><td class="num">' + fmtNum(r.cr) + '</td><td class="num">' + fmtNum(r.cw) + '</td><td class="num">' + fmtCost(r.cost) + "</td></tr>";
+  }).join("");
+
+  var panel = $("#panel-usage");
+  panel.innerHTML =
+    '<div class="usage-toolbar">' +
+    '  <h2 style="margin:0;font-size:var(--text-xl);font-weight:600">' + t("usage.heading") + "</h2>" +
+    '  <div class="window-switch" role="group" aria-label="time window">' +
+    '    <button type="button" data-win="today" aria-pressed="' + (w === "today") + '">' + t("usage.today") + "</button>" +
+    '    <button type="button" data-win="week" aria-pressed="' + (w === "week") + '">' + t("usage.week") + "</button>" +
+    '    <button type="button" data-win="all" aria-pressed="' + (w === "all") + '">' + t("usage.all") + "</button>" +
+    "  </div>" +
+    '  <button type="button" class="icon-btn" id="usageRefresh" aria-label="' + t("usage.refresh") + '"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>' +
+    '  <span class="gen-at mono">' + t("usage.genAt") + " " + sum.genAt + "</span>" +
+    "</div>" +
+
+    '<div class="stat-grid">' +
+    '  <div class="stat-card"><div class="lbl">' + t("usage.inputTokens") + '</div><div class="val">' + fmtTokens(sum.input) + "</div></div>" +
+    '  <div class="stat-card"><div class="lbl">' + t("usage.outputTokens") + '</div><div class="val">' + fmtTokens(sum.output) + "</div></div>" +
+    '  <div class="stat-card"><div class="lbl">' + t("usage.cacheTokens") + '</div><div class="val">' + fmtTokens(sum.cache) + "</div></div>" +
+    '  <div class="stat-card"><div class="lbl">' + t("usage.cost") + '</div><div class="val">' + fmtCost(sum.cost) + "</div></div>" +
+    "</div>" +
+
+    '<div class="chart-row">' +
+    '  <div class="chart-card"><h3>' + t("usage.byModel") + "</h3>" + barsHtml + "</div>" +
+    '  <div class="chart-card"><h3>' + t("usage.costByAgent") + "</h3>" + donutHtml + "</div>" +
+    "</div>" +
+
+    '<div class="sec-head"><h2 style="font-size:var(--text-lg)">' + t("usage.tableHeading") + '</h2></div>' +
+    '<div class="table-wrap"><table class="data"><thead><tr>' +
+    "<th>" + t("usage.col.agent") + "</th><th>" + t("usage.col.provider") + "</th><th>" + t("usage.col.model") + '</th><th style="text-align:right">' + t("usage.col.input") + '</th><th style="text-align:right">' + t("usage.col.output") + '</th><th style="text-align:right">' + t("usage.col.cacheRead") + '</th><th style="text-align:right">' + t("usage.col.cacheWrite") + '</th><th style="text-align:right">' + t("usage.col.cost") + "</th>" +
+    "</tr></thead><tbody>" + tableRows + '</tbody><tfoot><tr><td colspan="3">' + t("usage.total") + '</td><td class="num">' + fmtNum(totals.i) + '</td><td class="num">' + fmtNum(totals.o) + '</td><td class="num">' + fmtNum(totals.cr) + '</td><td class="num">' + fmtNum(totals.cw) + '</td><td class="num">' + fmtCost(totals.cost) + "</td></tr></tfoot></table></div>";
+
+  $all("[data-win]").forEach(function (b) { b.addEventListener("click", function () { STATE.usageWindow = b.getAttribute("data-win"); renderUsage(); }); });
+  $("#usageRefresh").addEventListener("click", function () { toast(LANG === "zh" ? "已刷新用量数据" : "Usage data refreshed"); });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LANGUAGE TOGGLE + BOOT
+   ════════════════════════════════════════════════════════════════ */
+$("#langZh").addEventListener("click", function () { setLang("zh"); });
+$("#langEn").addEventListener("click", function () { setLang("en"); });
+function setLang(lang) {
+  LANG = lang;
+  $("#langZh").setAttribute("aria-pressed", lang === "zh" ? "true" : "false");
+  $("#langEn").setAttribute("aria-pressed", lang === "en" ? "true" : "false");
+  try { localStorage.setItem("aio.modelConfig.lang", lang); } catch (e) {}
+  applyI18n();
+  renderActiveTab();
+}
+
+(function boot() {
+  var stored = null;
+  try { stored = localStorage.getItem("aio.modelConfig.lang"); } catch (e) {}
+  if (stored === "en") { LANG = "en"; $("#langZh").setAttribute("aria-pressed", "false"); $("#langEn").setAttribute("aria-pressed", "true"); }
+  applyI18n();
+  var hashTab = location.hash.replace("#", "");
+  if (hashTab && $all(".tab-item").some(function (b) { return b.getAttribute("data-tab") === hashTab; })) {
+    selectTab(hashTab);
+  } else {
+    renderActiveTab();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,8 +1,12 @@
-// ModelRow — single-model collapsed/expanded row (pi-web style), replaces the
-// former ModelTable's flat 13-column table (08-27-provider-form-piweb design
-// §3). Collapsed: id + name + reasoning badge + cost summary + test pill +
-// expand/delete. Expanded: full field editor + per-model protocol override +
-// "fill from models.dev" button.
+// ModelRow — single-model collapsed/expanded row (Kumo redesign).
+//
+// Collapsed (screens_model-config.html §model-row): chevron + editable mono id
+// (reads as text until focused) + name + reasoning info-badge + cost summary
+// `$in / $out` + a .test-pill (play → spin → ok·ms / fail) + delete.
+// Expanded: name + protocol-override side by side, then context-window /
+// max-output / reasoning-check three-across, then the four cost fields
+// (in/out/cacheRead/cacheWrite), then a "fill from models.dev" ghost button.
+// All edits patch canonical state through ModelsPane callbacks.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -40,10 +44,13 @@ export function ModelRow({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const ts = testState[`${providerId}:${model.id}`];
-  const costSummary =
-    model.cost && (model.cost.input != null || model.cost.output != null)
-      ? `${model.cost.input ?? "—"} / ${model.cost.output ?? "—"}`
-      : null;
+  const hasCost =
+    model.cost && (model.cost.input != null || model.cost.output != null);
+  const costSummary = hasCost
+    ? `$${model.cost?.input != null ? model.cost.input.toFixed(2) : "—"} / ${
+        model.cost?.output != null ? model.cost.output.toFixed(2) : "—"
+      }`
+    : null;
 
   return (
     <div className="ml-model-row" data-od-id={`model-row-${idx}`}>
@@ -66,107 +73,131 @@ export function ModelRow({
         />
         <span className="ml-model-name">{model.name || "—"}</span>
         {model.reasoning && (
-          <span className="ml-badge">{t(lang, "mcReasoning")}</span>
+          <span className="ml-badge ml-badge-info">
+            <span className="dot" />
+            {t(lang, "mcReasoning")}
+          </span>
         )}
         {costSummary && <span className="ml-model-cost-summary">{costSummary}</span>}
         <div className="ml-model-row-actions">
           <button
-            className="btn btn-secondary ml-sm"
+            className={`ml-test-pill${ts?.status === "ok" ? " ok" : ts?.status === "fail" ? " fail" : ""}`}
             onClick={() => onTest(model.id)}
             disabled={!model.id || ts?.status === "testing"}
+            title={
+              ts?.status === "fail" ? (ts.error ?? undefined) : undefined
+            }
           >
-            {ts?.status === "testing" ? t(lang, "mcTesting") : t(lang, "mcTest")}
+            {ts?.status === "testing" ? (
+              <span className="spin" aria-hidden="true" />
+            ) : ts?.status === "ok" ? (
+              <Icon name="check" />
+            ) : ts?.status === "fail" ? (
+              <Icon name="x" />
+            ) : (
+              <Icon name="play" />
+            )}
+            {ts?.status === "ok"
+              ? `${t(lang, "mcTestOk")} · ${ts.latencyMs ?? "?"}ms`
+              : ts?.status === "fail"
+                ? t(lang, "mcTestFail")
+                : t(lang, "mcTest")}
           </button>
-          {ts && ts.status !== "idle" && (
-            <span
-              className={`ml-pill ml-pill-${ts.status}`}
-              title={
-                ts.status === "ok"
-                  ? `HTTP ${ts.statusHttp ?? "?"} · ${ts.responseText ?? ""}`
-                  : ts.status === "fail"
-                    ? (ts.error ?? "")
-                    : ""
-              }
-            >
-              {ts.status === "ok"
-                ? `${t(lang, "mcTestOk")} · ${ts.latencyMs ?? "?"}ms`
-                : ts.status === "fail"
-                  ? t(lang, "mcTestFail")
-                  : "…"}
-            </span>
-          )}
           <button
             className="icon-btn ml-cell-del"
             aria-label={t(lang, "mcDeleteProvider")}
             onClick={() => onDeleteModel(idx)}
           >
-            <Icon name="x" />
+            <Icon name="trash" />
           </button>
         </div>
       </div>
 
       {expanded && (
         <div className="ml-model-row-body">
-          <div className="field">
-            <label>{t(lang, "mcApi")}</label>
-            <select
-              className="ml-cell-select"
-              value={model.api ?? ""}
-              onChange={(e) => onPatchModel(idx, { api: e.target.value || undefined })}
-            >
-              <option value="">{t(lang, "mcApiInherit")}</option>
-              {API_PROTOCOLS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcModelName")}</label>
-            <input
-              value={model.name ?? ""}
-              onChange={(e) => onPatchModel(idx, { name: e.target.value || undefined })}
-            />
-          </div>
-          <div className="field ml-chk">
-            <label>{t(lang, "mcReasoning")}</label>
-            <input
-              type="checkbox"
-              checked={model.reasoning ?? false}
-              onChange={(e) => onPatchModel(idx, { reasoning: e.target.checked })}
-            />
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcContextWindow")}</label>
-            <input
-              type="number"
-              value={model.contextWindow ?? ""}
-              onChange={(e) =>
-                onPatchModel(idx, {
-                  contextWindow: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                })
-              }
-            />
-          </div>
-          <div className="field">
-            <label>{t(lang, "mcMaxTokens")}</label>
-            <input
-              type="number"
-              value={model.maxTokens ?? ""}
-              onChange={(e) =>
-                onPatchModel(idx, {
-                  maxTokens: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                })
-              }
-            />
+          {/* name + protocol override side by side (design §field-row) */}
+          <div className="field-row">
+            <div className="field">
+              <label>{t(lang, "mcModelName")}</label>
+              <input
+                value={model.name ?? ""}
+                onChange={(e) =>
+                  onPatchModel(idx, { name: e.target.value || undefined })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>{t(lang, "mcApi")}</label>
+              <select
+                className="ml-cell-select"
+                value={model.api ?? ""}
+                onChange={(e) =>
+                  onPatchModel(idx, { api: e.target.value || undefined })
+                }
+              >
+                <option value="">{t(lang, "mcApiInherit")}</option>
+                {API_PROTOCOLS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="ml-section-title">{t(lang, "mcCostPerM")}</div>
+          {/* ctx / maxOut / reasoning (design §field-row-3) */}
+          <div className="field-row-3">
+            <div className="field">
+              <label>{t(lang, "mcContextWindow")}</label>
+              <input
+                className="mono"
+                type="number"
+                value={model.contextWindow ?? ""}
+                onChange={(e) =>
+                  onPatchModel(idx, {
+                    contextWindow: e.target.value
+                      ? parseInt(e.target.value, 10)
+                      : undefined,
+                  })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>{t(lang, "mcMaxTokens")}</label>
+              <input
+                className="mono"
+                type="number"
+                value={model.maxTokens ?? ""}
+                onChange={(e) =>
+                  onPatchModel(idx, {
+                    maxTokens: e.target.value
+                      ? parseInt(e.target.value, 10)
+                      : undefined,
+                  })
+                }
+              />
+            </div>
+            <div className="field">
+              <label className="check-inline" style={{ marginTop: 18 }}>
+                <input
+                  type="checkbox"
+                  checked={model.reasoning ?? false}
+                  onChange={(e) =>
+                    onPatchModel(idx, { reasoning: e.target.checked })
+                  }
+                />
+                {t(lang, "mcReasoning")}
+              </label>
+            </div>
+          </div>
+
+          {/* cost per M (design §field-row-4) */}
+          <span className="ml-section-title">{t(lang, "mcCostPerM")}</span>
           <div className="ml-model-cost-grid">
             <div className="field">
               <label>in</label>
               <input
+                className="mono"
                 type="number"
                 step="any"
                 value={model.cost?.input ?? ""}
@@ -176,6 +207,7 @@ export function ModelRow({
             <div className="field">
               <label>out</label>
               <input
+                className="mono"
                 type="number"
                 step="any"
                 value={model.cost?.output ?? ""}
@@ -185,6 +217,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcUsageColCacheR")}</label>
               <input
+                className="mono"
                 type="number"
                 step="any"
                 value={model.cost?.cacheRead ?? ""}
@@ -194,6 +227,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcUsageColCacheW")}</label>
               <input
+                className="mono"
                 type="number"
                 step="any"
                 value={model.cost?.cacheWrite ?? ""}
@@ -203,7 +237,7 @@ export function ModelRow({
           </div>
 
           <button
-            className="btn btn-secondary ml-sm"
+            className="btn btn-ghost btn-sm"
             disabled={!model.id || catalogFillState === "loading"}
             title={
               catalogFillState === "notfound"
@@ -214,6 +248,7 @@ export function ModelRow({
             }
             onClick={() => onFillFromCatalog(idx)}
           >
+            <Icon name="download" />
             {catalogFillState === "loading"
               ? t(lang, "mcLoading")
               : t(lang, "mcCatalogFill")}
