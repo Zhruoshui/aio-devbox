@@ -12,4 +12,4 @@ pub mod common;
 pub mod opencode;
 pub mod pi;
 
-pub use common::{ApplyResult, Agent, home_dir};
+pub use common::{ApplyResult, Agent, ProviderPatch, home_dir};

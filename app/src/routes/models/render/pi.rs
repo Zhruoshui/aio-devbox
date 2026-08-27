@@ -9,7 +9,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::routes::models::render::common::{
-    backup_write_verify_json, read_json_object, ApplyResult, ReadError,
+    backup_write_verify_json, read_json_object, ApplyResult, ProviderPatch, ReadError,
 };
 use crate::routes::models::store::{
     AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
@@ -121,6 +121,158 @@ fn write_pi_settings(
         Ok(backup) => result.push_ok(path, backup),
         Err(msg) => result.push_err(path, msg),
     }
+}
+
+// ── live provider edit / delete (agent-tab live management) ────────
+
+/// Field-level edit of one provider node in ~/.pi/agent/models.json
+/// (08-27-agent-tabs-live-config design §2). Only the patched keys are set
+/// on the node — its models/cost/headers and every other provider are
+/// preserved. pi's native provider node has no `name` field (it is keyed by
+/// id; render_pi_provider omits name), so `patch.name` is ignored for pi.
+pub fn edit_pi_provider(
+    home: &Path,
+    provider_id: &str,
+    patch: &ProviderPatch,
+) -> ApplyResult {
+    let mut result = ApplyResult::new();
+    let path = home.join(".pi/agent/models.json");
+
+    let mut root: Value = match read_json_object(&path) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            result.push_err(path, "models.json not found".into());
+            return result;
+        }
+        Err(ReadError::Corrupt(e)) => {
+            result.push_err(path, format!("corrupt, not overwriting: {e}"));
+            return result;
+        }
+        Err(ReadError::Io(e)) => {
+            result.push_err(path, format!("read: {e}"));
+            return result;
+        }
+    };
+
+    let node = {
+        let obj = root
+            .as_object_mut()
+            .expect("read_json_object guarantees object");
+        match obj
+            .get_mut("providers")
+            .and_then(|p| p.as_object_mut())
+            .and_then(|p| p.get_mut(provider_id))
+        {
+            Some(n) if n.is_object() => n,
+            _ => {
+                result.push_err(path, format!("provider '{provider_id}' not found"));
+                return result;
+            }
+        }
+    };
+
+    let node_obj = node.as_object_mut().expect("checked is_object");
+    if let Some(v) = &patch.base_url {
+        node_obj.insert("baseUrl".into(), json!(v));
+    }
+    if let Some(v) = &patch.api {
+        node_obj.insert("api".into(), json!(v));
+    }
+    match &patch.api_key {
+        // "" clears the key (same contract as the canonical masking rules).
+        Some(v) if v.is_empty() => {
+            node_obj.remove("apiKey");
+        }
+        Some(v) => {
+            node_obj.insert("apiKey".into(), json!(v));
+        }
+        None => {}
+    }
+
+    let bytes = serde_json::to_vec_pretty(&root).expect("serialize pi models.json");
+    match backup_write_verify_json(&path, &bytes, 0o600) {
+        Ok(backup) => result.push_ok(path, backup),
+        Err(msg) => result.push_err(path, msg),
+    }
+    result
+}
+
+/// Remove one provider node from ~/.pi/agent/models.json. When the node is
+/// pi's current default (settings.json defaultProvider == id) the dangling
+/// `defaultProvider`/`defaultModel` keys are removed from settings.json too
+/// (key-level — everything else preserved). Design §2.
+pub fn delete_pi_provider(home: &Path, provider_id: &str) -> ApplyResult {
+    let mut result = ApplyResult::new();
+    let path = home.join(".pi/agent/models.json");
+
+    let mut root: Value = match read_json_object(&path) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            result.push_err(path, "models.json not found".into());
+            return result;
+        }
+        Err(ReadError::Corrupt(e)) => {
+            result.push_err(path, format!("corrupt, not overwriting: {e}"));
+            return result;
+        }
+        Err(ReadError::Io(e)) => {
+            result.push_err(path, format!("read: {e}"));
+            return result;
+        }
+    };
+
+    {
+        let obj = root
+            .as_object_mut()
+            .expect("read_json_object guarantees object");
+        let removed = obj
+            .get_mut("providers")
+            .and_then(|p| p.as_object_mut())
+            .map(|p| p.remove(provider_id).is_some())
+            .unwrap_or(false);
+        if !removed {
+            result.push_err(path, format!("provider '{provider_id}' not found"));
+            return result;
+        }
+    }
+
+    let bytes = serde_json::to_vec_pretty(&root).expect("serialize pi models.json");
+    match backup_write_verify_json(&path, &bytes, 0o600) {
+        Ok(backup) => result.push_ok(path.clone(), backup),
+        Err(msg) => result.push_err(path.clone(), msg),
+    }
+
+    // Dangling-default cleanup in settings.json (only when it pointed at
+    // the deleted provider).
+    let settings_path = home.join(".pi/agent/settings.json");
+    match read_json_object(&settings_path) {
+        Ok(Some(mut s)) => {
+            let is_default = s.get("defaultProvider").and_then(|x| x.as_str())
+                == Some(provider_id);
+            if is_default {
+                let obj = s
+                    .as_object_mut()
+                    .expect("read_json_object guarantees object");
+                obj.remove("defaultProvider");
+                obj.remove("defaultModel");
+                let bytes = serde_json::to_vec_pretty(&s).expect("serialize pi settings.json");
+                match backup_write_verify_json(&settings_path, &bytes, 0o600) {
+                    Ok(backup) => result.push_ok(settings_path, backup),
+                    Err(msg) => result.push_err(settings_path, msg),
+                }
+            }
+        }
+        // No settings file — nothing can dangle.
+        Ok(None) => {}
+        Err(ReadError::Corrupt(e)) => {
+            result.push_err(settings_path, format!("corrupt, not overwriting: {e}"));
+        }
+        Err(ReadError::Io(e)) => {
+            result.push_err(settings_path, format!("read: {e}"));
+        }
+    }
+
+    result
 }
 
 // ── pi ProviderEntry rendering ────────────────────────────────────
@@ -524,6 +676,171 @@ mod tests {
             model: "m".into(),
         });
         let r = apply_pi(&home, &cfg);
+        assert!(!r.ok);
+        assert!(r.errors[0].message.contains("not found"));
+    }
+
+    // --- live provider edit / delete (agent-tab live management) ---
+
+    fn seed_live_pi(home: &std::path::Path) {
+        std::fs::write(
+            home.join(".pi/agent/models.json"),
+            r#"{
+  "version": 1,
+  "providers": {
+    "prov-a": {
+      "baseUrl": "https://a.example/v1",
+      "api": "openai-completions",
+      "apiKey": "sk-old-key-xxxx",
+      "models": [{"id": "model-a", "cost": {"input": 1.4e-07}}]
+    },
+    "prov-b": {"baseUrl": "https://b.example/v1"}
+  },
+  "unknownKey": 42
+}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(".pi/agent/settings.json"),
+            r#"{"defaultProvider":"prov-a","defaultModel":"model-a","extra":"keep"}"#,
+        )
+        .unwrap();
+    }
+
+    fn read_models(home: &std::path::Path) -> Value {
+        serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn read_settings(home: &std::path::Path) -> Value {
+        serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn edit_pi_provider_merges_fields_only() {
+        let home = temp_home();
+        seed_live_pi(&home);
+
+        let patch = crate::routes::models::render::ProviderPatch {
+            name: Some("Ignored For Pi".into()), // pi nodes have no name field
+            base_url: Some("https://new.example/v1".into()),
+            api: Some("openai-responses".into()),
+            api_key: Some("sk-new-key-xxxx".into()),
+        };
+        let r = edit_pi_provider(&home, "prov-a", &patch);
+        assert!(r.ok, "errors: {:?}", r.errors);
+
+        let after = read_models(&home);
+        // Patched keys changed.
+        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://new.example/v1");
+        assert_eq!(after["providers"]["prov-a"]["api"], "openai-responses");
+        assert_eq!(after["providers"]["prov-a"]["apiKey"], "sk-new-key-xxxx");
+        // Node's models (incl. cost) preserved verbatim; no name written.
+        assert_eq!(after["providers"]["prov-a"]["models"][0]["id"], "model-a");
+        assert_eq!(after["providers"]["prov-a"]["models"][0]["cost"]["input"], 1.4e-7);
+        assert!(after["providers"]["prov-a"].get("name").is_none());
+        // Sibling provider and unknown top-level key untouched.
+        assert_eq!(after["providers"]["prov-b"]["baseUrl"], "https://b.example/v1");
+        assert_eq!(after["unknownKey"], 42);
+    }
+
+    #[test]
+    fn edit_pi_provider_empty_api_key_clears() {
+        let home = temp_home();
+        seed_live_pi(&home);
+
+        let patch = crate::routes::models::render::ProviderPatch {
+            api_key: Some(String::new()),
+            ..Default::default()
+        };
+        let r = edit_pi_provider(&home, "prov-a", &patch);
+        assert!(r.ok);
+        let after = read_models(&home);
+        assert!(after["providers"]["prov-a"].get("apiKey").is_none());
+        // Other fields survive.
+        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://a.example/v1");
+    }
+
+    #[test]
+    fn edit_pi_provider_missing_node_errors_and_leaves_file() {
+        let home = temp_home();
+        seed_live_pi(&home);
+        let before = std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap();
+
+        let patch = crate::routes::models::render::ProviderPatch {
+            base_url: Some("https://x".into()),
+            ..Default::default()
+        };
+        let r = edit_pi_provider(&home, "nope", &patch);
+        assert!(!r.ok);
+        assert!(r.errors[0].message.contains("not found"));
+        assert_eq!(
+            std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap(),
+            before,
+            "file untouched on error"
+        );
+    }
+
+    #[test]
+    fn edit_pi_provider_missing_file_errors() {
+        let home = temp_home();
+        let patch = crate::routes::models::render::ProviderPatch::default();
+        let r = edit_pi_provider(&home, "prov-a", &patch);
+        assert!(!r.ok);
+        assert!(r.errors[0].message.contains("not found"));
+    }
+
+    #[test]
+    fn delete_pi_provider_clears_dangling_default() {
+        let home = temp_home();
+        seed_live_pi(&home);
+
+        let r = delete_pi_provider(&home, "prov-a");
+        assert!(r.ok, "errors: {:?}", r.errors);
+        // models.json + settings.json both written.
+        assert_eq!(r.written.len(), 2);
+
+        let models = read_models(&home);
+        assert!(models["providers"].get("prov-a").is_none());
+        assert!(models["providers"].get("prov-b").is_some(), "sibling kept");
+        assert_eq!(models["unknownKey"], 42);
+
+        // settings.json: dangling defaults removed, other keys kept.
+        let settings = read_settings(&home);
+        assert!(settings.get("defaultProvider").is_none());
+        assert!(settings.get("defaultModel").is_none());
+        assert_eq!(settings["extra"], "keep");
+    }
+
+    #[test]
+    fn delete_pi_provider_keeps_settings_when_not_default() {
+        let home = temp_home();
+        seed_live_pi(&home);
+
+        let r = delete_pi_provider(&home, "prov-b");
+        assert!(r.ok);
+        assert_eq!(r.written.len(), 1, "only models.json written");
+
+        let models = read_models(&home);
+        assert!(models["providers"].get("prov-b").is_none());
+        assert!(models["providers"].get("prov-a").is_some());
+
+        // settings.json untouched (default still valid).
+        let settings = read_settings(&home);
+        assert_eq!(settings["defaultProvider"], "prov-a");
+        assert_eq!(settings["defaultModel"], "model-a");
+    }
+
+    #[test]
+    fn delete_pi_provider_missing_node_errors() {
+        let home = temp_home();
+        seed_live_pi(&home);
+        let r = delete_pi_provider(&home, "nope");
         assert!(!r.ok);
         assert!(r.errors[0].message.contains("not found"));
     }

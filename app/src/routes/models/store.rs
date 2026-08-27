@@ -409,14 +409,16 @@ pub struct ImportResponse {
 #[derive(Debug)]
 pub enum StoreError {
     Io(std::io::Error),
-    Corrupt(serde_json::Error),
+    /// The stored file failed to parse. Message string (not serde_json::Error)
+    /// so json5 sources (opencode.jsonc) report corruption the same way.
+    Corrupt(String),
 }
 
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StoreError::Io(e) => write!(f, "io: {e}"),
-            StoreError::Corrupt(e) => write!(f, "corrupt: {e}"),
+            StoreError::Corrupt(msg) => write!(f, "corrupt: {msg}"),
         }
     }
 }
@@ -433,7 +435,8 @@ pub fn read_config(path: &Path) -> Result<CanonicalConfig, StoreError> {
             if text.trim().is_empty() {
                 return Ok(CanonicalConfig::default());
             }
-            serde_json::from_str::<CanonicalConfig>(&text).map_err(StoreError::Corrupt)
+            serde_json::from_str::<CanonicalConfig>(&text)
+                .map_err(|e| StoreError::Corrupt(e.to_string()))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(CanonicalConfig::default()),
         Err(e) => Err(StoreError::Io(e)),
@@ -679,13 +682,35 @@ impl PresetRef for CodexPreset {
     }
 }
 
-// ── pi import ──────────────────────────────────────────────────────
+// ── pi / opencode import (agent-tab live sync) ─────────────────────
 
-/// Result of importing providers from pi's models.json.
+/// Result of importing providers from an agent's native config.
+#[derive(Debug)]
 pub struct ImportResult {
     pub imported: Vec<String>,
     pub skipped: Vec<String>,
     pub providers: BTreeMap<String, ProviderEntry>,
+}
+
+/// Canonical id for an imported provider key: keep it when already
+/// kebab-case, else sanitize.
+fn provider_id_from_key(key: &str) -> String {
+    if is_valid_provider_id(key) {
+        key.to_string()
+    } else {
+        sanitize_id(key)
+    }
+}
+
+/// Finalize an imported (key, provider) pair: canonical id + name backfill
+/// from the original key when the entry carries none. pi and opencode share
+/// this (opencode fragments map into ProviderEntry first).
+fn map_imported_provider(key: &str, mut provider: ProviderEntry) -> (String, ProviderEntry) {
+    let id = provider_id_from_key(key);
+    if provider.name.is_empty() {
+        provider.name = key.to_string();
+    }
+    (id, provider)
 }
 
 /// Read pi's models.json and map each provider 1:1 into canonical format.
@@ -699,29 +724,50 @@ pub fn import_from_pi(
     pi_path: &Path,
     current: &CanonicalConfig,
 ) -> Result<ImportResult, StoreError> {
+    import_pi_providers(pi_path, current, None)
+}
+
+/// Import only the pi provider that maps to `id` (agent-tab single-row
+/// sync). `id` may be the raw pi key (what the live summary lists and what
+/// edit/delete target) or the sanitized canonical id. Empty imported+skipped
+/// when no provider maps to it — the route turns that into a 404.
+pub fn import_pi_provider(
+    pi_path: &Path,
+    current: &CanonicalConfig,
+    id: &str,
+) -> Result<ImportResult, StoreError> {
+    import_pi_providers(pi_path, current, Some(id))
+}
+
+fn import_pi_providers(
+    pi_path: &Path,
+    current: &CanonicalConfig,
+    only: Option<&str>,
+) -> Result<ImportResult, StoreError> {
     let text = std::fs::read_to_string(pi_path).map_err(StoreError::Io)?;
-    let pi_config: CanonicalConfig = serde_json::from_str(&text).map_err(StoreError::Corrupt)?;
+    let pi_config: CanonicalConfig = serde_json::from_str(&text)
+        .map_err(|e| StoreError::Corrupt(e.to_string()))?;
 
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
     let mut new_providers: BTreeMap<String, ProviderEntry> = BTreeMap::new();
 
-    for (key, mut provider) in pi_config.providers {
-        let id = if is_valid_provider_id(&key) {
-            key.clone()
-        } else {
-            sanitize_id(&key)
-        };
-
+    for (key, provider) in pi_config.providers {
+        let (id, provider) = map_imported_provider(&key, provider);
+        if let Some(want) = only {
+            // `want` arrives from the frontend as the raw native key (the
+            // live summary lists raw keys and edit/delete target them by
+            // raw key). Accept either the raw key or the sanitized id so a
+            // hand-edited non-kebab key (e.g. "My_Provider") still single-syncs
+            // instead of 404-ing while visible in the list.
+            if id != want && key != want {
+                continue;
+            }
+        }
         if current.providers.contains_key(&id) || new_providers.contains_key(&id) {
             skipped.push(id);
             continue;
         }
-
-        if provider.name.is_empty() {
-            provider.name = key.clone();
-        }
-
         new_providers.insert(id.clone(), provider);
         imported.push(id);
     }
@@ -730,6 +776,150 @@ pub fn import_from_pi(
         imported,
         skipped,
         providers: new_providers,
+    })
+}
+
+/// Read opencode's opencode.jsonc and map each provider fragment into the
+/// canonical store — the reverse of render/opencode.rs's fragment builder:
+/// - `options.baseURL` → `base_url` (a fragment without one is unmappable,
+///   surfaced in `skipped`)
+/// - npm containing "anthropic" → api `anthropic-messages`, else
+///   `openai-completions` (inverse of the renderer's npm choice)
+/// - `options.apiKey`/`options.headers` carried over; fragment.name → name
+///   (backfilled from the key when absent)
+/// - `models{<id>:{name?}}` → models[] (id + optional display name)
+/// Same idempotency contract as import_from_pi: ids already in `current`
+/// land in `skipped`.
+pub fn import_from_opencode(
+    oc_path: &Path,
+    current: &CanonicalConfig,
+) -> Result<ImportResult, StoreError> {
+    import_opencode_providers(oc_path, current, None)
+}
+
+/// Import only the opencode provider fragment whose key maps to `id`
+/// (agent-tab single-row sync; `id` may be the raw fragment key or the
+/// sanitized canonical id — same contract as `import_pi_provider`). Empty
+/// imported+skipped when absent.
+pub fn import_opencode_provider(
+    oc_path: &Path,
+    current: &CanonicalConfig,
+    id: &str,
+) -> Result<ImportResult, StoreError> {
+    import_opencode_providers(oc_path, current, Some(id))
+}
+
+fn import_opencode_providers(
+    oc_path: &Path,
+    current: &CanonicalConfig,
+    only: Option<&str>,
+) -> Result<ImportResult, StoreError> {
+    let text = std::fs::read_to_string(oc_path).map_err(StoreError::Io)?;
+    // json5 read: opencode.jsonc may carry comments / trailing commas.
+    let root: Value = json5::from_str(&text).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    let mut new_providers: BTreeMap<String, ProviderEntry> = BTreeMap::new();
+
+    // A missing / non-object `provider` key is not corrupt — nothing to import.
+    let Some(fragments) = root.get("provider").and_then(|p| p.as_object()) else {
+        return Ok(ImportResult {
+            imported,
+            skipped,
+            providers: new_providers,
+        });
+    };
+
+    for (key, fragment) in fragments {
+        let id = provider_id_from_key(key);
+        if let Some(want) = only {
+            // Same id-domain contract as import_pi_providers: the frontend
+            // sends the raw fragment key from the live summary.
+            if id != want && key != want {
+                continue;
+            }
+        }
+        let Some(entry) = map_opencode_fragment(fragment) else {
+            // Unmappable (no options.baseURL): surfaced as skipped so the UI
+            // can say "n skipped" instead of silently dropping it.
+            skipped.push(id);
+            continue;
+        };
+        let (id, entry) = map_imported_provider(key, entry);
+        if current.providers.contains_key(&id) || new_providers.contains_key(&id) {
+            skipped.push(id);
+            continue;
+        }
+        new_providers.insert(id.clone(), entry);
+        imported.push(id);
+    }
+
+    Ok(ImportResult {
+        imported,
+        skipped,
+        providers: new_providers,
+    })
+}
+
+/// Convert one opencode provider fragment into a canonical ProviderEntry.
+/// None when the fragment has no options.baseURL — without an endpoint
+/// there is no meaningful canonical provider.
+fn map_opencode_fragment(fragment: &Value) -> Option<ProviderEntry> {
+    let base_url = fragment
+        .get("options")?
+        .get("baseURL")?
+        .as_str()?
+        .to_string();
+
+    let npm = fragment.get("npm").and_then(|n| n.as_str()).unwrap_or("");
+    let api = if npm.contains("anthropic") {
+        "anthropic-messages"
+    } else {
+        "openai-completions"
+    }
+    .to_string();
+
+    let name = fragment
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let api_key = fragment
+        .pointer("/options/apiKey")
+        .and_then(|k| k.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    let mut headers = BTreeMap::new();
+    if let Some(h) = fragment.pointer("/options/headers").and_then(|h| h.as_object()) {
+        for (k, v) in h {
+            if let Some(s) = v.as_str() {
+                headers.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+
+    let mut models = Vec::new();
+    if let Some(m) = fragment.get("models").and_then(|m| m.as_object()) {
+        for (id, node) in m {
+            models.push(ModelEntry {
+                id: id.clone(),
+                name: node.get("name").and_then(|n| n.as_str()).map(String::from),
+                ..Default::default()
+            });
+        }
+    }
+
+    Some(ProviderEntry {
+        name,
+        base_url,
+        api,
+        api_key,
+        headers,
+        compat: Value::Null,
+        models,
     })
 }
 
@@ -1100,6 +1290,283 @@ mod tests {
         let result = import_from_pi(&pi_path, &current).unwrap();
         assert!(result.imported.is_empty());
         assert_eq!(result.skipped, vec!["existing"]);
+    }
+
+    #[test]
+    fn pi_import_single_provider_filters() {
+        let dir = temp_dir();
+        let pi_path = dir.join("pi_models.json");
+        std::fs::write(
+            &pi_path,
+            r#"{"providers": {
+              "prov-a": {"baseUrl": "https://a", "api": "openai-completions"},
+              "prov-b": {"baseUrl": "https://b", "api": "openai-completions"}
+            }}"#,
+        )
+        .unwrap();
+
+        // Single-id import: only prov-b comes through.
+        let r = import_pi_provider(&pi_path, &CanonicalConfig::default(), "prov-b").unwrap();
+        assert_eq!(r.imported, vec!["prov-b"]);
+        assert!(r.providers.contains_key("prov-b"));
+
+        // Already in canonical -> skipped (idempotent single sync).
+        let mut current = CanonicalConfig::default();
+        current.providers.insert(
+            "prov-a".into(),
+            ProviderEntry {
+                name: "A".into(),
+                ..Default::default()
+            },
+        );
+        let r = import_pi_provider(&pi_path, &current, "prov-a").unwrap();
+        assert!(r.imported.is_empty());
+        assert_eq!(r.skipped, vec!["prov-a"]);
+
+        // Unknown id -> empty result (route turns this into 404).
+        let r = import_pi_provider(&pi_path, &current, "nope").unwrap();
+        assert!(r.imported.is_empty());
+        assert!(r.skipped.is_empty());
+    }
+
+    #[test]
+    fn pi_import_single_accepts_non_kebab_raw_key() {
+        // The live summary lists RAW native keys and edit/delete target them
+        // by raw key; a hand-edited non-kebab key must single-sync too (not
+        // 404) — canonical id is the sanitized form.
+        let dir = temp_dir();
+        let pi_path = dir.join("pi_models.json");
+        std::fs::write(
+            &pi_path,
+            r#"{"providers": {
+              "My_Provider": {"baseUrl": "https://a", "api": "openai-completions"}
+            }}"#,
+        )
+        .unwrap();
+
+        // Sync by the raw key (what the frontend sends from the live list).
+        let r = import_pi_provider(&pi_path, &CanonicalConfig::default(), "My_Provider").unwrap();
+        assert_eq!(r.imported, vec!["my-provider"]);
+        assert!(r.providers.contains_key("my-provider"));
+
+        // Sync by the sanitized canonical id also works.
+        std::fs::write(
+            &pi_path,
+            r#"{"providers": {
+              "My_Provider": {"baseUrl": "https://a", "api": "openai-completions"}
+            }}"#,
+        )
+        .unwrap();
+        let r = import_pi_provider(&pi_path, &CanonicalConfig::default(), "my-provider").unwrap();
+        assert_eq!(r.imported, vec!["my-provider"]);
+    }
+
+    // --- opencode import (agent-tab live sync, design §3) ---
+
+    #[test]
+    fn opencode_import_maps_fragments() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{
+  "model": "aruoshui/deepseek-v4-pro",
+  "provider": {
+    "aruoshui": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Aruoshui",
+      "options": {
+        "baseURL": "https://ai.aruoshui.com/v1",
+        "apiKey": "sk-real-key-xxxx",
+        "headers": { "X-Custom": "yes" }
+      },
+      "models": {
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" },
+        "qwen-max": {}
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let result = import_from_opencode(&oc_path, &CanonicalConfig::default()).unwrap();
+        assert_eq!(result.imported, vec!["aruoshui"]);
+        assert!(result.skipped.is_empty());
+
+        let p = &result.providers["aruoshui"];
+        assert_eq!(p.name, "Aruoshui");
+        assert_eq!(p.base_url, "https://ai.aruoshui.com/v1");
+        assert_eq!(p.api, "openai-completions");
+        assert_eq!(p.api_key.as_deref(), Some("sk-real-key-xxxx"));
+        assert_eq!(p.headers.get("X-Custom").map(String::as_str), Some("yes"));
+        assert_eq!(p.models.len(), 2);
+        assert_eq!(p.models[0].id, "deepseek-v4-pro");
+        assert_eq!(p.models[0].name.as_deref(), Some("DeepSeek V4 Pro"));
+        assert_eq!(p.models[1].id, "qwen-max");
+        assert_eq!(p.models[1].name, None);
+    }
+
+    #[test]
+    fn opencode_import_anthropic_npm_and_name_backfill() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "antp": {
+                "npm": "@ai-sdk/anthropic",
+                "options": { "baseURL": "https://api.anthropic.com" },
+                "models": { "claude-3": { "name": "Claude 3" } }
+              }
+            }}"#,
+        )
+        .unwrap();
+
+        let result = import_from_opencode(&oc_path, &CanonicalConfig::default()).unwrap();
+        let p = &result.providers["antp"];
+        // Inverse of the renderer's npm choice.
+        assert_eq!(p.api, "anthropic-messages");
+        // fragment.name absent -> backfilled from the key.
+        assert_eq!(p.name, "antp");
+        assert!(p.api_key.is_none());
+        assert_eq!(p.models[0].name.as_deref(), Some("Claude 3"));
+    }
+
+    #[test]
+    fn opencode_import_missing_baseurl_is_skipped() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "no-endpoint": { "npm": "@ai-sdk/openai-compatible", "name": "No Endpoint" },
+              "ok": { "npm": "@ai-sdk/openai-compatible",
+                      "options": { "baseURL": "https://ok/v1" } }
+            }}"#,
+        )
+        .unwrap();
+
+        let result = import_from_opencode(&oc_path, &CanonicalConfig::default()).unwrap();
+        assert_eq!(result.imported, vec!["ok"]);
+        assert_eq!(result.skipped, vec!["no-endpoint"]);
+    }
+
+    #[test]
+    fn opencode_import_skips_existing_ids() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "existing": { "options": { "baseURL": "https://x/v1" } }
+            }}"#,
+        )
+        .unwrap();
+
+        let mut current = CanonicalConfig::default();
+        current.providers.insert(
+            "existing".into(),
+            ProviderEntry {
+                name: "Existing".into(),
+                ..Default::default()
+            },
+        );
+        let result = import_from_opencode(&oc_path, &current).unwrap();
+        assert!(result.imported.is_empty());
+        assert_eq!(result.skipped, vec!["existing"]);
+    }
+
+    #[test]
+    fn opencode_import_single_provider_filters() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "prov-a": { "options": { "baseURL": "https://a/v1" } },
+              "prov-b": { "options": { "baseURL": "https://b/v1" } }
+            }}"#,
+        )
+        .unwrap();
+
+        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "prov-a").unwrap();
+        assert_eq!(r.imported, vec!["prov-a"]);
+
+        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "nope").unwrap();
+        assert!(r.imported.is_empty());
+        assert!(r.skipped.is_empty());
+    }
+
+    #[test]
+    fn opencode_import_single_accepts_non_kebab_raw_key() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "Weird Key": { "options": { "baseURL": "https://a/v1" } }
+            }}"#,
+        )
+        .unwrap();
+
+        // Frontend sends the raw fragment key from the live list.
+        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "Weird Key").unwrap();
+        assert_eq!(r.imported, vec!["weird-key"]);
+
+        // And the sanitized id form.
+        std::fs::write(
+            &oc_path,
+            r#"{"provider": {
+              "Weird Key": { "options": { "baseURL": "https://a/v1" } }
+            }}"#,
+        )
+        .unwrap();
+        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "weird-key").unwrap();
+        assert_eq!(r.imported, vec!["weird-key"]);
+    }
+
+    #[test]
+    fn opencode_import_missing_file_is_io_not_found() {
+        let dir = temp_dir();
+        let r = import_from_opencode(&dir.join("nope.jsonc"), &CanonicalConfig::default());
+        match r {
+            Err(StoreError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
+            other => panic!("expected Io(NotFound), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opencode_import_corrupt_is_corrupt() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(&oc_path, "{{not even json5").unwrap();
+        let r = import_from_opencode(&oc_path, &CanonicalConfig::default());
+        assert!(matches!(r, Err(StoreError::Corrupt(_))));
+    }
+
+    #[test]
+    fn opencode_import_json5_comments_and_trailing_commas() {
+        let dir = temp_dir();
+        let oc_path = dir.join("opencode.jsonc");
+        std::fs::write(
+            &oc_path,
+            r#"{
+  // user-maintained config with comments
+  "theme": "dark",
+  "provider": {
+    "commented": { // inner comment
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "https://c/v1", },
+    },
+  },
+}"#,
+        )
+        .unwrap();
+
+        let result = import_from_opencode(&oc_path, &CanonicalConfig::default()).unwrap();
+        assert_eq!(result.imported, vec!["commented"]);
+        assert_eq!(result.providers["commented"].base_url, "https://c/v1");
     }
 
     // --- preset shape migration (design §1 shadow) ---

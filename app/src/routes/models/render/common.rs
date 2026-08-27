@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // ── result type ───────────────────────────────────────────────────
@@ -346,6 +346,20 @@ fn is_leap(y: i64) -> bool {
 }
 
 // ── assignment resolution ──────────────────────────────────────────
+
+/// Field-level patch for one live provider node in an agent's native
+/// config (08-27-agent-tabs-live-config design §2). `None` = leave the
+/// field untouched; `apiKey: Some("")` = clear the key. Only these keys
+/// are ever written into the live node — its models and any other fields
+/// are preserved as-is (live edit is field-level, never a node replace).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderPatch {
+    pub name: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub api: Option<String>,
+}
 
 /// The four agent tabs. Used by the live-readback reader so each agent
 /// can map its own native config file shape into a uniform `live` JSON.

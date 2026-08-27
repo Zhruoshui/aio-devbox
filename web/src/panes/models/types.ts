@@ -149,12 +149,27 @@ export interface DiscoverState {
 
 // ── M3: agent status + apply types ────────────────────────────────
 
-/** Live readback for one agent (shape varies by agent; null fields absent). */
+/** One provider configured in an agent's NATIVE config file (pi models.json /
+ * opencode provider object) — the live list of 08-27-agent-tabs-live-config.
+ * Fields are best-effort from the backend's tolerant extraction; name/api/
+ * baseUrl may be absent (pi nodes carry no name; opencode npm may be missing). */
+export interface LiveProviderSummary {
+  id: string;
+  name?: string | null;
+  api?: string | null;
+  baseUrl?: string | null;
+  models: string[];
+}
+
+/** Live readback for one agent (shape varies by agent; null fields absent).
+ * pi/opencode additionally carry `providers` — every provider node living in
+ * the agent's native config, not just the current default. */
 export interface AgentLive {
   provider?: string | null;
   model?: string | null;
   baseUrl?: string | null;
   modelProvider?: string | null;
+  providers?: LiveProviderSummary[];
 }
 
 export interface AgentStatus {
@@ -301,12 +316,27 @@ export function decodeConfig(json: unknown): CanonicalConfig {
 export function decodeAgents(json: unknown): AgentsResponse {
   const empty: AgentStatus = { installed: false, bin: null, live: null };
   if (!isObj(json)) return { pi: empty, opencode: empty, claude: empty, codex: empty };
+  const decLive = (raw: unknown): AgentLive | null => {
+    if (!isObj(raw)) return null;
+    const live: AgentLive = raw as AgentLive;
+    // Tolerant providers[] decode: malformed entries are skipped, a
+    // non-array field is dropped (backend contract: absent when unreadable).
+    if (Array.isArray(raw.providers)) {
+      live.providers = raw.providers.filter(
+        (p): p is LiveProviderSummary =>
+          isObj(p) && typeof p.id === "string" && Array.isArray(p.models),
+      );
+    } else {
+      delete live.providers;
+    }
+    return live;
+  };
   const dec = (v: unknown): AgentStatus => {
     if (!isObj(v)) return empty;
     return {
       installed: v.installed === true,
       bin: typeof v.bin === "string" ? v.bin : null,
-      live: isObj(v.live) ? (v.live as AgentLive) : null,
+      live: decLive(v.live),
     };
   };
   return {
@@ -469,6 +499,44 @@ export function liveReadbackText(
     case "codex":
       return `${l.modelProvider ?? "—"} / ${l.model ?? "—"}`;
   }
+}
+
+/** Live-vs-assignment match state for an incremental agent tab (pi/opencode),
+ * mirroring PresetList's tri-state badge semantics: "unknown" when the live
+ * default is unreadable, "match" when the native default equals the canonical
+ * assignment, "mismatch" otherwise. */
+export function liveMatchState(
+  agent: "pi" | "opencode",
+  live: AgentLive | null,
+  assignment: { provider?: string; model?: string } | undefined,
+): "match" | "mismatch" | "unknown" {
+  if (!live) return "unknown";
+  if (agent === "pi") {
+    if (!live.provider && !live.model) return "unknown";
+    return live.provider === (assignment?.provider ?? null) &&
+      live.model === (assignment?.model ?? null)
+      ? "match"
+      : "mismatch";
+  }
+  // opencode: the native default is top-level model = "<providerId>/<modelId>".
+  if (!live.model) return "unknown";
+  const expected =
+    assignment?.provider && assignment?.model
+      ? `${assignment.provider}/${assignment.model}`
+      : null;
+  return live.model === expected ? "match" : "mismatch";
+}
+
+/** Whether a live provider node is the agent's native default: pi =
+ * settings defaultProvider; opencode = top-level model "<id>/…" prefix. */
+export function isLiveDefault(
+  agent: "pi" | "opencode",
+  live: AgentLive | null,
+  providerId: string,
+): boolean {
+  if (!live) return false;
+  if (agent === "pi") return live.provider === providerId;
+  return !!live.model && live.model.startsWith(`${providerId}/`);
 }
 
 /** Which agents bind a given provider id (for card chips + editor overview).

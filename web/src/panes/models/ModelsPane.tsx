@@ -16,6 +16,7 @@ import type { ServiceEntry } from "../../types";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
 import { AgentTabs } from "./AgentTabs";
+import type { LiveEditPatch } from "./LiveProviderList";
 import { PresetList } from "./PresetList";
 import { ProviderEditor } from "./ProviderEditor";
 import { ProviderGrid } from "./ProviderGrid";
@@ -114,6 +115,12 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     ok: boolean;
     text: string;
   } | null>(null);
+
+  // R2/R3: live provider management (pi/opencode native files) — which row
+  // currently has a sync/edit/delete in flight.
+  const [liveBusy, setLiveBusy] = useState<{ agent: string; id: string } | null>(
+    null,
+  );
 
   // M4: usage tab.
   const [usageRows, setUsageRows] = useState<UsageRow[] | null>(null);
@@ -808,6 +815,105 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     [fetchAgents],
   );
 
+  // ── R2/R3: live provider management (pi/opencode native files) ────
+
+  /** Absorb one live provider from the agent's native config into the
+   * canonical library (idempotent — already-present ids come back skipped). */
+  const syncLiveProvider = useCallback(
+    async (agent: "pi" | "opencode", id: string): Promise<void> => {
+      setLiveBusy({ agent, id });
+      setAgentSaveMsg(null);
+      try {
+        const r = await fetch(`/api/models/agents/${agent}/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        if (!r.ok) {
+          setAgentSaveMsg({ ok: false, text: await r.text() });
+          return;
+        }
+        const j = (await r.json()) as { imported: string[]; skipped: string[] };
+        setAgentSaveMsg({
+          ok: true,
+          text: `${t(lang, "maSyncImported")} ${j.imported.length} · ${t(lang, "maSyncSkipped")} ${j.skipped.length}`,
+        });
+        await fetchConfig();
+        await fetchAgents();
+      } catch (e) {
+        setAgentSaveMsg({
+          ok: false,
+          text: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setLiveBusy(null);
+        window.setTimeout(() => setAgentSaveMsg(null), 4000);
+      }
+    },
+    [lang, fetchConfig, fetchAgents],
+  );
+
+  /** Field-level edit of one live provider node; outcome lands in the same
+   * apply-result panel the assignment flow uses. */
+  const editLiveProvider = useCallback(
+    async (agent: "pi" | "opencode", id: string, patch: LiveEditPatch): Promise<void> => {
+      setLiveBusy({ agent, id });
+      setApplyResult(null);
+      try {
+        const r = await fetch(
+          `/api/models/agents/${agent}/provider/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+          },
+        );
+        if (!r.ok) {
+          setAgentSaveMsg({ ok: false, text: await r.text() });
+          return;
+        }
+        setApplyResult((await r.json()) as ApplyResponse);
+        await fetchAgents();
+      } catch (e) {
+        setAgentSaveMsg({
+          ok: false,
+          text: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setLiveBusy(null);
+      }
+    },
+    [fetchAgents],
+  );
+
+  /** Remove one live provider node (backend clears a dangling default). */
+  const deleteLiveProvider = useCallback(
+    async (agent: "pi" | "opencode", id: string): Promise<void> => {
+      setLiveBusy({ agent, id });
+      setApplyResult(null);
+      try {
+        const r = await fetch(
+          `/api/models/agents/${agent}/provider/${encodeURIComponent(id)}`,
+          { method: "DELETE" },
+        );
+        if (!r.ok) {
+          setAgentSaveMsg({ ok: false, text: await r.text() });
+          return;
+        }
+        setApplyResult((await r.json()) as ApplyResponse);
+        await fetchAgents();
+      } catch (e) {
+        setAgentSaveMsg({
+          ok: false,
+          text: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setLiveBusy(null);
+      }
+    },
+    [fetchAgents],
+  );
+
   // ── M4: usage ───────────────────────────────────────────────────
 
   const fetchUsage = useCallback(
@@ -917,9 +1023,13 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
             applying={applying}
             applyResult={applyResult}
             agentSaveMsg={agentSaveMsg}
+            liveBusyId={liveBusy?.agent === tab ? liveBusy.id : null}
             onUpdateAssignment={updateAgentAssignment}
             onSaveAssignment={(a) => void handleSaveAssignment(a)}
             onApply={(a) => void handleApply(a)}
+            onSyncLive={(a, id) => void syncLiveProvider(a, id)}
+            onEditLive={(a, id, patch) => void editLiveProvider(a, id, patch)}
+            onDeleteLive={(a, id) => void deleteLiveProvider(a, id)}
             lang={lang}
           />
         ) : config ? (

@@ -26,7 +26,7 @@
 // higher than the `/api/*rest` catch-all, so they are never swallowed.
 
 use axum::{
-    routing::{any, delete, get, post},
+    routing::{any, delete, get, post, put},
     Router,
 };
 use std::path::PathBuf;
@@ -39,7 +39,11 @@ mod state;
 
 use routes::{
     buttons::{create_button, delete_button}, manifest::manifest,
-    models::{apply_agent, catalog::get_catalog, discover::discover, get_agents, get_config, import_pi, put_config, test::test, usage::usage},
+    models::{
+        apply_agent, catalog::get_catalog, delete_live_provider, discover::discover,
+        edit_live_provider, get_agents, get_config, import_pi, put_config,
+        sync_live_provider, test::test, usage::usage,
+    },
     seam::seam, stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
 };
 use state::AppState;
@@ -103,6 +107,14 @@ async fn main() {
         .route("/api/models/test", post(test))
         .route("/api/models/agents", get(get_agents))
         .route("/api/models/apply/:agent", post(apply_agent))
+        // Live provider management on the incremental agents' native files
+        // (08-27-agent-tabs-live-config): field-level edit, delete, sync to
+        // the canonical library.
+        .route(
+            "/api/models/agents/:agent/provider/:id",
+            put(edit_live_provider).delete(delete_live_provider),
+        )
+        .route("/api/models/agents/:agent/sync", post(sync_live_provider))
         // M4: per-(agent,model) token usage aggregation (design §6).
         .route("/api/models/usage", get(usage))
         // models.dev metadata catalog (1h cache, 08-27-provider-form-piweb).

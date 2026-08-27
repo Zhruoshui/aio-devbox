@@ -7,17 +7,26 @@
 // PresetList — they are NOT handled here (design §5: incremental vs switch
 // have different semantics). Apply results surface written paths + backups
 // + errors.
+//
+// 08-27-agent-tabs-live-config: the model field is a ModelPicker over the
+// chosen provider's models[] (no free-text), and below the assignment sits
+// the live list — every provider in the agent's NATIVE config with
+// sync/edit/delete actions (LiveProviderList).
 
+import { useState } from "react";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
 import {
   incompatibleReason,
+  liveMatchState,
   liveReadbackText,
   type AgentStatus,
   type AgentsResponse,
   type ApplyResponse,
   type CanonicalConfig,
 } from "./types";
+import { LiveProviderList, type LiveEditPatch } from "./LiveProviderList";
+import { ModelPicker } from "./ModelPicker";
 
 /** The incremental (single-assignment) agents. */
 type IncrementalAgent = "pi" | "opencode";
@@ -31,9 +40,13 @@ export function AgentTabs({
   applying,
   applyResult,
   agentSaveMsg,
+  liveBusyId,
   onUpdateAssignment,
   onSaveAssignment,
   onApply,
+  onSyncLive,
+  onEditLive,
+  onDeleteLive,
   lang,
 }: {
   agent: IncrementalAgent;
@@ -44,21 +57,32 @@ export function AgentTabs({
   applying: boolean;
   applyResult: ApplyResponse | null;
   agentSaveMsg: { ok: boolean; text: string } | null;
+  /** Row currently running a live sync/edit/delete (disables its buttons). */
+  liveBusyId: string | null;
   onUpdateAssignment: (agent: IncrementalAgent, patch: Record<string, unknown>) => void;
   onSaveAssignment: (agent: IncrementalAgent) => void;
   onApply: (agent: IncrementalAgent) => void;
+  onSyncLive: (agent: IncrementalAgent, id: string) => void;
+  onEditLive: (agent: IncrementalAgent, id: string, patch: LiveEditPatch) => void;
+  onDeleteLive: (agent: IncrementalAgent, id: string) => void;
   lang: Lang;
 }): JSX.Element {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   const assignment = config.agents[agent];
   const status: AgentStatus | undefined = agentsStatus?.[agent];
   const isDirty = agentDirty.has(agent);
   const currentProviderId = assignment?.provider ?? "";
   const currentModelId = assignment?.model ?? "";
   const providerList = Object.entries(config.providers);
+  const models = config.providers[currentProviderId]?.models ?? [];
+  const selectedModel = models.find((m) => m.id === currentModelId);
+
+  const match = liveMatchState(agent, status?.live ?? null, assignment);
 
   return (
     <div className="ml-agent">
-      {/* install badge + live readback */}
+      {/* install badge + live readback + match badge */}
       <div className="ml-agent-head">
         <span
           className={`ml-badge ${status?.installed ? "ml-badge-ok" : "ml-badge-warn"}`}
@@ -69,6 +93,14 @@ export function AgentTabs({
         <span className="ml-agent-live">
           {t(lang, "mcLive")} <code>{liveReadbackText(agent, status)}</code>
         </span>
+        {match !== "unknown" && (
+          <span
+            className={`ml-badge ${match === "match" ? "ml-badge-ok" : "ml-badge-warn"}`}
+            title={t(lang, match === "match" ? "maLiveMatchTip" : "maLiveMismatchTip")}
+          >
+            {t(lang, match === "match" ? "maLiveMatch" : "maLiveMismatch")}
+          </span>
+        )}
       </div>
 
       <div className="ml-agent-form">
@@ -77,7 +109,10 @@ export function AgentTabs({
           <label>{t(lang, "mcProvider")}</label>
           <select
             value={currentProviderId}
-            onChange={(e) => onUpdateAssignment(agent, { provider: e.target.value })}
+            onChange={(e) => {
+              onUpdateAssignment(agent, { provider: e.target.value });
+              setPickerOpen(false);
+            }}
           >
             <option value="">{t(lang, "mcSelectProvider")}</option>
             {providerList.map(([id, p]) => {
@@ -100,21 +135,37 @@ export function AgentTabs({
           </select>
         </div>
 
-        {/* model dropdown */}
+        {/* model picker over the provider's models[] (no free text) */}
         <div className="field">
           <label>{t(lang, "mcModel")}</label>
-          <select
-            value={currentModelId}
-            onChange={(e) => onUpdateAssignment(agent, { model: e.target.value })}
+          <button
+            className="ml-model-trigger"
             disabled={!currentProviderId}
+            onClick={() => setPickerOpen(!pickerOpen)}
           >
-            <option value="">—</option>
-            {(config.providers[currentProviderId]?.models ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name ? `${m.name} (${m.id})` : m.id}
-              </option>
+            <code>
+              {selectedModel
+                ? selectedModel.name
+                  ? `${selectedModel.name} (${selectedModel.id})`
+                  : selectedModel.id
+                : currentModelId || t(lang, "maPickModel")}
+            </code>
+            <Icon name={pickerOpen ? "chev-r" : "chev-l"} />
+          </button>
+          {pickerOpen &&
+            (models.length === 0 ? (
+              <div className="ml-hint">{t(lang, "maNoModelsInProvider")}</div>
+            ) : (
+              <ModelPicker
+                models={models}
+                selectedId={currentModelId || undefined}
+                onPick={(id) => {
+                  onUpdateAssignment(agent, { model: id });
+                  setPickerOpen(false);
+                }}
+                lang={lang}
+              />
             ))}
-          </select>
         </div>
       </div>
 
@@ -175,6 +226,23 @@ export function AgentTabs({
           )}
         </div>
       )}
+
+      {/* live configs from the agent's native file */}
+      <div className="ml-live-section">
+        <div className="ml-live-title">{t(lang, "maLiveSection")}</div>
+        {!status?.installed && (
+          <div className="ml-hint">{t(lang, "maLivePreWrite")}</div>
+        )}
+        <LiveProviderList
+          agent={agent}
+          live={status?.live ?? null}
+          busyId={liveBusyId}
+          onSync={(id) => onSyncLive(agent, id)}
+          onEdit={(id, patch) => onEditLive(agent, id, patch)}
+          onDelete={(id) => onDeleteLive(agent, id)}
+          lang={lang}
+        />
+      </div>
     </div>
   );
 }
