@@ -40,6 +40,7 @@ pub struct TestRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestResponse {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

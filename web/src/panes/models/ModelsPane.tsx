@@ -384,6 +384,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       const key = `${providerId}:${modelId}`;
       setTestState((prev) => ({ ...prev, [key]: { status: "testing" } }));
       try {
+        const t0 = performance.now();
         const r = await fetch("/api/models/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -407,7 +408,10 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           ...prev,
           [key]: {
             status: resp.ok ? "ok" : "fail",
-            latencyMs: resp.latencyMs,
+            // app images older than the camelCase fix serialize `latency_ms`
+            // (dropped by this reader) — fall back to the client-measured
+            // round trip so the pill still shows a real number.
+            latencyMs: resp.latencyMs ?? Math.round(performance.now() - t0),
             statusHttp: resp.status,
             error: resp.error,
             responseText: resp.responseText,

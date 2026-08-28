@@ -1,10 +1,14 @@
 // ModelRow — single-model collapsed/expanded row (Kumo redesign).
 //
 // Collapsed (screens_model-config.html §model-row): chevron + editable mono id
-// (reads as text until focused) + name + cost summary `$in / $out` + a
-// .test-pill (play → spin → ok·ms / fail) + delete. The reasoning flag is
-// intentionally NOT shown in the collapsed row (08-28 feedback: visual noise;
-// still editable via the expanded form and set by catalog fill).
+// (reads as text until focused) + name + a .test-pill (play → spin →
+// check·ms / fail) + delete. The pill's ok state is just the green check plus
+// latency — the color already reads as connected and the long `已连通 · Nms`
+// variant crowded out the delete button (08-28 feedback). The cost summary
+// `$in / $out` and reasoning flag are also intentionally NOT shown in the
+// collapsed row (08-28 feedback: they crowd out the test/delete actions in
+// narrow panes; costs stay editable via the expanded form and set by catalog
+// fill).
 // Expanded: name + protocol-override side by side, then context-window /
 // max-output / reasoning-check three-across, then the four cost fields
 // (in/out/cacheRead/cacheWrite), then a "fill from models.dev" ghost button.
@@ -46,13 +50,6 @@ export function ModelRow({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const ts = testState[`${providerId}:${model.id}`];
-  const hasCost =
-    model.cost && (model.cost.input != null || model.cost.output != null);
-  const costSummary = hasCost
-    ? `$${model.cost?.input != null ? model.cost.input.toFixed(2) : "—"} / ${
-        model.cost?.output != null ? model.cost.output.toFixed(2) : "—"
-      }`
-    : null;
 
   return (
     <div className="ml-model-row" data-od-id={`model-row-${idx}`}>
@@ -74,7 +71,6 @@ export function ModelRow({
           }}
         />
         <span className="ml-model-name">{model.name || "—"}</span>
-        {costSummary && <span className="ml-model-cost-summary">{costSummary}</span>}
         <div className="ml-model-row-actions">
           <button
             className={`ml-test-pill${ts?.status === "ok" ? " ok" : ts?.status === "fail" ? " fail" : ""}`}
@@ -94,7 +90,9 @@ export function ModelRow({
               <Icon name="play" />
             )}
             {ts?.status === "ok"
-              ? `${t(lang, "mcTestOk")} · ${ts.latencyMs ?? "?"}ms`
+              ? ts.latencyMs != null
+                ? `${ts.latencyMs}ms`
+                : t(lang, "mcTestOk")
               : ts?.status === "fail"
                 ? t(lang, "mcTestFail")
                 : t(lang, "mcTest")}
