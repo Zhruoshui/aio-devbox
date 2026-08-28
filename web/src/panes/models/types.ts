@@ -543,6 +543,67 @@ export function genProviderId(existing: Record<string, unknown>): string {
   return `provider-${n}`;
 }
 
+/** Slug a provider display name into a valid provider id: lowercase ascii
+ *  alnum kept, every other run collapsed to `-`, edges trimmed. "" when
+ *  nothing survives (e.g. a pure-CJK name) — caller keeps the placeholder. */
+export function slugifyProviderName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** While a provider's key is still the auto-generated `provider-N`
+ *  placeholder, derive a meaningful id from its display name. pi's TUI
+ *  (model-selector `[id]` badge, footer `(id)`) and pi-web (group header)
+ *  display the provider ID everywhere — the node `name` never reaches those
+ *  UIs — so the id itself must carry the name for it to show up. Returns ""
+ *  when the id was user-customized (not a placeholder) or the name has no
+ *  slug; `-2`/`-3`… suffixes resolve collisions against `existing`.
+ *  (08-28-provider-id-from-name) */
+export function deriveProviderIdFromName(
+  name: string,
+  existing: Record<string, unknown>,
+  selfId: string,
+): string {
+  if (!/^provider-\d+$/.test(selfId)) return "";
+  const slug = slugifyProviderName(name);
+  if (!slug || slug === selfId) return "";
+  let id = slug;
+  for (let n = 2; id in existing; n++) id = `${slug}-${n}`;
+  return id;
+}
+
+/** Re-point every agent reference at a renamed provider id (pi/opencode
+ *  single assignments + claude/codex preset references). */
+export function rebindAgentProviders(
+  agents: AgentsConfig,
+  from: string,
+  to: string,
+): AgentsConfig {
+  const next: AgentsConfig = { ...agents };
+  if (next.pi?.provider === from) next.pi = { ...next.pi, provider: to };
+  if (next.opencode?.provider === from)
+    next.opencode = { ...next.opencode, provider: to };
+  if (next.claude) {
+    next.claude = {
+      ...next.claude,
+      presets: next.claude.presets.map((p) =>
+        p.provider === from ? { ...p, provider: to } : p,
+      ),
+    };
+  }
+  if (next.codex) {
+    next.codex = {
+      ...next.codex,
+      presets: next.codex.presets.map((p) =>
+        p.provider === from ? { ...p, provider: to } : p,
+      ),
+    };
+  }
+  return next;
+}
+
 export function emptyProvider(): ProviderEntry {
   return {
     name: "",

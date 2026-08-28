@@ -30,6 +30,8 @@ import {
   decodeUsage,
   emptyProvider,
   genProviderId,
+  deriveProviderIdFromName,
+  rebindAgentProviders,
   safeStringify,
   type AgentTab,
   type AgentsResponse,
@@ -187,18 +189,46 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
 
   const updateProvider = useCallback(
     (id: string, patch: Partial<ProviderEntry>): void => {
+      // While the key is still the auto `provider-N` placeholder, derive the
+      // id from the display name: pi/pi-web display the provider ID (never
+      // the node name), so the id must carry the name for it to show up
+      // anywhere (08-28-provider-id-from-name). Custom ids are never touched.
+      const derived =
+        patch.name !== undefined
+          ? deriveProviderIdFromName(patch.name, config?.providers ?? {}, id)
+          : "";
+      const renamed = derived && derived !== id ? { from: id, to: derived } : null;
+      if (renamed) {
+        setSelectedId((prev) => (prev === renamed.from ? renamed.to : prev));
+      }
       setConfig((prev) => {
         if (!prev) return prev;
         const old = prev.providers[id];
         if (!old) return prev;
+        const entry = { ...old, ...patch };
+        if (!renamed) {
+          return {
+            ...prev,
+            providers: { ...prev.providers, [id]: entry },
+          };
+        }
+        // Re-key + rebind agent references. If the derived key collided with
+        // a provider created since (rare typing race), keep the old key —
+        // the next keystroke re-derives.
+        if (renamed.to !== id && prev.providers[renamed.to]) {
+          return { ...prev, providers: { ...prev.providers, [id]: entry } };
+        }
+        const { [id]: _, ...rest } = prev.providers;
+        void _;
         return {
           ...prev,
-          providers: { ...prev.providers, [id]: { ...old, ...patch } },
+          providers: { ...rest, [renamed.to]: entry },
+          agents: rebindAgentProviders(prev.agents, renamed.from, renamed.to),
         };
       });
       setDirty(true);
     },
-    [],
+    [config],
   );
 
   const updateModel = useCallback(
