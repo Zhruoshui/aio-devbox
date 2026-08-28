@@ -21,10 +21,10 @@
 // golden-layout-provided container.element. Roots are unmounted on
 // `beforeComponentRelease` so panes torn down by close/drag-out are cleaned up.
 //
-// The service payload travels as componentState (opaque JsonValue); it is
-// decoded back to a typed ServiceEntry through ONE type guard
-// (readServiceState) rather than inline casts - the manifest contract has a
-// single owner on each side of the boundary (cross-layer-thinking-guide).
+// The service payload (+ its sequence number) travels as componentState
+// (opaque JsonValue); it is decoded back through ONE type guard (readPaneState)
+// rather than inline casts - the manifest contract has a single owner on each
+// side of the boundary (cross-layer-thinking-guide).
 
 import { createRoot, type Root } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -108,8 +108,12 @@ export function App(): JSX.Element {
   const glRef = useRef<GoldenLayout | null>(null);
   // React roots per golden-layout component container (unmount on release).
   const rootsRef = useRef(new WeakMap<ComponentContainer, Root>());
-  // Per-service instance counter for tab titles: "Terminal", "Terminal (2)", ...
-  const seqRef = useRef<Record<string, number>>({});
+  // Per-service in-use sequence numbers for tab titles: "Terminal",
+  // "Terminal (2)", ... A closed instance returns its number to the pool, so
+  // the next launch reuses the smallest free positive integer (close/relaunch
+  // gives "Terminal (2)" again, not an ever-growing "(4)"). Set ops (add /
+  // delete) make recycle trivial; SeqPool lazily creates a pool per service.
+  const seqRef = useRef<Record<string, Set<number>>>({});
   // Latest manifest for the tab-icon observer (the gl effect runs once).
   const servicesRef = useRef<ServiceEntry[]>([]);
 
@@ -240,8 +244,14 @@ export function App(): JSX.Element {
   const launch = useCallback((service: ServiceEntry) => {
     const gl = glRef.current;
     if (!gl) return;
-    const n = (seqRef.current[service.id] ?? 0) + 1;
-    seqRef.current[service.id] = n;
+    // Take the smallest positive integer the service is not currently using:
+    // closing an instance frees its number (release returns it to the pool),
+    // so a closed (2) is reused as (2) rather than skipped. n === 1 keeps the
+    // bare label; concurrent instances never collide (R5).
+    const pool = getSeqPool(seqRef.current, service.id);
+    let n = 1;
+    while (pool.has(n)) n++;
+    pool.add(n);
     const title = n === 1 ? service.label : `${service.label} (${n})`;
     gl.newComponent(PANE_COMPONENT_TYPE, { service, seq: n }, title);
   }, []);
@@ -266,20 +276,37 @@ export function App(): JSX.Element {
     gl.registerComponentFactoryFunction(
       PANE_COMPONENT_TYPE,
       (container: ComponentContainer, state: JsonValue | undefined) => {
-        const service = readServiceState(state);
-        if (!service) return undefined;
+        const pane = readPaneState(state);
+        if (!pane) return undefined;
         const root = createRoot(container.element);
         rootsRef.current.set(container, root);
-        root.render(<PaneForService service={service} />);
+        root.render(<PaneForService service={pane.service} />);
+
+        // Claim THIS instance's sequence slot on every component creation
+        // (Set.add is idempotent). launch() pre-adds the number it picked and
+        // collectInUseSeq covers loadLayout restore; the re-add here is what
+        // keeps the pool consistent when golden-layout re-creates a pane from
+        // persisted componentState on popIn - the dragged-out instance freed
+        // its number on release, and without re-claiming it the next launch
+        // would reuse it and duplicate the title (R5).
+        if (pane.seq !== undefined) {
+          getSeqPool(seqRef.current, pane.service.id).add(pane.seq);
+        }
 
         // golden-layout emits beforeComponentRelease before tearing down a
         // component (tab close / drag-out / layout destroy). Unmount the React
-        // tree so its effects (xterm WS, iframe, observers) are cleaned up.
+        // tree so its effects (xterm WS, iframe, observers) are cleaned up,
+        // and return THIS instance's sequence number to the pool (R2). Each
+        // container captures its own seq in the closure, so only its own
+        // number is freed - never a sibling instance's (R5).
         container.on("beforeComponentRelease", () => {
           const r = rootsRef.current.get(container);
           if (r) {
             r.unmount();
             rootsRef.current.delete(container);
+          }
+          if (pane.seq !== undefined) {
+            seqRef.current[pane.service.id]?.delete(pane.seq);
           }
         });
         return undefined;
@@ -307,7 +334,7 @@ export function App(): JSX.Element {
             dimensions: { headerHeight: HEADER_HEIGHT },
           };
           gl.loadLayout(config);
-          resyncSeq(config.root, seqRef.current);
+          collectInUseSeq(config.root, seqRef.current);
           restored = true;
         } catch {
           /* corrupt archive = behave as if never saved */
@@ -319,7 +346,7 @@ export function App(): JSX.Element {
         // exists).
         const enabled = services.filter((s) => s.enabled);
         const terminal = enabled.find((s) => s.id === TERMINAL_ID) ?? enabled[0];
-        seqRef.current[terminal.id] = 1;
+        getSeqPool(seqRef.current, terminal.id).add(1);
         const config: LayoutConfig = {
           root: {
             type: "stack",
@@ -528,14 +555,20 @@ function PaneForService({ service }: { service: ServiceEntry }): JSX.Element {
 }
 
 /**
- * Decode the golden-layout componentState back to a typed ServiceEntry.
- * Single decoder for the manifest payload on the pane side - callers must not
- * cast `state.service` inline (cross-layer-thinking-guide: one owner).
+ * Decode the golden-layout componentState back to the pane's service + its
+ * sequence number. Single decoder for the manifest payload on the pane side -
+ * callers must not cast `state.service` inline (cross-layer-thinking-guide:
+ * one owner). `seq` is validated (`typeof === "number"`) and only present when
+ * actually persisted, so a legacy/foreign state can't poison the pool.
  */
-function readServiceState(state: JsonValue | undefined): ServiceEntry | undefined {
+function readPaneState(
+  state: JsonValue | undefined,
+): { service: ServiceEntry; seq?: number } | undefined {
   if (!state || typeof state !== "object") return undefined;
-  const maybe = state as { service?: unknown };
-  return isServiceEntry(maybe.service) ? maybe.service : undefined;
+  const maybe = state as { service?: unknown; seq?: unknown };
+  if (!isServiceEntry(maybe.service)) return undefined;
+  const seq = typeof maybe.seq === "number" ? maybe.seq : undefined;
+  return { service: maybe.service, seq };
 }
 
 function isServiceEntry(v: unknown): v is ServiceEntry {
@@ -549,20 +582,31 @@ function isServiceEntry(v: unknown): v is ServiceEntry {
 }
 
 /**
- * After restoring a saved layout, re-sync the per-service instance counters
- * from the restored componentStates. Without this, launching a new instance
- * would restart at seq 1 and title-clash with the restored "Terminal" tab
- * ("Terminal" vs "Terminal (2)" both meaning the second instance).
+ * Get the in-use sequence pool for a service, creating it lazily. A pool is
+ * the Set of sequence numbers held by the service's currently-open tabs; the
+ * next launch takes the smallest positive integer NOT in it.
  */
-function resyncSeq(node: LayoutConfig["root"], seq: Record<string, number>): void {
+function getSeqPool(seq: Record<string, Set<number>>, id: string): Set<number> {
+  let pool = seq[id];
+  if (!pool) {
+    pool = new Set();
+    seq[id] = pool;
+  }
+  return pool;
+}
+
+/**
+ * After restoring a saved layout, rebuild each service's in-use sequence pool
+ * from the restored componentStates (R3). Numbers are ADDED - never max'd - so
+ * the pool is exactly the set of currently-open instance numbers and slots
+ * freed by closed instances in the persisted layout stay reusable.
+ */
+function collectInUseSeq(node: LayoutConfig["root"], seq: Record<string, Set<number>>): void {
   if (!node) return;
   if (node.type === "component") {
-    const state = node.componentState as { service?: unknown; seq?: unknown } | undefined;
-    if (state && isServiceEntry(state.service) && typeof state.seq === "number") {
-      seq[state.service.id] = Math.max(seq[state.service.id] ?? 0, state.seq);
-    }
+    const pane = readPaneState(node.componentState);
+    if (pane?.seq !== undefined) getSeqPool(seq, pane.service.id).add(pane.seq);
     return;
   }
-  const children = (node as { content?: LayoutConfig["root"][] }).content;
-  children?.forEach((c) => resyncSeq(c, seq));
+  node.content.forEach((c) => collectInUseSeq(c, seq));
 }

@@ -153,6 +153,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     xtermCount === 3;
   console.log("launcher tabs:", JSON.stringify(launcherTitles), "| launcherOk:", launcherOk);
 
+  // --- 3b. Closed sequence numbers are reused on relaunch -------------------
+  // Step 3 left one bare terminal tab + numbered instances. Close the first
+  // numbered one, relaunch the terminal, and expect the SAME number back: the
+  // pool reuses the freed slot instead of an ever-growing counter (AC1). The
+  // per-tab close icon is `.lm_close_tab` inside `.lm_tab` (see step 5).
+  const preReuseTitles = await page.$$eval(".lm_tab .lm_title", (els) =>
+    els.map((e) => (e.textContent || "").trim()),
+  );
+  const numberedIdx = preReuseTitles.findIndex((t) => /^Terminal \(\d+\)$/.test(t));
+  let reuseOk = false;
+  let reuseClosed = null;
+  let reuseOpened = null;
+  if (numberedIdx >= 0) {
+    reuseClosed = preReuseTitles[numberedIdx];
+    const reuseN = Number(reuseClosed.match(/^Terminal \((\d+)\)$/)[1]);
+    // Activate the tab first (the close glyph is tied to the active tab), then
+    // click its close icon - same mechanism as the step-5 close test.
+    const tabHandles = await page.$$(".lm_tab");
+    await tabHandles[numberedIdx].click();
+    await sleep(300);
+    const closeHandle = await tabHandles[numberedIdx].$(".lm_close_tab");
+    if (closeHandle) {
+      await closeHandle.click();
+      await sleep(500);
+    }
+    await page.click('.launch-btn[title^="Terminal"]');
+    await sleep(500);
+    const afterReuseTitles = await page.$$eval(".lm_tab .lm_title", (els) =>
+      els.map((e) => (e.textContent || "").trim()),
+    );
+    reuseOpened = afterReuseTitles.filter((t) => /^Terminal \(\d+\)$/.test(t));
+    // Pin the AC1 behavior with TWO assertions: (a) the tab count is back to
+    // its pre-close level (close removed one, relaunch added one - a close
+    // that silently failed would leave 4 tabs, and the still-open "(2)" would
+    // otherwise pass a bare includes() check), and (b) the reopened tab carries
+    // exactly the freed number (not an ever-growing one).
+    reuseOk =
+      closeHandle !== null &&
+      afterReuseTitles.length === preReuseTitles.length &&
+      afterReuseTitles.includes(`Terminal (${reuseN})`);
+  }
+  console.log(
+    "seq reuse:",
+    JSON.stringify({ closed: reuseClosed, reopened: reuseOpened, reuseOk }),
+  );
+
   // --- 4. Each enabled web service button opens a loading iframe ------------
   const iframeResults = [];
   for (const svc of expectedWeb) {
@@ -287,6 +333,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     sidebarOk &&
     terminalDefaultOk &&
     launcherOk &&
+    reuseOk &&
     iframesOk &&
     closeOk &&
     userCmdRan &&
@@ -302,6 +349,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         sidebarOk,
         terminalDefaultOk,
         launcherOk,
+        reuseOk,
         iframesOk,
         closeOk,
         userCmdRan,
