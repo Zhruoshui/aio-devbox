@@ -360,22 +360,38 @@ fn render_pi_model(m: &ModelEntry) -> Value {
     Value::Object(o)
 }
 
-/// canonical `CostEntry` is USD-per-1M-tokens (design 08-27-usage-correctness);
-/// pi's native `models.json` cost fields are USD-per-token. Convert on render
-/// so pi's own cost math isn't off by 1e6 (08-27-provider-form-piweb design §0).
+/// canonical `CostEntry` is USD-per-1M-tokens; pi's native `models.json` cost
+/// fields are the SAME unit — pi's usage math multiplies rates by token counts
+/// then divides by 1e6 (pi packages/ai/src/models.ts `usage.cost.*`), and its
+/// bundled generated data matches models.dev verbatim. Pass through as-is.
+///
+/// pi's `ModelCostSchema` requires all four fields whenever `cost` is present
+/// (only `tiers` is optional), and models.dev often omits `cache_write`
+/// (e.g. deepseek) — fill missing fields with 0, matching pi's own
+/// generate-models semantics (`cacheWrite: cost?.cache_write || 0`). An entry
+/// with no known field still renders empty => caller omits `cost` entirely
+/// (cost itself is optional in the schema).
 fn render_pi_cost(cost: &CostEntry) -> serde_json::Map<String, Value> {
     let mut c = serde_json::Map::new();
     if let Some(v) = cost.input {
-        c.insert("input".into(), json!(v / 1_000_000.0));
+        c.insert("input".into(), json!(v));
     }
     if let Some(v) = cost.output {
-        c.insert("output".into(), json!(v / 1_000_000.0));
+        c.insert("output".into(), json!(v));
     }
     if let Some(v) = cost.cache_read {
-        c.insert("cacheRead".into(), json!(v / 1_000_000.0));
+        c.insert("cacheRead".into(), json!(v));
     }
     if let Some(v) = cost.cache_write {
-        c.insert("cacheWrite".into(), json!(v / 1_000_000.0));
+        c.insert("cacheWrite".into(), json!(v));
+    }
+    // Known-field fill: once any rate is present the other three default to 0
+    // (pi's generate-models uses `cache_read || 0` for the same reason). An
+    // entry with no known field stays empty => caller omits `cost` entirely.
+    if !c.is_empty() {
+        for key in ["input", "output", "cacheRead", "cacheWrite"] {
+            c.entry(key.to_string()).or_insert(json!(0));
+        }
     }
     c
 }
@@ -482,11 +498,51 @@ mod tests {
             ..Default::default()
         };
         let v = render_pi_model(&m);
-        // canonical is $/M; pi's native schema wants $/token (÷1e6).
-        assert_eq!(v["cost"]["input"], 0.1 / 1_000_000.0);
-        assert_eq!(v["cost"]["output"], 0.2 / 1_000_000.0);
-        assert_eq!(v["cost"]["cacheRead"], 0.3 / 1_000_000.0);
-        assert!(v["cost"].get("cacheWrite").is_none());
+        // canonical is $/M; pi's native schema is the same unit (pass-through).
+        assert_eq!(v["cost"]["input"], 0.1);
+        assert_eq!(v["cost"]["output"], 0.2);
+        assert_eq!(v["cost"]["cacheRead"], 0.3);
+    }
+
+    #[test]
+    fn model_cost_fills_required_fields_with_zero() {
+        // pi's ModelCostSchema requires all four fields whenever cost is
+        // present; models.dev often omits cache_write (e.g. deepseek). Missing
+        // fields must render as 0 (pi's own generate-models uses `|| 0`), or
+        // pi rejects the file with "must have required properties cacheWrite".
+        let m = ModelEntry {
+            id: "m".into(),
+            cost: Some(CostEntry {
+                input: Some(0.14),
+                output: Some(0.28),
+                cache_read: Some(0.0028),
+                cache_write: None,
+            }),
+            ..Default::default()
+        };
+        let v = render_pi_model(&m);
+        assert_eq!(v["cost"]["input"], 0.14);
+        assert_eq!(v["cost"]["cacheWrite"], 0);
+        let mut keys: Vec<&str> =
+            v["cost"].as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["cacheRead", "cacheWrite", "input", "output"],
+            "all four required fields present"
+        );
+    }
+
+    #[test]
+    fn model_cost_all_none_omits_cost_object() {
+        // cost itself is optional in pi's schema — nothing known, nothing written.
+        let m = ModelEntry {
+            id: "m".into(),
+            cost: Some(CostEntry::default()),
+            ..Default::default()
+        };
+        let v = render_pi_model(&m);
+        assert!(v.get("cost").is_none());
     }
 
     // --- apply_pi golden path ---

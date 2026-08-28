@@ -9,8 +9,8 @@
 //
 // cost fields are passed through as-is: canonical cost is USD-per-1M-tokens
 // (design 08-27-usage-correctness), and models.dev's `cost.*` fields are the
-// same unit — no conversion needed here (unlike pi's native render, which
-// wants USD-per-token; see render/pi.rs::render_pi_cost).
+// same unit — no conversion needed anywhere in the chain, including pi's
+// native models.json render (see render/pi.rs::render_pi_cost).
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
