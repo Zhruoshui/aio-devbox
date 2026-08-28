@@ -128,8 +128,9 @@ fn write_pi_settings(
 /// Field-level edit of one provider node in ~/.pi/agent/models.json
 /// (08-27-agent-tabs-live-config design §2). Only the patched keys are set
 /// on the node — its models/cost/headers and every other provider are
-/// preserved. pi's native provider node has no `name` field (it is keyed by
-/// id; render_pi_provider omits name), so `patch.name` is ignored for pi.
+/// preserved. `patch.name` maps to pi's optional provider `name` (display
+/// name; schema `minLength: 1`): non-empty writes it, empty string removes
+/// the key (writing "" would fail pi's schema validation).
 pub fn edit_pi_provider(
     home: &Path,
     provider_id: &str,
@@ -172,6 +173,16 @@ pub fn edit_pi_provider(
     };
 
     let node_obj = node.as_object_mut().expect("checked is_object");
+    match &patch.name {
+        // pi's provider `name` has minLength 1 — "" removes the key.
+        Some(v) if v.is_empty() => {
+            node_obj.remove("name");
+        }
+        Some(v) => {
+            node_obj.insert("name".into(), json!(v));
+        }
+        None => {}
+    }
     if let Some(v) = &patch.base_url {
         node_obj.insert("baseUrl".into(), json!(v));
     }
@@ -281,10 +292,17 @@ pub fn delete_pi_provider(home: &Path, provider_id: &str) -> ApplyResult {
 /// empty/null fields omitted (pi-web's normalizeModelsConfigCosts does the
 /// same; we don't want pi to receive empty `headers: {}`). The shape is
 /// pi-web's `ProviderEntry` (research/pi-web §1) — NOT the canonical one
-/// (no `name` / `anthropic` fields: pi doesn't use them).
+/// (no `anthropic` field: pi doesn't use it). `name` IS written: pi's
+/// `ProviderConfigSchema` has an optional `name` and its display-name chain
+/// prefers it over the provider key (pi provider-composer.ts:
+/// `config?.name ?? providerId`) — without it pi shows the raw id
+/// (e.g. "provider-1") instead of the user-named provider (08-28 task).
 fn render_pi_provider(provider: &ProviderEntry) -> Value {
     let mut p = serde_json::Map::new();
 
+    if !provider.name.is_empty() {
+        p.insert("name".into(), json!(provider.name));
+    }
     if !provider.base_url.is_empty() {
         p.insert("baseUrl".into(), json!(provider.base_url));
     }
@@ -460,8 +478,8 @@ mod tests {
             ..Default::default()
         };
         let v = render_pi_provider(&p);
-        // No `name` in pi's shape.
-        assert!(v.get("name").is_none());
+        // `name` IS written (pi's display-name chain prefers it over the key).
+        assert_eq!(v["name"], "P");
         // No `anthropic` in pi's shape.
         assert!(v.get("anthropic").is_none());
         assert_eq!(v["baseUrl"], "https://x/v1");
@@ -470,6 +488,18 @@ mod tests {
         // No `headers` when empty.
         assert!(v.get("headers").is_none());
         assert!(v.get("models").is_some());
+    }
+
+    #[test]
+    fn provider_empty_name_omitted() {
+        let p = ProviderEntry {
+            name: String::new(),
+            base_url: "https://x/v1".into(),
+            api: "openai-completions".into(),
+            ..Default::default()
+        };
+        let v = render_pi_provider(&p);
+        assert!(v.get("name").is_none(), "empty name must be omitted");
     }
 
     #[test]
@@ -796,13 +826,30 @@ mod tests {
         assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://new.example/v1");
         assert_eq!(after["providers"]["prov-a"]["api"], "openai-responses");
         assert_eq!(after["providers"]["prov-a"]["apiKey"], "sk-new-key-xxxx");
-        // Node's models (incl. cost) preserved verbatim; no name written.
+        assert_eq!(after["providers"]["prov-a"]["name"], "Ignored For Pi");
+        // Node's models (incl. cost) preserved verbatim.
         assert_eq!(after["providers"]["prov-a"]["models"][0]["id"], "model-a");
         assert_eq!(after["providers"]["prov-a"]["models"][0]["cost"]["input"], 1.4e-7);
-        assert!(after["providers"]["prov-a"].get("name").is_none());
         // Sibling provider and unknown top-level key untouched.
         assert_eq!(after["providers"]["prov-b"]["baseUrl"], "https://b.example/v1");
         assert_eq!(after["unknownKey"], 42);
+    }
+
+    #[test]
+    fn edit_pi_provider_empty_name_removes_key() {
+        let home = temp_home();
+        seed_live_pi(&home);
+
+        let patch = crate::routes::models::render::ProviderPatch {
+            name: Some(String::new()), // minLength 1 — "" removes the key
+            ..Default::default()
+        };
+        let r = edit_pi_provider(&home, "prov-a", &patch);
+        assert!(r.ok, "errors: {:?}", r.errors);
+        let after = read_models(&home);
+        assert!(after["providers"]["prov-a"].get("name").is_none());
+        // Other fields survive.
+        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://a.example/v1");
     }
 
     #[test]
