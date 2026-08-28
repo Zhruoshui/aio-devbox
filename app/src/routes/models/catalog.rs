@@ -53,6 +53,11 @@ pub struct CatalogModel {
 pub struct CatalogProvider {
     pub id: String,
     pub name: String,
+    /// Official API base URL from models.dev (absent on ~1/4 of providers).
+    /// The frontend builds a host→provider index from this to match a user's
+    /// baseUrl data-drivenly instead of a hardcoded host table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
     pub models: Vec<CatalogModel>,
 }
 
@@ -136,6 +141,7 @@ fn normalize_catalog(raw: &Value) -> CatalogResponse {
                 .and_then(Value::as_str)
                 .unwrap_or(provider_id)
                 .to_string();
+            let api = pv.get("api").and_then(Value::as_str).map(String::from);
             let mut models = Vec::new();
             if let Some(mobj) = pv.get("models").and_then(Value::as_object) {
                 for (model_id, mv) in mobj {
@@ -145,6 +151,7 @@ fn normalize_catalog(raw: &Value) -> CatalogResponse {
             providers.push(CatalogProvider {
                 id: provider_id.clone(),
                 name,
+                api,
                 models,
             });
         }
@@ -217,6 +224,7 @@ mod tests {
         let raw = json!({
             "openai": {
                 "name": "OpenAI",
+                "api": "https://api.openai.com/v1",
                 "models": {
                     "gpt-5.6-sol": {
                         "name": "GPT-5.6 Sol",
@@ -233,6 +241,7 @@ mod tests {
         let p = &out.providers[0];
         assert_eq!(p.id, "openai");
         assert_eq!(p.name, "OpenAI");
+        assert_eq!(p.api.as_deref(), Some("https://api.openai.com/v1"));
         assert_eq!(p.models.len(), 1);
         let m = &p.models[0];
         assert_eq!(m.id, "gpt-5.6-sol");
@@ -261,6 +270,7 @@ mod tests {
         assert_eq!(out.providers.len(), 1);
         let p = &out.providers[0];
         assert_eq!(p.name, "bare"); // falls back to key when `name` absent
+        assert!(p.api.is_none());
         let m = &p.models[0];
         assert_eq!(m.id, "m1");
         assert!(m.name.is_none());

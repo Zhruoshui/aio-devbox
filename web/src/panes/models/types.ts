@@ -239,6 +239,8 @@ export interface CatalogModel {
 export interface CatalogProvider {
   id: string;
   name: string;
+  /** Official API base URL from models.dev (absent on ~1/4 of providers). */
+  api?: string;
   models: CatalogModel[];
 }
 
@@ -296,6 +298,30 @@ export function fmtTokens(n: number): string {
 /** Format a USD cost: 4 decimals, plain otherwise. */
 export function fmtCost(n: number): string {
   return `$${n.toFixed(4)}`;
+}
+
+/** Format a 0..1 ratio as a percentage with one decimal (0.724 -> "72.4%"). */
+export function fmtPct(x: number): string {
+  return `${(x * 100).toFixed(1)}%`;
+}
+
+/** Total input tokens against which cache reads are measured, per agent.
+ * The token conventions differ:
+ *   - codex logs OpenAI-style usage where `cached_input_tokens` is a SUBSET
+ *     of `input_tokens` -> denominator is `in` alone;
+ *   - claude / pi / opencode log DISJOINT buckets where `in` excludes cache
+ *     (verified: Anthropic usage fields are additive; pi-ai normalizes
+ *     `input = promptTokens - cacheRead - cacheWrite`; opencode prices the
+ *     four buckets separately against models.dev rates)
+ *     -> denominator is `in + cacheRead + cacheWrite`. */
+export function cacheHitDenom(r: UsageRow): number {
+  return r.agent === "codex" ? r.in : r.in + r.cacheRead + r.cacheWrite;
+}
+
+/** One row's cache hit rate in 0..1, or null when nothing hit the cache. */
+export function cacheHitRate(r: UsageRow): number | null {
+  const denom = cacheHitDenom(r);
+  return denom > 0 && r.cacheRead > 0 ? r.cacheRead / denom : null;
 }
 
 export function decodeConfig(json: unknown): CanonicalConfig {
@@ -379,36 +405,50 @@ export function decodeCatalog(json: unknown): CatalogResponse {
       });
     }
     if (typeof rp.id === "string" && typeof rp.name === "string") {
-      providers.push({ id: rp.id, name: rp.name, models });
+      providers.push({
+        id: rp.id,
+        name: rp.name,
+        api: typeof rp.api === "string" ? rp.api : undefined,
+        models,
+      });
     }
   }
   return { providers };
 }
 
-/** Common provider-baseUrl-hostname -> models.dev provider id mapping, used by
- * `catalogRecommend` to find the right catalog provider without the backend
- * having to guess (design 08-27-provider-form-piweb §4.2). Extend as needed;
- * an unmapped host just means models.dev fill-in falls back to unavailable. */
+/** Fallback provider-baseUrl-hostname -> models.dev provider id mapping for
+ * `catalogRecommend`. The primary host→provider index is built data-driven
+ * from each catalog provider's own `api` base URL (177/204 carry one); this
+ * table only covers providers whose catalog entry has NO `api` (openai,
+ * anthropic, google, …) and regional host variants models.dev doesn't list.
+ * NB: ids must match models.dev's provider keys (e.g. `moonshotai`, NOT
+ * `moonshot`). */
 const CATALOG_HOST_HINTS: Record<string, string> = {
   "api.openai.com": "openai",
   "api.anthropic.com": "anthropic",
   "generativelanguage.googleapis.com": "google",
-  "api.deepseek.com": "deepseek",
+  "api.x.ai": "xai",
   "api.groq.com": "groq",
   "api.mistral.ai": "mistral",
-  "api.moonshot.cn": "moonshot",
-  "api.moonshot.ai": "moonshot",
-  "openrouter.ai": "openrouter",
-  "api.x.ai": "xai",
+  "api.cerebras.ai": "cerebras",
+  // regional variants (catalog `api` carries only the .com/.intl host)
+  "api.moonshot.cn": "moonshotai",
   "dashscope.aliyuncs.com": "alibaba",
-  "open.bigmodel.cn": "zhipuai",
 };
 
 /** Find the models.dev catalog entry for a model, given the provider being
- * edited (its baseUrl decides which catalog provider to look in) and the
- * model id to fill (case-insensitive exact match — design §4.2). Returns
- * null when the host isn't recognized or the model isn't in that catalog
- * provider's list. */
+ * edited and the model id to fill.
+ *
+ * Matching order (design 08-27-provider-form-piweb §4.2, relaxed 08-28):
+ *   1. resolve the baseUrl host to a catalog provider — data-driven via the
+ *      catalog's own `api` URLs, CATALOG_HOST_HINTS as fallback (exact host
+ *      first, then subdomain suffix) — and require an exact model-id match;
+ *   2. unmapped/missed host (relays, proxies): exact model id across ALL
+ *      catalog providers. Unique hit wins; an ambiguous id prefers the
+ *      hinted provider, else the first in catalog order (backend sorts by
+ *      provider id, so this is deterministic);
+ *   3. same disambiguation on the model DISPLAY name (ids sometimes diverge).
+ * Returns null when nothing matches (catalog fill shows "not found"). */
 export function catalogRecommend(
   catalog: CatalogResponse,
   baseUrl: string,
@@ -420,14 +460,65 @@ export function catalogRecommend(
   } catch {
     return null;
   }
-  const catalogProviderId = Object.entries(CATALOG_HOST_HINTS).find(([h]) =>
-    host === h || host.endsWith(`.${h}`),
-  )?.[1];
-  if (!catalogProviderId) return null;
-  const provider = catalog.providers.find((p) => p.id === catalogProviderId);
-  if (!provider) return null;
   const needle = modelId.toLowerCase();
-  return provider.models.find((m) => m.id.toLowerCase() === needle) ?? null;
+
+  // 1. host → catalog provider (data-driven index, then static fallback)
+  const derived: [string, string][] = [];
+  for (const p of catalog.providers) {
+    if (!p.api) continue;
+    try {
+      derived.push([new URL(p.api).hostname.toLowerCase(), p.id]);
+    } catch {
+      /* malformed api URL upstream — skip that entry */
+    }
+  }
+  const staticHints = Object.entries(CATALOG_HOST_HINTS);
+  let hintedProviderId: string | null = null;
+  for (const entries of [derived, staticHints]) {
+    hintedProviderId =
+      entries.find(([h]) => host === h)?.[1] ??
+      entries.find(([h]) => host.endsWith(`.${h}`))?.[1] ??
+      null;
+    if (hintedProviderId) break;
+  }
+  const byProviderId = (pid: string): CatalogModel | null =>
+    catalog.providers
+      .find((p) => p.id === pid)
+      ?.models.find((m) => m.id.toLowerCase() === needle) ?? null;
+  if (hintedProviderId) {
+    const hit = byProviderId(hintedProviderId);
+    if (hit) return hit;
+  }
+
+  // Shared disambiguation for the cross-provider sweeps below.
+  const pick = (
+    hits: { m: CatalogModel; pid: string }[],
+  ): CatalogModel | null => {
+    if (hits.length === 0) return null;
+    if (hits.length === 1) return hits[0].m;
+    if (hintedProviderId) {
+      const hinted = hits.find((h) => h.pid === hintedProviderId);
+      if (hinted) return hinted.m;
+    }
+    return hits[0].m; // catalog order = provider-id order (deterministic)
+  };
+
+  // 2. exact model id across all providers
+  const idHits = catalog.providers.flatMap((p) =>
+    p.models
+      .filter((m) => m.id.toLowerCase() === needle)
+      .map((m) => ({ m, pid: p.id })),
+  );
+  const byId = pick(idHits);
+  if (byId) return byId;
+
+  // 3. model display-name fallback
+  const nameHits = catalog.providers.flatMap((p) =>
+    p.models
+      .filter((m) => (m.name ?? "").toLowerCase() === needle)
+      .map((m) => ({ m, pid: p.id })),
+  );
+  return pick(nameHits);
 }
 
 // ── helpers ───────────────────────────────────────────────────────

@@ -1,8 +1,10 @@
 // ModelRow — single-model collapsed/expanded row (Kumo redesign).
 //
 // Collapsed (screens_model-config.html §model-row): chevron + editable mono id
-// (reads as text until focused) + name + reasoning info-badge + cost summary
-// `$in / $out` + a .test-pill (play → spin → ok·ms / fail) + delete.
+// (reads as text until focused) + name + cost summary `$in / $out` + a
+// .test-pill (play → spin → ok·ms / fail) + delete. The reasoning flag is
+// intentionally NOT shown in the collapsed row (08-28 feedback: visual noise;
+// still editable via the expanded form and set by catalog fill).
 // Expanded: name + protocol-override side by side, then context-window /
 // max-output / reasoning-check three-across, then the four cost fields
 // (in/out/cacheRead/cacheWrite), then a "fill from models.dev" ghost button.
@@ -72,12 +74,6 @@ export function ModelRow({
           }}
         />
         <span className="ml-model-name">{model.name || "—"}</span>
-        {model.reasoning && (
-          <span className="ml-badge ml-badge-info">
-            <span className="dot" />
-            {t(lang, "mcReasoning")}
-          </span>
-        )}
         {costSummary && <span className="ml-model-cost-summary">{costSummary}</span>}
         <div className="ml-model-row-actions">
           <button
