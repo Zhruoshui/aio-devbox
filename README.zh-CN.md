@@ -177,6 +177,7 @@ docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行
 | `make down [PROFILES=…]` | 停止栈(保留镜像和工作区卷)。 |
 | `make restart` / `make logs` | 重启 / 跟踪日志。 |
 | `make clean` | 破坏性:`down -v` + 删已构建镜像。 |
+| `make pull [VARIANT=…]` | 从 GHCR 拉预构建镜像 + retag 为本地 compose 名(见下)。 |
 
 可选服务以空格分隔的 profile 传入:`make up PROFILES="code-server vnc"`。不带
 `PROFILES` 时只启动常驻服务(`gateway` + `app`)。`NOBUILD=1` 跳过 `build-base` /
@@ -204,6 +205,31 @@ make hash PASS=secret  # 自定义密码
 完整手册——如何给运行中的离线栈补装任意工具/包而不重建、不联网(7 个实测配方:
 静态二进制、npm 全局包、apt deb、cargo crate、rust 工具链、python+uv、脚本)——见
 [`docs/offline-install-guide.md`](docs/offline-install-guide.md)。
+
+## 预构建镜像安装(GitHub Actions)
+
+不想本地构建镜像?每次推 `main`(以及每个 `v*` tag)都会由 GitHub Actions 构建并
+发布到 GitHub Container Registry(GHCR)。基础派生镜像有两个变体,外加单份
+`sandbox-vnc`:
+
+- `minimal`——纯 always_on 基线(Node + Python),别无其他。
+- `full`——全部场景片段都烘进去(rust / go / nvm / uv / opencode……)。
+
+```sh
+make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)
+make up NOBUILD=1 PROFILES="code-server vnc"   # 不构建直接启动
+# → 打开 http://localhost:8080   (admin / admin)
+```
+
+`make pull` 以 `:minimal` 或 `:full` 拉取 `sandbox-base` / `sandbox-app` /
+`sandbox-code-server`,外加 `sandbox-vnc:latest`,retag 成 compose 本地名,并备齐
+栈启动所需的两个 gitignore 主机文件(`.env` 从示例复制,以及默认密码 `admin` 的
+网关哈希)。它绝不碰 `.aio/enabled.toml`——纯消费者无需关心场景选择,`make up
+NOBUILD=1` 也不跑 `gen`。
+
+用 `REGISTRY_PREFIX` 指定你的镜像仓库(仓库 owner 确定前默认是占位符),用
+`VARIANT=minimal` 拉更精简的集合。如果机器完全无法访问镜像仓库,走上面的离线
+路径(`make save` / `make load`)。
 
 ## 项目结构
 

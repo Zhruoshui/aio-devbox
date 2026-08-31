@@ -102,6 +102,28 @@ Artifacts must match the offline machine's architecture (x86_64), glibc
 and the user is on an air-gapped box, this is the path - and it installs to the
 volume, not a scenario.
 
+## Prebuilt images from GHCR (`make pull`)
+
+A third way to get the baked images, the online mirror of the offline
+`make save`/`load` flow: the GitHub Actions pipeline
+(`.github/workflows/images.yml`) builds every push to `main` (and every `v*`
+tag) and publishes to GHCR, and `make pull` fetches those instead of building
+locally or shipping a bundle.
+
+- `make pull VARIANT=minimal|full` pulls `sandbox-base` / `sandbox-app` /
+  `sandbox-code-server` at the floating `:minimal`/`:full` tag plus
+  `sandbox-vnc:latest`, retags them to the local compose names, and prepares the
+  two gitignored host files the stack needs to start (`.env` from the example,
+  and `gateway/secrets/hash` via `ensure-hash`). `REGISTRY_PREFIX` (default a
+  placeholder) points the pull at your GHCR namespace.
+- It does NOT touch `.aio/enabled.toml`: a pure consumer doesn't care about the
+  scenario selection, and `make up NOBUILD=1` skips `gen`. The pulled images are
+  exactly what a scenario bake would produce - the scenario-authoring rules in
+  this skill still govern what's IN the image; `pull` just skips the local build.
+- Choose: `make load` for an air-gapped machine (a `make save` bundle), `make
+  pull` for an online machine that doesn't want to build. Both end the same way:
+  `make up NOBUILD=1 PROFILES="code-server vnc"`.
+
 ## Persistence summary (decide where a thing goes)
 
 ```

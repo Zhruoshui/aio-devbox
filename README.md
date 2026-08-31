@@ -193,6 +193,7 @@ image (the `docker save`/`load` offline path is unchanged).
 | `make down [PROFILES=…]` | Stop the stack (keeps images and the workspace volume). |
 | `make restart` / `make logs` | Restart / tail logs. |
 | `make clean` | Destructive: `down -v` + remove built images. |
+| `make pull [VARIANT=…]` | Pull prebuilt images from GHCR + retag to local compose names (see below). |
 
 Pass optional services as space-separated profiles: `make up PROFILES="code-server vnc"`.
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start.
@@ -225,6 +226,34 @@ For the full handbook — how to add arbitrary tools/packages to a running offli
 stack without rebuilding or networking (7 tested recipes: static binaries, npm
 globals, apt debs, cargo crates, rust toolchains, python+uv, scripts) — see
 [`docs/offline-install-guide.md`](docs/offline-install-guide.md).
+
+## Prebuilt image install (GitHub Actions)
+
+Don't want to build the images locally? Every push to `main` (and every `v*`
+tag) is built by GitHub Actions and published to GitHub Container Registry
+(GHCR). Two variants of the base-derived images are available, plus a single
+`sandbox-vnc`:
+
+- `minimal` — the bare always-on baseline (Node + Python), nothing else.
+- `full` — every scenario fragment baked in (rust / go / nvm / uv / opencode / …).
+
+```sh
+make pull VARIANT=full           # pull + retag to local names (default: full)
+make up NOBUILD=1 PROFILES="code-server vnc"   # start without building
+# → open http://localhost:8080   (admin / admin)
+```
+
+`make pull` fetches `sandbox-base` / `sandbox-app` / `sandbox-code-server` at
+`:minimal` or `:full`, plus `sandbox-vnc:latest`, retags them to the local
+compose names, and prepares the two gitignored host files the stack needs
+(`.env` from the example, and the gateway password hash for the default password
+`admin`). It never touches `.aio/enabled.toml` — a pure consumer doesn't care
+about the scenario selection, and `make up NOBUILD=1` skips `gen`.
+
+Point the pull at your registry with `REGISTRY_PREFIX` (defaults to a
+placeholder until the repo's owner is known) and pick a leaner set with
+`VARIANT=minimal`. If your machine has no registry access at all, use the
+offline path above (`make save` / `make load`).
 
 ## Project layout
 

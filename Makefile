@@ -38,7 +38,7 @@ AIO_CONFIG_IMAGE := aio-config
 UID := $(shell id -u)
 GID := $(shell id -g)
 
-.PHONY: build-base build build-config config gen up down restart logs hash ensure-hash save load clean
+.PHONY: build-base build build-config config gen up down restart logs hash ensure-hash save load pull clean
 
 # Build & tag the aio-config configurator image (online: fetches crates).
 build-config:
@@ -146,3 +146,32 @@ load:
 	mkdir -p gateway/secrets && cp $(OFFLINE_BUNDLE)/hash $(HASH_FILE)
 	mkdir -p .aio && cp $(OFFLINE_BUNDLE)/enabled.toml .aio/enabled.toml
 	@echo "restored images + .env + gateway hash + scenario selection. Start with: make up NOBUILD=1 PROFILES=\"code-server vnc\" (then run aio-pi-extensions once in a terminal)"
+
+# --- Prebuilt image install (GHCR) ------------------------------------------
+# `make save`/`load` ship the images as a local bundle; this is the ONLINE
+# counterpart: pull the images the GitHub Actions pipeline publishes to GHCR
+# (see .github/workflows/images.yml) and retag them to the local compose names.
+# The 3 base-derived images (base/app/code-server) come per VARIANT - minimal
+# (bare always_on baseline) or full (all scenario fragments); sandbox-vnc is
+# variant-independent (FROM debian:bookworm-slim) so it always pulls :latest.
+# Also prepares the two gitignored HOST files the stack needs to start: .env
+# (compose env_file - a hard requirement; copied from the example if missing)
+# and gateway/secrets/hash (basicauth bcrypt; regenerated with the DEFAULT
+# password if missing via ensure-hash). Does NOT touch .aio/enabled.toml - a
+# pure consumer doesn't care about the scenario selection, and `make up
+# NOBUILD=1` skips gen. Then start with:
+#   make up NOBUILD=1 PROFILES="code-server vnc"
+VARIANT ?= full
+# GHCR namespace. Placeholder until the repo's owner is known - replace once
+# created, e.g. REGISTRY_PREFIX=ghcr.io/yourname (owner must be lowercase).
+REGISTRY_PREFIX ?= ghcr.io/<OWNER>
+
+pull: ensure-hash
+	@test -f .env || cp .env.example .env
+	for img in sandbox-base sandbox-app sandbox-code-server; do \
+	  docker pull $(REGISTRY_PREFIX)/$$img:$(VARIANT) && \
+	  docker tag  $(REGISTRY_PREFIX)/$$img:$(VARIANT) $$img || exit 1; \
+	done
+	docker pull $(REGISTRY_PREFIX)/sandbox-vnc:latest
+	docker tag  $(REGISTRY_PREFIX)/sandbox-vnc:latest sandbox-vnc
+	@echo "pulled $(VARIANT) stack images + vnc. Start with: make up NOBUILD=1 PROFILES=\"code-server vnc\""
