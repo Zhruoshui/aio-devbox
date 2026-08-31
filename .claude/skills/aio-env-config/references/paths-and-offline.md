@@ -114,8 +114,9 @@ locally or shipping a bundle.
   `sandbox-code-server` at the floating `:minimal`/`:full` tag plus
   `sandbox-vnc:latest`, retags them to the local compose names, and prepares the
   two gitignored host files the stack needs to start (`.env` from the example,
-  and `gateway/secrets/hash` via `ensure-hash`). `REGISTRY_PREFIX` (default a
-  placeholder) points the pull at your GHCR namespace.
+  and `gateway/secrets/hash` via `ensure-hash`). `REGISTRY_PREFIX` (default
+  `ghcr.io/zhruoshui`, this repo's pipeline target; override to pull a fork)
+  points the pull at your GHCR namespace.
 - It does NOT touch `.aio/enabled.toml`: a pure consumer doesn't care about the
   scenario selection, and `make up NOBUILD=1` skips `gen`. The pulled images are
   exactly what a scenario bake would produce - the scenario-authoring rules in

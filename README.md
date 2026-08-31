@@ -250,10 +250,10 @@ compose names, and prepares the two gitignored host files the stack needs
 `admin`). It never touches `.aio/enabled.toml` — a pure consumer doesn't care
 about the scenario selection, and `make up NOBUILD=1` skips `gen`.
 
-Point the pull at your registry with `REGISTRY_PREFIX` (defaults to a
-placeholder until the repo's owner is known) and pick a leaner set with
-`VARIANT=minimal`. If your machine has no registry access at all, use the
-offline path above (`make save` / `make load`).
+Point the pull at your registry with `REGISTRY_PREFIX` (defaults to this
+repo's GHCR namespace, `ghcr.io/zhruoshui`; override it to pull from a fork)
+and pick a leaner set with `VARIANT=minimal`. If your machine has no registry
+access at all, use the offline path above (`make save` / `make load`).
 
 ## Project layout
 

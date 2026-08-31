@@ -162,9 +162,9 @@ load:
 # NOBUILD=1` skips gen. Then start with:
 #   make up NOBUILD=1 PROFILES="code-server vnc"
 VARIANT ?= full
-# GHCR namespace. Placeholder until the repo's owner is known - replace once
-# created, e.g. REGISTRY_PREFIX=ghcr.io/yourname (owner must be lowercase).
-REGISTRY_PREFIX ?= ghcr.io/<OWNER>
+# GHCR namespace this repo's pipeline publishes to (owner lowercased - GHCR
+# requires it). Override to pull from a fork: REGISTRY_PREFIX=ghcr.io/<owner>.
+REGISTRY_PREFIX ?= ghcr.io/zhruoshui
 
 pull: ensure-hash
 	@test -f .env || cp .env.example .env

@@ -227,9 +227,9 @@ make up NOBUILD=1 PROFILES="code-server vnc"   # 不构建直接启动
 网关哈希)。它绝不碰 `.aio/enabled.toml`——纯消费者无需关心场景选择,`make up
 NOBUILD=1` 也不跑 `gen`。
 
-用 `REGISTRY_PREFIX` 指定你的镜像仓库(仓库 owner 确定前默认是占位符),用
-`VARIANT=minimal` 拉更精简的集合。如果机器完全无法访问镜像仓库,走上面的离线
-路径(`make save` / `make load`)。
+用 `REGISTRY_PREFIX` 指定你的镜像仓库(默认即本仓库的 GHCR 命名空间
+`ghcr.io/zhruoshui`,从 fork 拉取时覆写),用 `VARIANT=minimal` 拉更精简的集合。
+如果机器完全无法访问镜像仓库,走上面的离线路径(`make save` / `make load`)。
 
 ## 项目结构
 
