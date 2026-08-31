@@ -4,5 +4,5 @@
 
 id = "rust"
 name = "Rust 工具链"
-description = "rustup stable + rustfmt + clippy + rust-analyzer,装到 /opt/rust(gem 可写,避卷遮盖)"
+description = "rustup stable + rustfmt + clippy + rust-analyzer,装到 /opt/rust(系统路径,避卷遮盖)"
 category = "lang"

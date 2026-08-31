@@ -34,7 +34,7 @@ RUN curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERS
 ```
 
 Why each thing: `id == "bun"` matches the dir. Single binary to `/usr/local/bin`
-(rule 1: system path, not `/home/gem`; rule 2: `/usr/local/bin` is on every
+(rule 1: system path, not `/root`; rule 2: `/usr/local/bin` is on every
 shell's PATH, no profile.d needed). `unzip` needs `apt-get update` first (rule 5).
 HTTPS GitHub URL (rule 3). `ARG` pins the version (rule 4).
 
@@ -160,7 +160,7 @@ jupyter:
   restart: unless-stopped
   profiles: [jupyter]
   network_mode: "service:app"
-  volumes: [workspace:/home/gem]
+  volumes: [workspace:/root]
 ```
 
 **gateway/Caddyfile** - a `handle_path` BEFORE the catch-all:

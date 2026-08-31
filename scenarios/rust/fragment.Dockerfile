@@ -3,10 +3,10 @@
 # handled by whole-image `docker save/load`, NOT by vendoring rustup here).
 #
 # Lands in /opt/rust (system path), NOT ~/.cargo: the workspace volume mounts
-# over /home/gem, so anything baked into /home/gem/.cargo would be masked /
+# over /root, so anything baked into /root/.cargo would be masked /
 # go stale (卷遮盖). /opt/rust is in the image layer, visible in every
 # container derived from sandbox-base, and RUSTUP_HOME/CARGO_HOME point there.
-# chown to gem so the dev can `cargo install` / `rustup` freely.
+# Everything runs as root, so `cargo install` / `rustup` write freely.
 
 ARG RUST_VERSION=stable
 ENV RUSTUP_HOME=/opt/rust/rustup \
@@ -17,7 +17,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
                  --component rust-analyzer \
  && rustup default ${RUST_VERSION} \
  && rustc --version && cargo --version && rustfmt --version && cargo clippy --version \
- && chown -R 1000:1000 /opt/rust \
 # rustup puts its proxies in /opt/rust/cargo/bin (custom PATH). The ENV PATH
 # above is inherited by non-login shells, but LOGIN shells (bash -l, e.g. the
 # AIO terminal panel's pty) source /etc/profile which RESETS PATH to the

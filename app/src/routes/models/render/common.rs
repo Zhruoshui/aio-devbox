@@ -114,11 +114,11 @@ fn v_type(v: &Value) -> &'static str {
 
 // ── home resolution ───────────────────────────────────────────────
 
-/// Resolve the agent home directory from `$HOME` (default `/home/gem`).
+/// Resolve the agent home directory from `$HOME` (default `/root`).
 /// Single owner so routes and renderers use the same notion of home
 /// (matches the existing `pi_models_path()` helper in models/mod.rs).
 pub fn home_dir() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/home/gem".to_string()))
+    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()))
 }
 
 // ── backup ────────────────────────────────────────────────────────

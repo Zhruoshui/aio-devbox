@@ -9,27 +9,27 @@ installs differ from baked-in scenarios. The key distinction is **baked
 | Location | What's there | Survives container recreate? | Visible to | When to use |
 |---|---|---|---|---|
 | Image layer (baked) | `/usr/local`, `/opt`, `/usr/local/bin`, `/etc/profile.d` | Yes (it's in the image) | every container `FROM sandbox-base` | persistent system tooling - **scenarios install here** |
-| Shared volume | `/home/gem/...` (`~/.local/bin`, `~/.cargo`, `~/.nvm/versions`, `~/.local/share/uv`) | Yes (named volume `aio_workspace`) | app, code-server, vnc (all mount the volume) | runtime user data + self-contained runtime tools |
+| Shared volume | `/root/...` (`~/.local/bin`, `~/.cargo`, `~/.nvm/versions`, `~/.local/share/uv`) | Yes (named volume `aio_workspace`) | app, code-server, vnc (all mount the volume) | runtime user data + self-contained runtime tools |
 | Container writable layer | `/usr`, `/etc` written at runtime (not via a build) | NO (gone on recreate) | only that container | temporary / verification only |
 
 The `sandbox-base` image + scenarios own the **baked** row. Everything you do
 with `aio-config gen` / `make build-base` produces image-layer content.
-`/home/gem` is the **shared volume** and is intentionally NOT baked - the
+`/root` is the **shared volume** and is intentionally NOT baked - the
 volume mounts over it.
 
 ## The volume-masking rule (again, because it's the #1 bug)
 
-The named volume `aio_workspace` mounts at `/home/gem` in the app, code-server,
-and vnc containers. At runtime, `/home/gem` shows the **volume's** contents, not
+The named volume `aio_workspace` mounts at `/root` in the app, code-server,
+and vnc containers. At runtime, `/root` shows the **volume's** contents, not
 the image layer's. So if a scenario does `RUN install -m 0755 foo
-/home/gem/.local/bin/foo`, then `foo` is in the image layer but **masked** - the
-container's `/home/gem/.local/bin` is whatever the volume has (probably empty on
+/root/.local/bin/foo`, then `foo` is in the image layer but **masked** - the
+container's `/root/.local/bin` is whatever the volume has (probably empty on
 a fresh volume), not your installed binary. The bake silently does nothing at
 runtime.
 
 That's why every scenario installs to a system path (`/usr/local/bin`, `/opt`,
 `/usr/local`) that the volume doesn't cover. The only things that go under
-`/home/gem` are written **at runtime** (by the user, or by a version manager
+`/root` are written **at runtime** (by the user, or by a version manager
 like nvm/uv), so they're meant to live on the volume and survive recreate.
 
 ## The ~/.local/bin auto-PATH trick (runtime tools)
@@ -42,7 +42,7 @@ if [ -d "$HOME/.local/bin" ] ; then
 fi
 ```
 
-So anything you drop in `/home/gem/.local/bin` (on the shared volume) is
+So anything you drop in `/root/.local/bin` (on the shared volume) is
 automatically on PATH in **every login shell** - across the app, code-server,
 and vnc containers (they all run login shells and share the volume), and it
 **survives container recreate** because it's on the named volume. This is the

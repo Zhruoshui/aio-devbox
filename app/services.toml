@@ -3,7 +3,7 @@
 # Built-in buttons. The axum app parses this at build time (include_str!) and
 # exposes it via GET /api/manifest; the React frontend renders one button per
 # entry by `type`. User-registered buttons live separately in
-# /home/gem/.aio/buttons.toml (written via POST/DELETE /api/buttons).
+# /root/.aio/buttons.toml (written via POST/DELETE /api/buttons).
 #
 # Adding a built-in service = add an entry here (+ container/profile/caddy route
 # for type=web) and rebuild the app image. See design.md §14.

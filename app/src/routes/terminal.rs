@@ -5,8 +5,8 @@
 //   client keystrokes (Text frames) -> pty stdin (writer)
 //   pty stdout/stderr (reader)      -> client (Text frames)
 //
-// The pty runs as uid 1000 (`gem`) in /home/gem because the app process is
-// already uid 1000 and the child inherits it (design §4, implement.md risky
+// The pty runs as root in /root because the app process is
+// root and the child inherits it (design §4, implement.md risky
 // point). When the pty child exits (reader EOF) or the client closes, the
 // session is torn down: the child is killed+reaped and the WS is closed.
 //

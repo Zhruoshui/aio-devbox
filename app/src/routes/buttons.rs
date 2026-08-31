@@ -1,7 +1,7 @@
 // POST /api/buttons      - register a user button (agent/TUI) in buttons.toml.
 // DELETE /api/buttons/:id - remove a user button.
 //
-// buttons.toml lives on the persistent workspace volume (/home/gem/.aio/), so
+// buttons.toml lives on the persistent workspace volume (/root/.aio/), so
 // registered buttons survive `docker compose down/up` and are shared across
 // browsers. Writes are serialized by `AppState::file_lock` and done atomically
 // (temp file + rename) so a crash mid-write never leaves a half file.

@@ -3,11 +3,14 @@
 # sandbox-base HEAD fragment. `aio-config gen` assembles the final
 # Dockerfile.base as: this head + the enabled scenario fragments + the tail.
 # This file holds the non-versioned root-context bootstrap every derived image
-# shares: HTTPS apt, ca-cert self-bootstrap, build-essential, user `gem`.
+# shares: HTTPS apt, ca-cert self-bootstrap, build-essential. Everything runs
+# as root; root is also the runtime default user and the workspace owner - the
+# shared workspace volume mounts at /root (docker-compose.yml), so dotfiles
+# persist on the volume.
 # Versioned L1 runtimes (node, python) are `always_on` scenarios (baked
 # unconditionally, version-selectable in the TUI) - they assemble right after
 # this head. Scenario fragments insert AFTER this (still root, before the
-# tail's `USER gem`).
+# tail's `USER root` / `WORKDIR /root`).
 #
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
@@ -49,9 +52,6 @@ RUN apt-get -o Acquire::https::Verify-Peer=false update \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 
-# Workspace user `gem` (uid 1000), aligned across every container that touches
-# the shared workspace volume (R6 / R9).
-RUN groupadd --system --gid 1000 gem \
- && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
- && mkdir -p /home/gem \
- && chown 1000:1000 /home/gem
+# No non-root user: root (uid 0) is the default (and only) user across every
+# container that touches the shared workspace volume (R6 / R9). Historically a
+# dedicated `gem` user (uid 1000) owned the workspace; switched to root.

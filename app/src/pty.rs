@@ -1,9 +1,9 @@
 // Pty bridge: spawn a login shell (or a command under a login shell) in a
 // portable-pty, returning the reader/writer/child handle.
 //
-// The app process already runs as uid 1000 (`gem`); the spawned shell inherits
+// The app process runs as root; the spawned shell inherits
 // that uid (design §4, implement.md Phase E risky point). We do NOT drop/gain
-// privileges - we just spawn. cwd = /home/gem, HOME=/home/gem, TERM=xterm-256color;
+// privileges - we just spawn. cwd = /root, HOME=/root, TERM=xterm-256color;
 // the rest of the environment (PATH, etc.) is inherited so /usr/local/bin
 // (where opencode lives) is on PATH for `?cmd=opencode`.
 //
@@ -73,8 +73,8 @@ pub fn spawn_pty(cmd: Option<String>) -> io::Result<PtySession> {
             builder.arg(c);
         }
     }
-    builder.cwd("/home/gem");
-    builder.env("HOME", "/home/gem");
+    builder.cwd("/root");
+    builder.env("HOME", "/root");
     builder.env("TERM", "xterm-256color");
     // The rest of the environment (PATH, etc.) is inherited from the app
     // process by CommandBuilder's default behavior.

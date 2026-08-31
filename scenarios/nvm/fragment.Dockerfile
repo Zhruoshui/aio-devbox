@@ -1,6 +1,6 @@
 # >>> scenario: nvm >>>
 # L3 可选:nvm(Node 版本管理器)。nvm.sh 单脚本烘到 /opt/nvm(系统路径,躲过
-# 共享卷 aio_workspace 对 /home/gem 的遮盖;root 只读)。运行时 NVM_DIR=$HOME/.nvm
+# 共享卷 aio_workspace 对 /root 的遮盖)。运行时 NVM_DIR=$HOME/.nvm
 # (卷上),profile.d 把 nvm.sh 软链进 ~/.nvm/nvm.sh 再 source -> nvm 在
 # $NVM_DIR/nvm.sh 找到自己(软链指向 /opt/nvm/nvm.sh),versions 装到
 # ~/.nvm/versions/node(卷上,抗 container recreate)。

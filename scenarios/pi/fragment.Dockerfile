@@ -7,7 +7,7 @@
 # PATH,可直接 npm -g。engines 要求 node>=22.19(enabled.toml 已置 22.23.2)。
 #
 # 扩展子集配置(pi-packages):pi 从 ~/.pi/agent/settings.json 的 packages 数组
-# 加载扩展,而 ~/.pi=/home/gem/.pi 被共享卷盖住 -> 登记必须发生在运行时。为了
+# 加载扩展,而 ~/.pi=/root/.pi 被共享卷盖住 -> 登记必须发生在运行时。为了
 # 让 docker save/load 的离线分发携带扩展本体,包实体烘在系统路径
 # /opt/pi-extensions(scenarios/pi/pi-packages/package.json 的 dependencies 即
 # 清单,单一事实源),运行时由 aio-pi-extensions 用本地路径(pi install /abs/path

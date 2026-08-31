@@ -159,9 +159,9 @@ pub async fn import_pi(
     }))
 }
 
-/// Resolve `~/.pi/agent/models.json` from $HOME (default /home/gem).
+/// Resolve `~/.pi/agent/models.json` from $HOME (default /root).
 fn pi_models_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/gem".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
     PathBuf::from(home).join(".pi/agent/models.json")
 }
 
@@ -422,9 +422,9 @@ pub async fn sync_live_provider(
     }))
 }
 
-/// Resolve `~/.config/opencode/opencode.jsonc` from $HOME (default /home/gem).
+/// Resolve `~/.config/opencode/opencode.jsonc` from $HOME (default /root).
 fn opencode_jsonc_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/gem".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
     PathBuf::from(home).join(".config/opencode/opencode.jsonc")
 }
 

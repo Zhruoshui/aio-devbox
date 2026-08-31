@@ -4,7 +4,7 @@
 //   1. `services.toml` - baked into the binary at compile time (include_str!).
 //      The built-in buttons: code-server, vnc, terminal, opencode. Versioned
 //      with the image; editing needs an app rebuild.
-//   2. `/home/gem/.aio/buttons.toml` - runtime, on the persistent workspace
+//   2. `/root/.aio/buttons.toml` - runtime, on the persistent workspace
 //      volume. User-registered buttons (MVP: type=agent only). Survives
 //      container recreate; shared across browsers. Written via POST/DELETE
 //      /api/buttons.

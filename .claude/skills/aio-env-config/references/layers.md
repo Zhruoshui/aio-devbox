@@ -9,7 +9,7 @@ the order `aio-config gen` assembles fragments into `Dockerfile.base`.
 
 | Layer | `category` | What lives here | always_on? | Example |
 |---|---|---|---|---|
-| L1 OS / 基础环境 | `os` | foundational infra + versioned runtimes that everything depends on | node, python are | apt, ca-certs, build-essential, user `gem` (in head); Node, CPython (scenarios) |
+| L1 OS / 基础环境 | `os` | foundational infra + versioned runtimes that everything depends on | node, python are | apt, ca-certs, build-essential (in head); Node, CPython (scenarios) |
 | L2 Shell 便利 | `shell` | CLI convenience tools, pure binaries, no aliases | no | fzf, ripgrep, bat, fd |
 | L3 语言开发链路 | `lang` | language toolchains + language version/package managers | no | rust, go, python-dev, nvm, uv |
 | L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | no | opencode |
@@ -42,7 +42,7 @@ NEVER appears as a scenario:
 - apt install of `curl git gnupg2 xz-utils build-essential pkg-config libssl-dev
   locales tzdata sudo`
 - locale-gen en_US.UTF-8
-- workspace user `gem` (uid 1000)
+- default user root (uid 0); home /root IS the workspace volume
 
 If a request is "add an apt package that's pure system infrastructure"
 (e.g. `htop`, `less`, `vim`), the answer is usually **edit `Dockerfile.base.head`'s

@@ -16,11 +16,11 @@
 # container restarts via compose `restart: unless-stopped`, bringing the desktop
 # back cleanly rather than running half-broken. A bash supervisor is used
 # instead of s6-overlay/supervisord for MVP simplicity (implement.md risky-note
-# allows the fallback). Runs as uid 1000 (gem) - inherited from the image.
+# allows the fallback). Runs as root - inherited from the image.
 
 set -u
 
-export HOME=/home/gem
+export HOME=/root
 export DISPLAY=:99
 
 XVNC_PID=""
@@ -40,10 +40,10 @@ trap cleanup EXIT
 trap 'exit 0' INT TERM
 
 # Stale X lock cleanup (an unclean restart can leave /tmp/.X99-lock, which would
-# make Xvnc refuse to start). /tmp is world-writable so gem can clean it.
+# make Xvnc refuse to start).
 rm -f /tmp/.X99.lock 2>/dev/null || true
 rm -f /tmp/.X11-unix/X99 2>/dev/null || true
-mkdir -p /tmp/.X11-unix /home/gem/.config/chromium
+mkdir -p /tmp/.X11-unix /root/.config/chromium
 
 # Stale Chromium singleton-lock cleanup. Chromium writes SingletonLock /
 # SingletonCookie / SingletonSocket (symlinks targeting <hostname>-<pid>) in the
@@ -55,9 +55,9 @@ mkdir -p /tmp/.X11-unix /home/gem/.config/chromium
 # entrypoint start no Chromium is running in this container (we launch the only
 # one below), so removing them unconditionally is safe and lets Chromium reuse
 # the persisted profile (AC3) across restarts AND recreates.
-rm -f /home/gem/.config/chromium/SingletonLock \
-      /home/gem/.config/chromium/SingletonCookie \
-      /home/gem/.config/chromium/SingletonSocket 2>/dev/null || true
+rm -f /root/.config/chromium/SingletonLock \
+      /root/.config/chromium/SingletonCookie \
+      /root/.config/chromium/SingletonSocket 2>/dev/null || true
 
 # 1. TigerVNC Xvnc on display :99. -rfbport 5900 overrides the 5900+display
 #    convention; -SecurityTypes None = no VNC password (internal only);
@@ -102,7 +102,7 @@ chromium \
   --no-default-browser-check \
   --disable-features=TranslateUI \
   --remote-debugging-port="${CDP_PORT}" \
-  --user-data-dir=/home/gem/.config/chromium \
+  --user-data-dir=/root/.config/chromium \
   about:blank &
 CHROMIUM_PID=$!
 

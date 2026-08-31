@@ -243,16 +243,16 @@ mod tests {
     #[test]
     fn assemble_empty_is_head_plus_tail() {
         // No scenarios: output is head + blank + tail, each newline-terminated.
-        let out = assemble("FROM x\nRUN a", "USER gem\n", &[]);
-        assert_eq!(out, "FROM x\nRUN a\n\nUSER gem\n");
+        let out = assemble("FROM x\nRUN a", "USER root\n", &[]);
+        assert_eq!(out, "FROM x\nRUN a\n\nUSER root\n");
     }
 
     #[test]
     fn assemble_inserts_fragments_between_head_and_tail() {
         let frag = "# >>> scenario: rust >>>\nRUN rustup\n# <<< scenario: rust <<<";
-        let out = assemble("FROM x\n", "USER gem\n", &[("rust", frag.to_string())]);
+        let out = assemble("FROM x\n", "USER root\n", &[("rust", frag.to_string())]);
         // head \n, blank, fragment \n, blank, tail \n
-        assert_eq!(out, "FROM x\n\n# >>> scenario: rust >>>\nRUN rustup\n# <<< scenario: rust <<<\n\nUSER gem\n");
+        assert_eq!(out, "FROM x\n\n# >>> scenario: rust >>>\nRUN rustup\n# <<< scenario: rust <<<\n\nUSER root\n");
     }
 
     #[test]

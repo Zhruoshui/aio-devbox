@@ -65,16 +65,15 @@ COPY --from=builder /app/target/release/aio-app /usr/local/bin/aio-app
 
 # Entrypoint: autostarts pi-web (if the pi-web scenario baked it into base)
 # before exec'ing the CMD. See app/entrypoint.sh for the why. --chmod because
-# the source file carries no exec bit on the host, and a bare `RUN chmod`
-# cannot be used here: sandbox-base ends with `USER gem`, so stage-2 RUNs
-# execute as gem and cannot chmod a root-owned COPYed file (EPERM).
+# the source file carries no exec bit on the host; COPY --chmod sets it at
+# build time without a separate RUN chmod.
 COPY --chmod=755 app/entrypoint.sh /usr/local/bin/aio-entrypoint.sh
 
 # Static SPA tree (React build output from the web-builder stage).
-# Lives under /app (not /home/gem, which is the persistent workspace volume).
+# Lives under /app (not /root, which is the persistent workspace volume).
 COPY --from=web-builder /web/dist /app/static
 
-USER gem
+USER root
 EXPOSE 8088
 ENTRYPOINT ["/usr/local/bin/aio-entrypoint.sh"]
 CMD ["aio-app"]

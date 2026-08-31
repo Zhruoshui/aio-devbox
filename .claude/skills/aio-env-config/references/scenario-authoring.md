@@ -93,7 +93,7 @@ scenarios = ["*"]   # full preset: all selectable scenarios, always_on excluded
 
 The fragment is concatenated (with a blank-line separator) between
 `Dockerfile.base.head` and `Dockerfile.base.tail`. Head runs as root and
-installs infra; tail does `USER gem`. So the fragment runs **as root**, before
+installs infra; tail pins `USER root`. So the fragment runs **as root**, before
 the user switch. Wrap it in the scenario banner for readability:
 
 ```dockerfile
@@ -111,11 +111,11 @@ layer came from.
 
 ## The two rules that cause most scenario bugs
 
-### Rule 1: install to a system path, never /home/gem
+### Rule 1: install to a system path, never /root
 
-The shared workspace volume `aio_workspace` is mounted over `/home/gem` in the
+The shared workspace volume `aio_workspace` is mounted over `/root` in the
 app, code-server, and vnc containers. Anything baked into the image layer at
-`/home/gem/...` is **masked** by the volume at runtime - the container sees the
+`/root/...` is **masked** by the volume at runtime - the container sees the
 volume's contents (possibly empty), not what you installed. This is the
 single most common scenario bug.
 
@@ -126,7 +126,7 @@ Install baked tools to a system path the volume does not cover:
 - `/opt/<tool>` - bigger toolchains (rust at `/opt/rust`, nvm.sh at `/opt/nvm`)
 - `/etc/profile.d/<x>.sh` - login-shell PATH/profile hooks (nvm)
 
-The only things that belong under `/home/gem` are **runtime** (not baked)
+The only things that belong under `/root` are **runtime** (not baked)
 user data: `~/.nvm/versions` (nvm installs at runtime), `~/.local/share/uv`
 (uv installs pythons at runtime), `~/.cargo` for a user's own `cargo install`.
 Those go on the volume on purpose, to survive container recreate.
@@ -184,7 +184,7 @@ that calls `apt-get install` must first `apt-get update` again (see the
       `description`, `category` set (don't rely on the `lang` default).
 - [ ] `scenarios/<id>/fragment.Dockerfile` wrapped in `# >>>/<<< scenario: id`.
 - [ ] Installs to a system path (`/usr/local`, `/opt`, `/usr/local/bin`), NOT
-      `/home/gem` (unless it's intentional runtime data for the volume).
+      `/root` (unless it's intentional runtime data for the volume).
 - [ ] Tool is findable in a **login** shell (symlink to `/usr/local/bin` OR a
       `/etc/profile.d/<x>.sh`), or it's already on the default PATH.
 - [ ] All `curl`/`wget` URLs are HTTPS. No NodeSource. No plain-HTTP apt.

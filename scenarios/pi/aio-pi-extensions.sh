@@ -4,7 +4,7 @@
 # Package CONTENT is baked into the image at /opt/pi-extensions (see
 # scenarios/pi/pi-packages/package.json — its dependencies list IS the pi
 # scenario's "subset config"). pi loads packages listed in
-# ~/.pi/agent/settings.json, and ~/.pi == /home/gem/.pi lives on the shared
+# ~/.pi/agent/settings.json, and ~/.pi == /root/.pi lives on the shared
 # aio_workspace volume — masked at build time, so the *registration* must
 # happen at runtime, once per volume. This script does exactly that using
 # local-path package entries: `pi install /abs/path` adds the package to
@@ -30,7 +30,7 @@ export PI_TELEMETRY=0
 
 BAKED_DIR="/opt/pi-extensions"
 MANIFEST="${BAKED_DIR}/package.json"
-SETTINGS="${PI_CODING_AGENT_DIR:-${HOME:-/home/gem}/.pi/agent}/settings.json"
+SETTINGS="${PI_CODING_AGENT_DIR:-${HOME:-/root}/.pi/agent}/settings.json"
 
 command -v pi >/dev/null 2>&1 || {
   echo "aio-pi-extensions: 'pi' not on PATH (scenario not baked?)" >&2

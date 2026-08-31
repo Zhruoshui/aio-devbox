@@ -27,7 +27,7 @@ the images, and run air-gapped.
   login-shell PATH, and launch on click in an xterm.js + WebSocket pty bridge
   inside the `app` container (multiple instances allowed). No dead panes.
 - **Register your own buttons.** The sidebar's `+` form registers a
-  "terminal + command" button (persisted in `/home/gem/.aio/buttons.toml` on the
+  "terminal + command" button (persisted in `/root/.aio/buttons.toml` on the
   workspace volume via `POST/DELETE /api/buttons`), surviving container recreate.
 - **Build-time scenario presets.** A Rust TUI (`aio-config`) lists scenarios
   grouped by layer; the selection is assembled into `Dockerfile.base` and built
@@ -36,7 +36,7 @@ the images, and run air-gapped.
   3.13) are `always_on` scenarios with a version dropdown — pick a version, not
   whether to install.
 - **Survives container recreate.** The workspace is a named Docker volume on
-  `/home/gem`; runtime version managers (nvm, uv) install into the volume so
+  `/root`; runtime version managers (nvm, uv) install into the volume so
   `nvm install` / `uv python install` survive `down`/`up`.
 - **Offline-ready.** Build online, ship images via `docker save`/`load`, run with
   `make up NOBUILD=1`. A full offline tool-install handbook lives in
@@ -77,12 +77,12 @@ make clean                             # stop, drop the volume, remove built ima
                           │ SPA      │   │ code-server  │  │ vnc       │
                           │ :8088    │   └──────┬───────┘  └─────┬──────┘
                           └────┬─────┘          │                │
-                 /api/term/ws  │ pty (uid 1000)  │                │
+                 /api/term/ws  │ pty (root)      │                │
                  /api/manifest │                │                │
                                ▼                ▼                ▼
                   ┌──────────────────────────────────────────────────────┐
-                  │  shared named volume  aio_workspace  →  /home/gem    │
-                  │  (uid 1000, user "gem")  — mounted by all three      │
+                  │  shared named volume  aio_workspace  →  /root        │
+                  │  (root, uid 0)  — mounted by all three               │
                   └──────────────────────────────────────────────────────┘
 
    build-only (never runs at runtime):  base  →  sandbox-base
@@ -119,14 +119,14 @@ so the TUI groups scenarios by layer:
 
 | Layer | `category` | What lives here | Selectable? |
 |---|---|---|---|
-| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, user `gem`) in `Dockerfile.base.head`; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
+| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential) in `Dockerfile.base.head`; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
 | L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd) | yes |
 | L3 Language toolchains | `lang` | rust / go / python-dev + version managers nvm / uv | yes |
 | L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode) | yes |
 | L5 External services | `service` | _(future, not yet implemented)_ | — |
 
 L1 has two parts. The **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
-build-essential, user `gem`) stays hardcoded in `Dockerfile.base.head` and never
+build-essential) stays hardcoded in `Dockerfile.base.head` and never
 reaches the TUI — it's the foundation every `FROM sandbox-base` service inherits.
 The **versioned runtimes** Node + Python are `always_on` scenarios: always baked
 (code-server and the app web-builder depend on Node), shown in the TUI as locked
@@ -169,7 +169,7 @@ and set `category` in `scenario.toml`. For a versioned scenario, add `always_on`
 `label` for the dropdown + extra keys substituted into `{{key}}` placeholders in
 the fragment). Defaults: `category="lang"`, `always_on=false`, no versions — no
 change to the configurator. Scenario tools install to **system paths** (`/opt`,
-`/usr/local`, `/etc/profile.d`) as root before `USER gem`, never `/home/gem/*`
+`/usr/local`, `/etc/profile.d`) as root, never `/root/*`
 (the workspace named volume would mask it). Changing the selection rebuilds the
 image (the `docker save`/`load` offline path is unchanged).
 
@@ -259,8 +259,8 @@ offline path above (`make save` / `make load`).
 
 ```
 Dockerfile.base          sandbox-base image (generated: head + scenarios + tail)
-Dockerfile.base.head     sandbox-base head (root bootstrap: apt/user gem; no language runtimes)
-Dockerfile.base.tail     sandbox-base tail (USER gem + WORKDIR)
+Dockerfile.base.head     sandbox-base head (root bootstrap: apt; no language runtimes)
+Dockerfile.base.tail     sandbox-base tail (USER root + WORKDIR /root)
 scenarios/               scenario library, layered by category; <id>/{scenario.toml,fragment.Dockerfile}
 config/                  aio-config crate (Rust): TUI picker + Dockerfile.base generator
 app/                     axum app (Cargo.toml, src/, Dockerfile, services.toml)

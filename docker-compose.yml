@@ -36,7 +36,7 @@ services:
     ports:
       - "30141:30141"
     volumes:
-      - workspace:/home/gem
+      - workspace:/root
     networks:
       - sandbox-net
 
@@ -48,8 +48,8 @@ services:
   # everything on the shared stack is reached as app:PORT. The manifest
   # auto-detects it via TCP reachability to app:8200 (config.rs), so the UI
   # hides the pane when this container is absent (R8 / AC4). Mounts the shared
-  # workspace volume so edits/extensions persist (R6 / AC3). Runs as uid 1000
-  # (gem) from sandbox-base. Note: network_mode is mutually exclusive with
+  # workspace volume so edits/extensions persist (R6 / AC3). Runs as root from
+  # sandbox-base. Note: network_mode is mutually exclusive with
   # networks/expose/ports (removed accordingly); compose adds an implicit
   # depends_on on app - always operate via compose (make restart / make up),
   # never `docker restart aio-app-1` or `--force-recreate app` alone (docker
@@ -73,7 +73,7 @@ services:
       # not code-server; kept per design §6.
       VSCODE_PROXY_URI: "/proxy/{port}/"
     volumes:
-      - workspace:/home/gem
+      - workspace:/root
 
   # VNC / Chromium container (Phase G). Gated behind the `vnc` profile so it
   # only starts with `docker compose --profile vnc ... up` (or
@@ -86,7 +86,8 @@ services:
   # terminals' localhost, so dev servers are previewed at
   # http://localhost:PORT with zero cross-container hops (HTTPS-first exempt
   # on loopback). Mounts the shared workspace volume so the Chromium profile
-  # persists at /home/gem/.config/chromium (R6 / AC3). Runs as uid 1000 (gem)
+  # persists at /root/.config/chromium (R6 / AC3). Runs as root (same as every
+  # container on the volume)
   # - decoupled from sandbox-base: vnc/Dockerfile is FROM
   # debian:bookworm-slim (vnc is a pure browser surface and does not need the
   # dev tooling / scenario fragments). shm_size 2gb because Chromium needs
@@ -103,7 +104,7 @@ services:
       - vnc
     network_mode: "service:app"
     volumes:
-      - workspace:/home/gem
+      - workspace:/root
     shm_size: "2gb"
     tmpfs:
       - /tmp

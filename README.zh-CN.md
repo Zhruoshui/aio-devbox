@@ -22,13 +22,13 @@ TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
   shell PATH 时才出现,点击即用 xterm.js + WebSocket pty 桥在 `app` 容器内启动
   (可多开)。没有死面板。
 - **自定义按钮。** 侧边栏底部 `+` 表单可注册“终端+命令”按钮(经
-  `POST/DELETE /api/buttons` 持久化到工作区卷的 `/home/gem/.aio/buttons.toml`),
+  `POST/DELETE /api/buttons` 持久化到工作区卷的 `/root/.aio/buttons.toml`),
   扛得过容器重建。
 - **构建期场景预置。** 一个 Rust TUI(`aio-config`)按层分组列出场景;勾选结果
   被组装进 `Dockerfile.base` 并构建进 `sandbox-base`。工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node(18 / 20 / 22)与 CPython(3.11 / 3.12 / 3.13)是
   `always_on` 场景,带版本下拉——选的是版本,不是装不装。
-- **扛容器重建。** 工作区是挂在 `/home/gem` 的命名卷;运行时版本管理器(nvm、uv)
+- **扛容器重建。** 工作区是挂在 `/root` 的命名卷;运行时版本管理器(nvm、uv)
   把运行时装进卷,所以 `nvm install` / `uv python install` 能扛过 `down`/`up`。
 - **支持离线。** 联网机构建,`docker save`/`load` 镜像,`make up NOBUILD=1` 运行。
   完整的离线补装手册见 [`docs/offline-install-guide.md`](docs/offline-install-guide.md)。
@@ -68,12 +68,12 @@ make clean                             # 停止、删卷、删已构建镜像
                           │ SPA      │   │ code-server  │  │ vnc       │
                           │ :8088    │   └──────┬───────┘  └─────┬──────┘
                           └────┬─────┘          │                │
-                 /api/term/ws  │ pty (uid 1000)  │                │
+                 /api/term/ws  │ pty (root)      │                │
                  /api/manifest │                │                │
                                ▼                ▼                ▼
                   ┌──────────────────────────────────────────────────────┐
-                  │  共享命名卷  aio_workspace  →  /home/gem              │
-                  │  (uid 1000,用户 "gem")—— 三个运行时容器都挂载它        │
+                  │  共享命名卷  aio_workspace  →  /root                  │
+                  │  (root,uid 0)—— 三个运行时容器都挂载它                │
                   └──────────────────────────────────────────────────────┘
 
    仅构建(运行时不启动):  base  →  sandbox-base
@@ -108,14 +108,14 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 
 | 层 | `category` | 放什么 | 可勾选? |
 |---|---|---|---|
-| L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential、用户 `gem`)在 `Dockerfile.base.head`;**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
+| L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential)在 `Dockerfile.base.head`;**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
 | L2 Shell 便利 | `shell` | CLI 工具(fzf / rg / bat / fd) | 是 |
 | L3 语言工具链 | `lang` | rust / go / python-dev + 版本管理器 nvm / uv | 是 |
 | L4 应用 | `app` | CLI 应用 / AI agent(opencode) | 是 |
 | L5 外部服务 | `service` | _(未来,尚未实现)_ | — |
 
-L1 分两部分。**非版本化基础设施**(HTTPS apt 源、ca-certs 自举、build-essential、
-用户 `gem`)硬编码在 `Dockerfile.base.head`,不进 TUI——它是所有 `FROM sandbox-base`
+L1 分两部分。**非版本化基础设施**(HTTPS apt 源、ca-certs 自举、build-essential)
+硬编码在 `Dockerfile.base.head`,不进 TUI——它是所有 `FROM sandbox-base`
 服务继承的地基。**版本化运行时** Node + Python 是 `always_on` 场景:始终烘进
 (code-server 和 app 的 web-builder 依赖 Node),在 TUI 里显示为锁定行 `[*]`、带
 版本 `[label]`,用**左/右方向键**循环切换——选的是版本,不是装不装。L2–L4 是普通
@@ -155,7 +155,7 @@ docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行
 `default_version`、`[[versions]]` 数组(每项:`label` 用于下拉 + 其余 key 作
 `{{key}}` 占位符替换进片段)。默认值:`category="lang"`、`always_on=false`、无版本——
 配置器无需改动。场景工具以 root 装到**系统路径**(`/opt`、`/usr/local`、
-`/etc/profile.d`),在 `USER gem` 之前,绝不装 `/home/gem/*`(工作区命名卷会遮盖
+`/etc/profile.d`),以 root 身份安装,绝不装 `/root/*`(工作区命名卷会遮盖
 它)。改了选择就要重建镜像(`docker save`/`load` 离线路径不变)。
 
 > **重新勾选后要重建。** `make up` 会重建 `sandbox-base` 镜像,但不会重建已运行的
@@ -235,8 +235,8 @@ NOBUILD=1` 也不跑 `gen`。
 
 ```
 Dockerfile.base          sandbox-base 镜像(生成:head + 场景 + tail)
-Dockerfile.base.head     sandbox-base 头(root 自举:apt/用户 gem;无语言运行时)
-Dockerfile.base.tail     sandbox-base 尾(USER gem + WORKDIR)
+Dockerfile.base.head     sandbox-base 头(root 自举:apt;无语言运行时)
+Dockerfile.base.tail     sandbox-base 尾(USER root + WORKDIR /root)
 scenarios/               场景库,按 category 分层;<id>/{scenario.toml,fragment.Dockerfile}
 config/                  aio-config crate(Rust):TUI 勾选器 + Dockerfile.base 生成器
 app/                     axum 应用(Cargo.toml、src/、Dockerfile、services.toml)

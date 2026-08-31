@@ -3,10 +3,10 @@
 //
 // - `builtin`: services parsed from the baked-in `services.toml` (immutable).
 // - `buttons_file`: path to the runtime `buttons.toml` on the workspace volume
-//   (`AIO_BUTTONS_FILE` env, default `/home/gem/.aio/buttons.toml`). User-
+//   (`AIO_BUTTONS_FILE` env, default `/root/.aio/buttons.toml`). User-
 //   registered buttons; read per manifest request, written under `file_lock`.
 // - `models_file`: path to the canonical model config (`AIO_MODELS_FILE` env,
-//   default `/home/gem/.aio/models.json`). Read/written under `models_lock`.
+//   default `/root/.aio/models.json`). Read/written under `models_lock`.
 // - `path_cache`: cached login-shell PATH for command_exists (TTL-refreshed).
 // - `file_lock`: serializes read-modify-write on buttons.toml so concurrent
 //   POST/DELETE can't interleave.

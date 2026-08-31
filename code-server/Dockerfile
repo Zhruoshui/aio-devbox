@@ -3,8 +3,8 @@
 # code-server (VSCode in the browser) - Phase D.
 #
 # Derives from the shared `sandbox-base` image (built by `make build-base`),
-# which already carries node / python / git / opencode + user `gem` (uid 1000)
-# and WORKDIR /home/gem. We only add code-server on top.
+# which already carries node / python / git / opencode, runs as root and has
+# WORKDIR /root. We only add code-server on top.
 #
 # Build context is the repo root (docker-compose sets `context: .` +
 # `dockerfile: code-server/Dockerfile`), matching the `app` service.
@@ -30,8 +30,7 @@ FROM ${BASE_IMAGE}
 
 ARG CODE_SERVER_VERSION
 
-# sandbox-base ends with `USER gem`; install system-wide as root, then drop back.
-USER root
+# sandbox-base's default user is root; install system-wide.
 RUN curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_amd64.deb" \
         -o /tmp/code-server.deb \
  && dpkg -i /tmp/code-server.deb \
@@ -40,15 +39,16 @@ RUN curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_S
 
 # Pre-install VS Code extensions for code-server at BUILD time, fetched from
 # Open VSX (openvsx.org reachable from the build host; verified). They land in
-# /opt/cs-extensions - deliberately OUTSIDE /home/gem, because the workspace
-# volume mounts over /home/gem at runtime and would mask anything baked under
-# it (same volume-mask rule as the rust scenario's /opt/rust). Chowned to gem
-# (uid 1000) so the dev can still `code-server --install-extension` at runtime
-# into the same dir. CAVEAT: those runtime installs land in the CONTAINER
-# WRITABLE LAYER (not a volume) and are LOST on container recreate - only the
-# baked list below persists. Treat runtime installs as trials; promote the
-# keepers into this list and rebuild. The runtime CMD below points
-# --extensions-dir here so code-server loads these pre-installed extensions.
+# /opt/cs-extensions - deliberately OUTSIDE /root, because the workspace
+# volume mounts over /root at runtime and would mask anything baked under
+# it (same volume-mask rule as the rust scenario's /opt/rust). Root-owned is
+# fine: code-server runs as root, so `code-server --install-extension` at
+# runtime still writes into the same dir. CAVEAT: those runtime installs land
+# in the CONTAINER WRITABLE LAYER (not a volume) and are LOST on container
+# recreate - only the baked list below persists. Treat runtime installs as
+# trials; promote the keepers into this list and rebuild. The runtime CMD
+# below points --extensions-dir here so code-server loads these pre-installed
+# extensions.
 #
 # To add/remove an extension: edit the list below, then re-run `make build`.
 #
@@ -63,8 +63,7 @@ RUN curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_S
 #   - Python: Pylance (ms-python.vscode-pylance) is absent; ruff + debugpy +
 #     the python ext cover lint/format/debug/autocomplete instead.
 ARG CPPTOOLS_VERSION=1.33.8
-RUN mkdir -p /opt/cs-extensions && chown -R 1000:1000 /opt/cs-extensions
-USER gem
+RUN mkdir -p /opt/cs-extensions
 RUN set -e; \
     for ext in \
       rust-lang.rust-analyzer \
@@ -105,7 +104,6 @@ RUN set -e; \
         --user-data-dir /tmp/cs-build; \
     rm -rf /tmp/cpptools.vsix /tmp/cs-build
 
-USER gem
 EXPOSE 8200
 # `--auth none` because caddy enforces basicauth at the gateway (design §6/§10).
 # --user-data-dir is inside the shared workspace volume so settings persist
@@ -116,5 +114,5 @@ CMD ["code-server", \
      "--host", "0.0.0.0", \
      "--port", "8200", \
      "--auth", "none", \
-     "--user-data-dir", "/home/gem/.local/share/code-server", \
+     "--user-data-dir", "/root/.local/share/code-server", \
      "--extensions-dir", "/opt/cs-extensions"]

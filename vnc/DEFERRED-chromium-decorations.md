@@ -27,7 +27,7 @@ viewport.)
 ### A. openbox `decor=no` + `maximized=true` for Chromium — WORKED (WM side)
 A minimal `vnc/openbox-rc.xml` with one application rule, COPY'd to
 `/etc/aio/openbox-rc.xml` and copied to `~/.config/openbox/rc.xml` by the
-entrypoint before openbox starts (the workspace volume shadows `/home/gem`, so
+entrypoint before openbox starts (the workspace volume shadows `/root`, so
 it can't be baked there):
 
 ```xml

@@ -3,7 +3,7 @@
 # VNC / Chromium container - Phase G.
 #
 # DELIBERATELY NOT based on `sandbox-base`. vnc is a pure browser surface: it
-# only needs to (a) read the shared workspace volume at /home/gem to open files
+# only needs to (a) read the shared workspace volume at /root to open files
 # built elsewhere, and (b) reach dev servers started in code-server / app via
 # sandbox-net DNS (http://code-server:<port>). The dev tooling that lives in
 # sandbox-base (node / python-dev / opencode / build-essential / uv / ruff /
@@ -17,13 +17,12 @@
 # What we DO replicate from Dockerfile.base.head (the minimum vnc needs):
 #   - HTTPS apt sources + ca-certificates self-bootstrap (network policy blocks
 #     plain HTTP port 80 - same chicken-and-egg as the base head).
-#   - user `gem` (uid 1000), aligned with the shared workspace volume owner
-#     (R6/R9). chromium runs as gem and writes its profile to
-#     /home/gem/.config/chromium on the volume; a mismatched uid would break
-#     profile persistence and cross-container file access.
+#   - root as the default user, aligned with every other container touching
+#     the shared workspace volume (R6/R9). chromium runs as root and writes
+#     its profile to /root/.config/chromium on the volume. (Historically a
+#     dedicated `gem` user (uid 1000) was replicated here; since all
+#     containers moved to root, nothing needs replicating anymore.)
 #   - en_US.UTF-8 locale + tzdata (chromium server-side text rendering).
-# `gem` is duplicated here vs Dockerfile.base.head - accepted tradeoff for the
-# decoupling win; uid 1000 is stable, drift risk is low.
 #
 # Build context is the repo root (docker-compose sets `context: .` +
 # `dockerfile: vnc/Dockerfile`), matching the `app` and `code-server` services.
@@ -91,14 +90,11 @@ RUN apt-get update \
  && test -f /usr/share/novnc/vnc.html \
  && fc-list | grep -qi "noto.*cjk"
 
-# Workspace user `gem` (uid 1000), aligned with the shared workspace volume
-# owner (R6/R9). chromium runs as gem and writes its profile to
-# /home/gem/.config/chromium on the volume. Duplicated from Dockerfile.base.head
-# by design (see header) - vnc is decoupled from sandbox-base.
-RUN groupadd --system --gid 1000 gem \
- && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash gem \
- && mkdir -p /home/gem \
- && chown 1000:1000 /home/gem
+# No user replication needed: root (uid 0) is the default user here, matching
+# sandbox-base and every other container on the shared workspace volume
+# (R6/R9). chromium writes its profile to /root/.config/chromium on the
+# volume. Requires --no-sandbox on the chromium launch (entrypoint.sh), which
+# containers need anyway (no setuid sandbox helper).
 
 # Bash supervisor: starts Xvnc, openbox, chromium, websockify; reaps children
 # via `wait -n` + an EXIT trap (no zombies). Chosen over s6-overlay/supervisord
@@ -106,7 +102,7 @@ RUN groupadd --system --gid 1000 gem \
 COPY vnc/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-USER gem
-WORKDIR /home/gem
+USER root
+WORKDIR /root
 EXPOSE 6080
 CMD ["/entrypoint.sh"]

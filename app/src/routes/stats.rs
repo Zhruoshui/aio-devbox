@@ -12,7 +12,7 @@
 //     artifacts etc.) inflates "used" hugely. `memory.max` == "max" (no cgroup
 //     limit; current compose sets none) => memTotalBytes = null and the UI
 //     shows the absolute usage only.
-//   - DISK: statvfs of the workspace volume mount point `/home/gem`.
+//   - DISK: statvfs of the workspace volume mount point `/root`.
 //
 // A background sampler (spawn_stats_sampler, 2s period) keeps
 // AppState.stats fresh so the handler is a lock-free-ish clone - no cgroup
@@ -79,7 +79,7 @@ pub fn spawn_stats_sampler(state: AppState) {
                     snap.diskUsedBytes = used;
                     snap.diskTotalBytes = total;
                 }
-                None => tracing::warn!("stats: statvfs(/home/gem) failed, keeping last values"),
+                None => tracing::warn!("stats: statvfs(/root) failed, keeping last values"),
             }
 
             *state.stats.write().await = snap;
@@ -138,7 +138,7 @@ fn read_mem() -> Option<(u64, Option<u64>)> {
 
 /// (used, total) bytes for the workspace volume via statvfs.
 fn read_disk() -> Option<(u64, u64)> {
-    let vfs = statvfs(std::path::Path::new("/home/gem")).ok()?;
+    let vfs = statvfs(std::path::Path::new("/root")).ok()?;
     let frag = vfs.fragment_size() as u64;
     let total = vfs.blocks() as u64 * frag;
     let used = (vfs.blocks() as u64 - vfs.blocks_free() as u64) * frag;

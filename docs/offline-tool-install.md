@@ -1,7 +1,7 @@
 # 离线环境向已部署 AIO 沙箱补装工具 · 测试报告
 
 > 场景:AIO 沙箱(caddy 网关 + axum app + code-server + vnc/Chromium,共享命名卷 `aio_workspace`
-> 挂载在 `app/code-server/vnc` 的 `/home/gem`,uid 1000)已部署到**内网离线机**。
+> 挂载在 `app/code-server/vnc` 的 `/root`,容器内统一 root)已部署到**内网离线机**。
 > 需要在不重建、不联网的前提下,给运行中的系统补装各类开发工具。
 
 ## 0. 背景、约束与架构前提
@@ -12,7 +12,7 @@
 - 每个测试完成后**清理环境**,不留痕。
 
 **架构关键点(决定安装策略)**:
-- **共享卷 `/home/gem`** 跨 `app/code-server/vnc` 三个容器即时可见;命名卷**抗容器 recreate**(容器删了卷还在)。
+- **共享卷 `/root`** 跨 `app/code-server/vnc` 三个容器即时可见;命名卷**抗容器 recreate**(容器删了卷还在)。
 - Debian 默认 `~/.profile`(`if [ -d "$HOME/.local/bin" ]; then PATH=...`)在 login bash 里**自动**把 `~/.local/bin` 加进 PATH —— 所以共享卷上的 `~/.local/bin` 是「跨容器、抗 recreate、免配 PATH」的**通用安装位**。沙箱终端面板跑的就是 `/bin/bash -l`(login bash)。
 - 容器**可写层**(`/usr`、`/etc`…)随容器删除而消失 —— 只适合临时用或镜像内置。
 - `sandbox-base` 已含 `build-essential` / `pkg-config` / `libssl-dev` / `curl` / `xz-utils`(C 工具链齐全),所以离线编译 Rust 只差 rustc/cargo。
@@ -81,7 +81,7 @@
   3. 一次性 `rust:1-bookworm` 容器跑 **`cargo vendor --versioned-dirs`** → 250 个依赖源码进 `vendor/`,并生成 `.cargo/config.toml`(把 crates.io 指向 `vendor/`)。源码 + vendor 打包。
 - 离线机(stack 无网络):
   4. `docker cp` 工具链包 + vendored 源码包进 app 容器。
-  5. `./install.sh --prefix=/home/gem/.rust --without=rust-docs` → **rustc 1.97.1 + cargo 1.97.1** 装到共享卷(无 rustup、无网络)。
+  5. `./install.sh --prefix=/root/.rust --without=rust-docs` → **rustc 1.97.1 + cargo 1.97.1** 装到共享卷(无 rustup、无网络)。
   6. `cargo build --offline` → 用 vendor 包编译 250 crate + mdBook → 产出 `target/debug/mdbook` v0.5.4。
   7. 拷到 `~/.local/bin/mdbook`,app 容器 `mdbook serve --hostname 0.0.0.0 --port 3000`,vnc chromium 开 `http://localhost:3000`(共享 netns 直通回环)。
 
@@ -112,14 +112,14 @@ rustup 管理器装上了,但报 **`no release found for 'stable'`**。诊断:ma
 
 ```bash
 # host bundle install.sh 离线 stage 工具链
-./install.sh --prefix=/home/gem/.rust-toolchain --without=rust-docs
+./install.sh --prefix=/root/.rust-toolchain --without=rust-docs
 # rustup 接管
-rustup toolchain link mytool /home/gem/.rust-toolchain
+rustup toolchain link mytool /root/.rust-toolchain
 rustup default mytool
 ```
 
 结果:
-- `which rustc` → `/home/gem/.cargo/bin/rustc`(**rustup 代理 shim**,不是裸二进制);
+- `which rustc` → `/root/.cargo/bin/rustc`(**rustup 代理 shim**,不是裸二进制);
 - `rustc --version` → 1.97.1(经 shim 解析到 mytool);
 - `rustup show` → `mytool (active, default)`。
 
@@ -143,14 +143,14 @@ rustup default mytool
   2. 用 `python:3.11-slim-bookworm` 一次性容器(与离线目标同 ABI:cp311 + manylinux + glibc 2.36)`pip download -d wheels --only-binary :all: pydantic rich requests` → 14 个 wheel(含 native `pydantic_core-2.46.4-cp311-cp311-manylinux_2_17_x86_64` 和 `charset_normalizer` native wheel)。
 - 离线机(app 容器,stack 无网络):
   3. `docker cp` uv → `~/.local/bin/uv`(login/非 login 终端均见,见 §12)。
-  4. `uv venv --python /usr/bin/python3 /home/gem/pydemo/.venv` —— 用系统 python,**无网络**(uv venv 默认不 seed pip)。
+  4. `uv venv --python /usr/bin/python3 /root/pydemo/.venv` —— 用系统 python,**无网络**(uv venv 默认不 seed pip)。
   5. `uv pip install --python <venv> --no-index --find-links /tmp/wheels --offline pydantic rich requests` —— 从本地 wheelhouse 装,全 14 包含 native pydantic-core。
   6. demo:pydantic 模型 + rich 面板 + import requests/pydantic_core → native `.so` 加载成功、模型验证返回 `{'name':'AIO-offline','age':1}`。
 
 **坑**:
 - native wheel(pydantic-core)要匹配目标 ABI(cp311 + manylinux_2_17 + glibc)。用与离线目标**同镜像基**的容器建 wheelhouse 是最稳的保证(`python:3.11-slim-bookworm` 对 sandbox-base 的 3.11.2)。
 - `uv venv` 默认不 seed pip(无需网络);但 `--seed` 会拉 pip → 离线别用。建 venv 要 `--python /usr/bin/python3` 显式指定系统解释器,否则 uv 可能去拉 managed python(联网)。
-- wheelhouse 是 docker cp / bind mount 产出 → root 属主,gem 删不掉,清理要 `docker exec -u root rm` + 宿主 `sudo rm`(同 rg/fd 那次的坑)。
+- wheelhouse 是 docker cp / bind mount 产出 → root 属主。容器内现在统一 root,可直接删除;旧 gem(uid 1000)时代才需要 `docker exec -u root rm` + 宿主 `sudo rm`(同 rg/fd 那次的坑)。
 
 **结论**:python+uv 离线开发链路通:uv 静态二进制 + 系统 python + 本地 wheelhouse(`--no-index --find-links --offline`)。native wheel 的 ABI 匹配是关键,用同基容器建 wheelhouse 可保证。
 
@@ -234,7 +234,7 @@ esac
 
 实测:修后非 login 交互 bash(`bash -ic`,三容器)均能在 `~/.local/bin` 找到并跑工具(`extbin` → `extbin-ok`),修前为 `NONE`。清理 marker 后保留 `~/.bashrc` 修复。
 
-**更彻底的固化**(下次重建 base 时做):`Dockerfile.base` 加 `ENV PATH=/home/gem/.local/bin:$PATH`,连非交互 shell 都覆盖,且不依赖用户 dotfiles。
+**更彻底的固化**(下次重建 base 时做):`Dockerfile.base` 加 `ENV PATH=/root/.local/bin:$PATH`,连非交互 shell 都覆盖,且不依赖用户 dotfiles。
 
 ## 13. 覆盖度小结
 

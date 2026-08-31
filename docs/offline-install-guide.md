@@ -40,7 +40,7 @@ aio-pi-extensions
 | **联网机**(online) | 有外网的工作机,负责所有下载/编译/vendor/打包。 |
 | **离线机**(offline) | 已部署的 AIO 沙箱(caddy + axum app + code-server + vnc),**全程不联网**。 |
 | **stack** | 离线机上运行的 4 容器(gateway/app/code-server/vnc)。 |
-| **共享卷** | 命名卷 `aio_workspace`,挂载在 app/code-server/vnc 的 `/home/gem`(uid 1000 gem)。 |
+| **共享卷** | 命名卷 `aio_workspace`,挂载在 app/code-server/vnc 的 `/root`(容器内统一 root)。 |
 
 **铁律**:
 1. 所有联网工作在**联网机**做;离线 stack **不碰网络**。
@@ -60,7 +60,7 @@ aio-pi-extensions
 
 - **① 联网机准备**:把目标变成**自包含制品**(单二进制 / 预编译 wheel / 完整 tarball / vendor 包)。能拿预编译就别现场编译;必须编译的,在联网机(与离线机同基)编译好再打包。
 - **② 传到离线机**:同 docker daemon 用 `docker cp`;真气隙用 U 盘/scp 到离线机 host 再 `docker cp`。
-- **③ 离线机安装**:落到共享卷(首选)或对应位;`chown 1000:1000` + `chmod +x`;再 login + 非 login 两路验证;临时则清理。
+- **③ 离线机安装**:落到共享卷(首选)或对应位;`chmod +x`(容器内即 root,无需 chown);再 login + 非 login 两路验证;临时则清理。
 
 这三步是**骨架**,§4 的每类配方只是把这三步具体化。遇到没见过的新类型,先想清这三步各自怎么做,再对号入座。
 
@@ -68,7 +68,7 @@ aio-pi-extensions
 
 | 目标 | 位置 | 抗 recreate | 何时用 |
 |---|---|---|---|
-| **共享卷** | `~/.local/bin` 等(`/home/gem`) | ✅ | 自包含工具、脚本、venv、用户级运行时 —— **默认** |
+| **共享卷** | `~/.local/bin` 等(`/root`) | ✅ | 自包含工具、脚本、venv、用户级运行时 —— **默认** |
 | **镜像** | `Dockerfile.base` 烘进层,`docker save/load` 重建 | ✅(随镜像) | 持久系统服务、apt 服务、基础环境固化 |
 | 容器可写层 | `/usr`、`/etc` | ❌(recreate 即丢) | 只用于临时验证,不依赖其持久 |
 
@@ -144,7 +144,7 @@ esac
 # <<< AIO_LOCAL_BIN_BLOCK <<<
 ```
 
-**3.2.2 固化(下次重建 base)**:`Dockerfile.base` 加 `ENV PATH=/home/gem/.local/bin:$PATH`,连非交互 shell 都覆盖;固化后 3.2.1 的 block 可摘除。
+**3.2.2 固化(下次重建 base)**:`Dockerfile.base` 加 `ENV PATH=/root/.local/bin:$PATH`,连非交互 shell 都覆盖;固化后 3.2.1 的 block 可摘除。
 
 **验证两路都过**:
 ```bash
@@ -152,9 +152,9 @@ docker exec aio-app-1 bash -lc  '<tool> --version'   # login(AIO 终端面板)
 docker exec aio-app-1 bash -ic '<tool> --version' 2>/dev/null   # 非 login(code-server 终端)
 ```
 
-### 3.3 root 属主清理
+### 3.3 文件属主
 
-`docker cp` / bind mount 产出的文件常是 **root 属主**,gem 删不掉。清理要用 `docker exec -u root rm` + 宿主 `sudo rm`。一次性容器尽量 `--user $(id -u):$(id -g)` 避免产出 root 属主文件。
+旧版工作区用户是 `gem`(uid 1000),当时 `docker cp` / bind mount 产出的 **root 属主**文件 gem 删不掉,要靠 `docker exec -u root rm` + 宿主 `sudo rm` 清理。现在容器内一律 **root**,root 属主即默认属主,可直接读写删除,这一坑不再存在;bind mount 到宿主的文件属主仍由宿主侧用户决定。
 
 ### 3.4 持久性与容器生命周期
 
@@ -190,10 +190,9 @@ file "$BIN"; ldd "$BIN" 2>/dev/null || echo "static(无依赖)"
 
 **② 传输 + ③ 离线机安装**:
 ```bash
-docker exec aio-app-1 mkdir -p /home/gem/.local/bin
-docker cp "$BIN" aio-app-1:/home/gem/.local/bin/rg
-docker exec -u root aio-app-1 chown 1000:1000 /home/gem/.local/bin/rg
-docker exec -u root aio-app-1 chmod +x /home/gem/.local/bin/rg
+docker exec aio-app-1 mkdir -p /root/.local/bin
+docker cp "$BIN" aio-app-1:/root/.local/bin/rg
+docker exec -u root aio-app-1 chmod +x /root/.local/bin/rg
 ```
 
 **验证**:见 §3.2.2(login + 非 login 两路)。
@@ -217,7 +216,7 @@ tar -czf pkg.tar.gz -C "$PREFIX" bin lib
 **② 传输 + ③ 离线机安装**:
 ```bash
 docker cp pkg.tar.gz aio-app-1:/tmp/
-docker exec aio-app-1 tar -xzf /tmp/pkg.tar.gz -C /home/gem/.local   # bin→~/.local/bin, lib→~/.local/lib/node_modules
+docker exec aio-app-1 tar -xzf /tmp/pkg.tar.gz -C /root/.local   # bin→~/.local/bin, lib→~/.local/lib/node_modules
 docker exec aio-app-1 bash -lc '<pkg> --version'
 ```
 > 全局 bin 是 `#!/usr/bin/env node`,靠 base 的 node(PATH)运行。
@@ -274,11 +273,11 @@ docker cp rust.tar.xz    aio-app-1:/tmp/
 docker cp vendored.tar.xz aio-app-1:/tmp/
 docker exec aio-app-1 bash -lc '
   cd /tmp && mkdir rt && cd rt && tar -xJf /tmp/rust.tar.xz
-  cd rust-*/ && ./install.sh --prefix=/home/gem/.rust --without=rust-docs
-  export PATH=/home/gem/.rust/bin:$PATH
+  cd rust-*/ && ./install.sh --prefix=/root/.rust --without=rust-docs
+  export PATH=/root/.rust/bin:$PATH
   cd /tmp && tar -xJf /tmp/vendored.tar.xz && cd <repo>-<ver>
   cargo build --offline --release
-  cp target/release/<bin> /home/gem/.local/bin/'
+  cp target/release/<bin> /root/.local/bin/'
 ```
 
 **坑**:`cargo vendor --quiet` 吞 config 成 0 字节 → 离线构建联网失败,**不加 `--quiet`**。工具链用 standalone `install.sh`(离线),不是 `rustup`(见方法 E)。
@@ -295,15 +294,15 @@ curl -L -o rust.tar.xz https://static.rust-lang.org/dist/<date>/rust-<ver>-x86_6
 
 **② 传输 + ③ 离线机安装**(rustup 1.29 真·频道装未通,用 `toolchain link`):
 ```bash
-docker cp rustup-init aio-app-1:/home/gem/.local/bin/rustup-init
+docker cp rustup-init aio-app-1:/root/.local/bin/rustup-init
 docker cp rust.tar.xz aio-app-1:/tmp/
 docker exec aio-app-1 bash -lc '
   cd /tmp && mkdir rt && cd rt && tar -xJf /tmp/rust.tar.xz
-  cd rust-*/ && ./install.sh --prefix=/home/gem/.rust-toolchain --without=rust-docs
-  export RUSTUP_HOME=/home/gem/.rustup CARGO_HOME=/home/gem/.cargo
-  mkdir -p /home/gem/.cargo/bin && cp /home/gem/.local/bin/rustup-init /home/gem/.cargo/bin/rustup
-  /home/gem/.cargo/bin/rustup toolchain link mytool /home/gem/.rust-toolchain
-  /home/gem/.cargo/bin/rustup default mytool
+  cd rust-*/ && ./install.sh --prefix=/root/.rust-toolchain --without=rust-docs
+  export RUSTUP_HOME=/root/.rustup CARGO_HOME=/root/.cargo
+  mkdir -p /root/.cargo/bin && cp /root/.local/bin/rustup-init /root/.cargo/bin/rustup
+  /root/.cargo/bin/rustup toolchain link mytool /root/.rust-toolchain
+  /root/.cargo/bin/rustup default mytool
   rustc --version; cargo --version; rustup show'
 ```
 
@@ -326,13 +325,12 @@ docker run --rm -v "$PWD/wheels":/out python:3.12-slim-bookworm sh -c '
 
 **② 传输 + ③ 离线机安装**:
 ```bash
-docker cp uv aio-app-1:/home/gem/.local/bin/uv
-docker exec -u root aio-app-1 chown 1000:1000 /home/gem/.local/bin/uv
+docker cp uv aio-app-1:/root/.local/bin/uv
 docker cp wheels aio-app-1:/tmp/wheels
 docker exec aio-app-1 bash -lc '
-  export PATH=/home/gem/.local/bin:$PATH
-  uv venv --python /usr/bin/python3 /home/gem/<proj>/.venv        # 系统 python,无网络;别用 --seed
-  uv pip install --python /home/gem/<proj>/.venv/bin/python \
+  export PATH=/root/.local/bin:$PATH
+  uv venv --python /usr/bin/python3 /root/<proj>/.venv        # 系统 python,无网络;别用 --seed
+  uv pip install --python /root/<proj>/.venv/bin/python \
       --no-index --find-links /tmp/wheels --offline <pkg1> <pkg2> ...'
 ```
 
@@ -343,10 +341,9 @@ docker exec aio-app-1 bash -lc '
 **属性**:shell/python 脚本、配置、数据集。**装哪**:`~/.local/bin`(可执行)或项目目录(资源)。
 
 ```bash
-docker cp myscript.sh aio-app-1:/home/gem/.local/bin/myscript
-docker exec -u root aio-app-1 chown 1000:1000 /home/gem/.local/bin/myscript
-docker exec -u root aio-app-1 chmod +x /home/gem/.local/bin/myscript
-docker cp data.csv aio-app-1:/home/gem/<proj>/data.csv
+docker cp myscript.sh aio-app-1:/root/.local/bin/myscript
+docker exec -u root aio-app-1 chmod +x /root/.local/bin/myscript
+docker cp data.csv aio-app-1:/root/<proj>/data.csv
 ```
 脚本 `#!/bin/sh` / `#!/usr/bin/env python3`,sh/python 在 base PATH,可直接跑。
 

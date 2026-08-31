@@ -1042,7 +1042,7 @@ mod tests {
     #[test]
     fn pi_scan_aggregates_and_filters() {
         let dir = temp_dir();
-        let sessions = dir.join(".pi/agent/sessions/--home-gem-pi--");
+        let sessions = dir.join(".pi/agent/sessions/--root-pi--");
         std::fs::create_dir_all(&sessions).unwrap();
 
         // Pre-cutoff record (should be skipped by today/7d; included by all).
@@ -1056,31 +1056,31 @@ mod tests {
         let lines = vec![
             // session header line (no message -> skip)
             format!(
-                r#"{{"type":"summary","version":1,"id":"abc","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd"}}"#
+                r#"{{"type":"summary","version":1,"id":"abc","timestamp":"{new_ts}","cwd":"/root/pi-cwd"}}"#
             ),
             // assistant record with usage + model + cost
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r1","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":100,"output":50,"cacheRead":10,"cacheWrite":5,"cost":{{"input":0.1,"output":0.02,"total":0.123}}}}}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r1","timestamp":"{new_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":100,"output":50,"cacheRead":10,"cacheWrite":5,"cost":{{"input":0.1,"output":0.02,"total":0.123}}}}}}}}"#
             ),
             // assistant record with usage + model, no cost
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r2","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":200,"output":0}}}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r2","timestamp":"{new_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":200,"output":0}}}}}}"#
             ),
             // different model
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r3","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","model":"m2","usage":{{"input":7,"output":8}}}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r3","timestamp":"{new_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","model":"m2","usage":{{"input":7,"output":8}}}}}}"#
             ),
             // pre-cutoff, should be skipped for today/7d
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r4","timestamp":"{old_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":999}}}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r4","timestamp":"{old_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","model":"m1","usage":{{"input":999}}}}}}"#
             ),
             // record with message but no usage (should be skipped)
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r5","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","model":"m1"}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r5","timestamp":"{new_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","model":"m1"}}}}"#
             ),
             // record with message but no model (should be skipped)
             format!(
-                r#"{{"type":"assistant","version":1,"id":"r6","timestamp":"{new_ts}","cwd":"/home/gem/pi-cwd","message":{{"role":"assistant","usage":{{"input":1}}}}}}"#
+                r#"{{"type":"assistant","version":1,"id":"r6","timestamp":"{new_ts}","cwd":"/root/pi-cwd","message":{{"role":"assistant","usage":{{"input":1}}}}}}"#
             ),
             // corrupt line (should be skipped)
             "{not json".to_string(),

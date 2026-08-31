@@ -1,6 +1,6 @@
 # >>> scenario: python-dev >>>
 # uv + ruff as single static-ish binaries to /usr/local/bin (system path, NOT
-# /home/gem -> not masked by the workspace volume; on PATH for all users/shells
+# /root -> not masked by the workspace volume; on PATH for all users/shells
 # without a ~/.bashrc block). base already ships python3/pip/venv; this only
 # adds the uv/ruff tooling on top. Versions pinned via ARG for reproducible
 # builds; bump when updating.

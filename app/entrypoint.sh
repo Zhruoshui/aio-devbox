@@ -28,7 +28,7 @@ set -eu
 # Logs go to ~/.aio/pi-web.log on the persistent workspace volume (visible from
 # code-server / the terminal pane via `tail -f`), not to docker logs, which
 # stays axum-only.
-: "${HOME:=/home/gem}"
+: "${HOME:=/root}"
 if command -v pi-web >/dev/null 2>&1; then
 	mkdir -p "$HOME/.aio"
 	(

@@ -6,7 +6,7 @@
 // static tree.
 //
 // Phase E: `GET /api/term/ws` - terminal pty WebSocket bridge (terminal.rs +
-// pty.rs). Spawns a login shell (or `?cmd=`) as uid 1000 in /home/gem and
+// pty.rs). Spawns a login shell (or `?cmd=`) as root in /root and
 // bridges it to the client's xterm.js over the WS.
 //
 // Routing shape (see design §4):
@@ -48,18 +48,18 @@ use routes::{
 };
 use state::AppState;
 
-/// Where the static SPA tree lives in the image. Must be outside `/home/gem`
+/// Where the static SPA tree lives in the image. Must be outside `/root`
 /// (that path is the persistent workspace volume mount point).
 const STATIC_DIR: &str = "/app/static";
 
 /// Default location of the user-registered buttons file (on the workspace
 /// volume, so it persists across recreate and is shared across browsers).
 /// Override with `AIO_BUTTONS_FILE`.
-const BUTTONS_FILE: &str = "/home/gem/.aio/buttons.toml";
+const BUTTONS_FILE: &str = "/root/.aio/buttons.toml";
 
 /// Default location of the canonical model config (providers + agent
 /// assignments). Override with `AIO_MODELS_FILE`.
-const MODELS_FILE: &str = "/home/gem/.aio/models.json";
+const MODELS_FILE: &str = "/root/.aio/models.json";
 
 #[tokio::main]
 async fn main() {

@@ -61,7 +61,7 @@ Five things you can add, by increasing scope:
 2. **A version pin** on an existing versioned scenario (node/python) — edit
    `scenario.toml` `[[versions]]`, no new files.
 3. **A built-in WebUI button** (`app/services.toml`) — needs an app rebuild.
-4. **A runtime-only button** (`/home/gem/.aio/buttons.toml`, via the UI/API) —
+4. **A runtime-only button** (`/root/.aio/buttons.toml`, via the UI/API) —
    no image rebuild, but only `type=agent` in the MVP.
 5. **A containerized web service** (`docker-compose.yml` profile + `Caddyfile`
    `handle_path` + `services.toml` `type=web`) — the heaviest; a whole new pane.
@@ -82,7 +82,7 @@ Is X a whole new containerized process with its own port + a WebUI pane?
 │         §"Adding a containerized web service (L5)". You need ALL of:
 │           • docker-compose.yml: a new service under a `profiles: [<name>]`,
 │             expose its port, join sandbox-net (mount the workspace volume only
-│             if it actually needs /home/gem).
+│             if it actually needs /root).
 │           • gateway/Caddyfile: a `handle_path /<prefix>/*` block BEFORE the
 │             catch-all `handle`, reverse_proxy <service>:<port>.
 │           • app/services.toml: a [[service]] with type=web, target=<svc>:<port>,
@@ -136,7 +136,7 @@ list each piece and its layer — that list IS the plan.
 - **New scenario**: create `scenarios/<id>/scenario.toml` + `scenarios/<id>/fragment.Dockerfile`.
   The `id` MUST equal the directory name or `gen` rejects it. Follow
   `references/scenario-authoring.md` — especially the two rules that cause most
-  bugs: **install to a system path, not `/home/gem`** (the workspace volume masks
+  bugs: **install to a system path, not `/root`** (the workspace volume masks
   it), and **make the tool findable in a login shell** (symlink into `/usr/local/bin`
   or write a `/etc/profile.d/*.sh`, because `bash -l` resets PATH and drops custom
   ENV PATH). Use HTTPS URLs (the network policy blocks plain HTTP and NodeSource).
@@ -191,13 +191,13 @@ Summarize: what layer each piece went into, which files changed, the exact
 commands the user should run, and how to verify. For multi-piece plans, a short
 table (piece | layer | files | commands) reads best. If something was a known
 gotcha (python-build-standalone tag coupling, NodeSource block, login-shell PATH
-reset, volume masking /home/gem), call it out — the user will hit it otherwise.
+reset, volume masking /root), call it out — the user will hit it otherwise.
 
 ## Critical rules (these bite — read scenario-authoring.md for the why)
 
-1. **System path, not /home/gem.** Anything baked into the image must land in
-   `/usr/local`, `/opt`, `/usr/local/bin` — NOT under `/home/gem`. The shared
-   workspace volume (`aio_workspace`) is mounted over `/home/gem` at runtime,
+1. **System path, not /root.** Anything baked into the image must land in
+   `/usr/local`, `/opt`, `/usr/local/bin` — NOT under `/root`. The shared
+   workspace volume (`aio_workspace`) is mounted over `/root` at runtime,
    so anything baked there is masked by the volume (the container sees the
    volume's contents, not your install). This is the #1 scenario bug.
 

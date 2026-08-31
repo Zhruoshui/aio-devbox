@@ -7,7 +7,7 @@ WebUI, plus the compose profiles that gate the heavier containerized services.
 
 | Surface | What it does | Image rebuild needed? | File |
 |---|---|---|---|
-| Runtime button | A sidebar button that runs a CLI in a pty pane | No (writes a file in the running container) | `/home/gem/.aio/buttons.toml` (in the container) |
+| Runtime button | A sidebar button that runs a CLI in a pty pane | No (writes a file in the running container) | `/root/.aio/buttons.toml` (in the container) |
 | Built-in button | Same as above but shipped with the image | Yes (app rebuild, `include_str!`) | `app/services.toml` |
 | Web service (pane) | A whole container with its own port, served in an iframe via the gateway | Yes (compose + caddy + app rebuild) | `docker-compose.yml`, `gateway/Caddyfile`, `app/services.toml` |
 
@@ -51,7 +51,7 @@ So for an **L4 AI agent CLI** you want as a pane:
 
 For a **runtime-only button** (no image rebuild), the MVP supports only
 `type = "agent"` buttons registered via `POST /api/buttons`, which writes
-`/home/gem/.aio/buttons.toml` on the shared volume (survives recreate). Use
+`/root/.aio/buttons.toml` on the shared volume (survives recreate). Use
 this when a tool was installed at runtime into `~/.local/bin` (see
 paths-and-offline.md) and you want a button for it.
 
@@ -65,7 +65,7 @@ change together, or the button shows but the iframe 404s. Walk through each:
 Add a new service. Gate it behind a `profiles: [<name>]` so it only starts when
 the user runs `make up PROFILES=<name>` (matches the code-server/vnc pattern -
 they're opt-in). Mount the shared `workspace` volume if the service needs to
-read `/home/gem`, and join **app's network namespace** via
+read `/root`, and join **app's network namespace** via
 `network_mode: "service:app"` (the netns-sharing topology: code-server/vnc do
 the same, so Chromium reaches dev servers at `http://localhost:<port>`):
 
@@ -80,7 +80,7 @@ my-service:
     - my-service
   network_mode: "service:app"
   volumes:
-    - workspace:/home/gem        # only if it needs the shared files
+    - workspace:/root        # only if it needs the shared files
 ```
 
 `network_mode: "service:app"` (not `networks:`/`expose:`/`ports:` - they are
