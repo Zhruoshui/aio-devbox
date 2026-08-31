@@ -70,6 +70,25 @@ bails. If after substitution any `{{` remains (a var you forgot to declare),
 every version entry (e.g. python uses `{{version}}` AND `{{tag}}`, both
 present in each `[[versions]]`).
 
+## enabled.toml selection contract (incl. the wildcard)
+
+`scenarios` in `enabled.toml` is a list of scenario ids — or the single-element
+wildcard `["*"]`, which expands at `gen`/TUI-load time to **every discovered
+non-`always_on` scenario** (expansion lives in `config/src/manifest.rs::expand`,
+the single owner of selection semantics):
+
+```toml
+scenarios = ["*"]   # full preset: all selectable scenarios, always_on excluded
+```
+
+- `"*"` must be the **only** element; `["*", "rust"]` makes `gen` bail
+  (a clear contract beats lenient dedup).
+- An explicit id list behaves exactly as before (byte-identical `gen` output).
+- The wildcard is why a **new scenario directory is automatically picked up**
+  by the CI full-variant pipeline (`.aio/presets/full.toml` uses `["*"]`) with
+  zero config. CI never enumerates scenario ids itself — the always_on
+  exclusion rule must stay inside aio-config, never leak into CI scripts.
+
 ## fragment.Dockerfile contract
 
 The fragment is concatenated (with a blank-line separator) between
@@ -176,3 +195,9 @@ that calls `apt-get install` must first `apt-get update` again (see the
 - [ ] `make config` to tick it (or hand-edit `enabled.toml`), `make build-base`
       to regenerate `Dockerfile.base`, verify in a container with
       `docker exec aio-app-1 bash -lc '<tool> --version'`.
+- [ ] If the scenario ships a representative CLI: consider adding it to the
+      full-variant probe list in `.github/workflows/images.yml` (`bash -lc` +
+      `command -v` — Rule 2 is exactly what makes the probe pass; shell
+      functions like `nvm` are probeable via their `profile.d` hook). A new
+      scenario joins the CI full build automatically via the `["*"]` preset;
+      the probe list is the only manual follow-up.
