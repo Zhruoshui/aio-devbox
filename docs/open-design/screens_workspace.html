@@ -736,7 +736,7 @@ input { font: inherit; }
     d.innerHTML = html;
     return d;
   }
-  var PROMPT = '<span class="term-prompt">gem@aio</span><span class="term-dim">:</span><span class="term-path">~</span><span class="term-dim">$ </span>';
+  var PROMPT = '<span class="term-prompt">root@aio</span><span class="term-dim">:</span><span class="term-path">~</span><span class="term-dim">$ </span>';
 
   function buildTermPane(t) {
     var term = document.createElement("div");
@@ -754,7 +754,7 @@ input { font: inherit; }
       var tui = document.createElement("div");
       tui.className = "tui";
       tui.innerHTML =
-        '<div class="tui-head"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg><span>opencode · gem@aio · 会话 1</span></div>' +
+        '<div class="tui-head"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg><span>opencode · root@aio · 会话 1</span></div>' +
         '<div class="tui-body">' +
         '  <div class="tui-msg you"><p class="who">你</p><div class="say">帮我把 web/src/Sidebar.tsx 里的按钮分组渲染拆成独立组件。</div></div>' +
         '  <div class="tui-msg"><p class="who">opencode</p><div class="say">已读取 Sidebar.tsx（138 行）。计划：抽出 GroupSection 组件，按 GROUPS 配置渲染，删除内联 map。先给出 diff 预览，确认后再写入。</div></div>' +

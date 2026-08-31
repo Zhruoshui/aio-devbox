@@ -21,8 +21,8 @@ pub struct ScenarioMeta {
     /// groups rows by `category_rank` and renders unknown categories last.
     /// L1 ("os") is the always-on foundation; its version-selectable parts
     /// (node, python) are `always_on` scenarios the TUI shows as locked
-    /// version rows, while the non-versioned L1 infra (apt, ca-certs, user
-    /// gem) stays hardcoded in Dockerfile.base.head and never reaches the TUI.
+    /// version rows, while the non-versioned L1 infra (apt, ca-certs)
+    /// stays hardcoded in Dockerfile.base.head and never reaches the TUI.
     /// Defaults to "lang" so scenario.toml files predating the layer field
     /// still parse.
     #[serde(default = "default_category")]

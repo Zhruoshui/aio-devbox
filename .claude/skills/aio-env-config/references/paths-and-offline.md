@@ -82,7 +82,7 @@ Offline install = get a **self-contained artifact** on an online machine, move
 it to the offline host, install it into the shared volume (`~/.local/bin`) -
 without rebuilding or touching the network from the running stack. Three
 primitives: online prepare -> transfer (`docker cp`) -> offline install to
-`~/.local/bin` with `chown 1000:1000` + `chmod +x`.
+`~/.local/bin` with `chmod +x` (containers run as root - no chown needed).
 
 - **Static/musl binary** (ripgrep, fd, uv): one file to `~/.local/bin`. Easiest.
 - **npm global package**: tar `bin/` + `lib/node_modules/` together, extract to

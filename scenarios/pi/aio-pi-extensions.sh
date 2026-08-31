@@ -15,7 +15,7 @@
 # scheme, which needed npm network) to the baked local paths, so the two
 # schemes never double-load the same package.
 #
-# Run once in any terminal pane (or: docker exec -u 1000:1000 aio-app-1
+# Run once in any terminal pane (or: docker exec aio-app-1
 # bash -lc aio-pi-extensions). Safe to re-run: already-registered paths are
 # skipped.
 set -euo pipefail
