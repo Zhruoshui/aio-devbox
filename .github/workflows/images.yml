@@ -1,0 +1,326 @@
+# GitHub Actions: 沙箱镜像自动构建流水线（minimal/full 双预设）
+#
+# 与 .trellis/tasks/08-31-ci-image-pipelines/design.md §1/§4 对应。三个 job：
+#   prepare - 轻量，算下游入参（matrix / ref / push / prefix / is_tag）
+#   vnc     - 与变体无关的独立镜像（FROM debian:bookworm-slim，不依赖 base）
+#   images  - matrix[variant ∈ minimal|full]：base / app / code-server 构建 +
+#             镜像内工具抽查 + [push 路径] 发布到 GHCR
+#
+# 触发矩阵（prepare 内实现）：
+#   push main          -> variants=[minimal,full]  push=true  ref=sha7
+#   push tag v*        -> variants=[minimal,full]  push=true  ref=标签名
+#   pull_request       -> variants=[minimal]       push=false ref=sha7
+#   workflow_dispatch  -> 输入选择变体；push 输入开关(默认 true，false=干跑) ref=sha7
+#
+# 缓存策略（type=gha，10GB/仓库预算内）：
+#   aio-config、app  -> mode=max（多阶段，builder 层的 cargo/npm 缓存最值钱）
+#   base、code-server、vnc -> 默认 mode=min（单阶段 Dockerfile 的 min≈max）
+#   base/app/code-server 按 variant 分 scope，避免 minimal/full 互相驱逐缓存。
+#
+# 平台：amd64 单架构。多架构时在各 buildx 调用加
+#   --platform linux/amd64,linux/arm64（buildx 结构已为此留好扩展位）。
+
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: '变体选择（both=minimal+full）'
+        type: choice
+        default: both
+        options:
+          - both
+          - minimal
+          - full
+      push:
+        description: '推送到 GHCR（false = 干跑，仅本地验证不推送）'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: images-${{ github.ref }}
+  # 同 ref 并发：push 分支与 PR 取消在跑的旧任务；tag 与 dispatch 排队跑完（tag 不可变）
+  cancel-in-progress: ${{ (github.event_name == 'pull_request') || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.params.outputs.matrix }}
+      ref: ${{ steps.params.outputs.ref }}
+      push: ${{ steps.params.outputs.push }}
+      prefix: ${{ steps.params.outputs.prefix }}
+      is_tag: ${{ steps.params.outputs.is_tag }}
+    steps:
+      - id: params
+        run: |
+          set -euo pipefail
+
+          # GHCR 命名空间强制小写 -> owner 小写化
+          prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+
+          # ref：v* tag 用标签名（不可变），其余用 sha7
+          if [ '${{ github.ref_type }}' = 'tag' ]; then
+            ref='${{ github.ref_name }}'
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            ref="${GITHUB_SHA:0:7}"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
+          # push 布尔：push 事件 true；PR 事件 false；dispatch 用输入开关
+          case '${{ github.event_name }}' in
+            push)
+              push=true
+              ;;
+            pull_request)
+              push=false
+              ;;
+            *)
+              push='${{ github.event.inputs.push }}'
+              push="${push:-true}"
+              ;;
+          esac
+          echo "push=${push}" >> "$GITHUB_OUTPUT"
+
+          # variants：push 全量；PR 仅 minimal；dispatch 按输入
+          case '${{ github.event_name }}' in
+            push)
+              variants='["minimal","full"]'
+              ;;
+            pull_request)
+              variants='["minimal"]'
+              ;;
+            *)
+              case '${{ github.event.inputs.variants }}' in
+                minimal) variants='["minimal"]' ;;
+                full)    variants='["full"]' ;;
+                *)       variants='["minimal","full"]' ;;
+              esac
+              ;;
+          esac
+          echo "matrix=${variants}" >> "$GITHUB_OUTPUT"
+
+          echo "event=${{ github.event_name }} prefix=${prefix} ref=${ref} push=${push} variants=${variants}"
+
+  vnc:
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 20
+    env:
+      PREFIX: ${{ needs.prepare.outputs.prefix }}
+      REF: ${{ needs.prepare.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 buildx（docker-container 驱动）
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建 sandbox-vnc（buildx --load + gha cache）
+        run: |
+          docker buildx build --load \
+            -t sandbox-vnc \
+            --cache-from type=gha,scope=sandbox-vnc \
+            --cache-to type=gha,scope=sandbox-vnc \
+            -f vnc/Dockerfile .
+
+      - name: vnc 镜像内工具抽查
+        run: |
+          docker run --rm --entrypoint bash sandbox-vnc -lc \
+            'command -v websockify >/dev/null && command -v chromium >/dev/null && command -v Xvnc >/dev/null && echo "vnc probe ok"'
+
+      - name: （push 路径）登录 GHCR
+        if: needs.prepare.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: （push 路径）发布 sandbox-vnc（:latest + :<ref>）
+        if: needs.prepare.outputs.push == 'true'
+        run: |
+          docker buildx build --push \
+            -t "${PREFIX}/sandbox-vnc:latest" \
+            -t "${PREFIX}/sandbox-vnc:${REF}" \
+            --cache-from type=gha,scope=sandbox-vnc \
+            -f vnc/Dockerfile .
+
+  images:
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    env:
+      VARIANT: ${{ matrix.variant }}
+      PUSH: ${{ needs.prepare.outputs.push }}
+      REF: ${{ needs.prepare.outputs.ref }}
+      PREFIX: ${{ needs.prepare.outputs.prefix }}
+      IS_TAG: ${{ needs.prepare.outputs.is_tag }}
+    timeout-minutes: 90
+    steps:
+      - name: 磁盘清理（回收 runner ~20GB；内联 rm，不用第三方 action）
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          df -h / | tail -1
+
+      - uses: actions/checkout@v4
+
+      - name: 设置 buildx（docker-container 驱动）
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建 aio-config 配置器镜像（gha cache mode=max）
+        run: |
+          docker buildx build --load \
+            -t aio-config \
+            --cache-from type=gha,scope=aio-config \
+            --cache-to type=gha,mode=max,scope=aio-config \
+            -f config/Dockerfile config/
+
+      - name: 物化预设 + 生成 Dockerfile.base
+        run: |
+          cp ".aio/presets/${VARIANT}.toml" .aio/enabled.toml
+          # 与 Makefile:56-58（gen 目标）逐字一致——若 Makefile 该行变动需同步（漂移检查）
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" aio-config gen --repo /repo
+          echo "scenario fragments in Dockerfile.base: $(grep -c '^# >>> scenario:' Dockerfile.base || true)"
+
+      - name: 构建 sandbox-base（buildx --load + gha cache mode=min）
+        run: |
+          docker buildx build --load \
+            -t sandbox-base \
+            --cache-from "type=gha,scope=sandbox-base-${VARIANT}" \
+            --cache-to "type=gha,scope=sandbox-base-${VARIANT}" \
+            -f Dockerfile.base .
+
+      - name: sandbox-base 镜像内工具抽查（bash -lc 登录 shell 语义 + command -v）
+        run: |
+          set -euo pipefail
+          if [ "${VARIANT}" = "minimal" ]; then
+            tools="node python3"
+          else
+            # full = 全部可选场景的代表工具；bash -lc 顺带守护场景编写的 login-shell PATH 规则
+            tools="node python3 rustc cargo go gofmt uv ruff clang gcc gdb cmake ninja fzf rg bat fd opencode pi pi-web nvm fc-list"
+          fi
+          docker run --rm --entrypoint bash sandbox-base -lc \
+            "for t in ${tools}; do command -v \${t} >/dev/null || { echo \"MISSING in sandbox-base: \${t}\"; exit 1; }; done; echo 'sandbox-base probe ok'"
+
+      - name: （push 路径）登录 GHCR
+        if: needs.prepare.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: （push 路径）先推 sandbox-base 供派生镜像 buildx FROM 解析
+        if: needs.prepare.outputs.push == 'true'
+        run: |
+          # docker-container 驱动的 buildx 看不见 daemon 本地镜像，派生镜像必须经
+          # GHCR 全限定名解析父镜像 -> 先把 base 的 ref 固定标签推上去（层全命中，秒级）
+          docker buildx build --push \
+            -t "${PREFIX}/sandbox-base:${VARIANT}-${REF}" \
+            --cache-from "type=gha,scope=sandbox-base-${VARIANT}" \
+            -f Dockerfile.base .
+
+      - name: 构建 sandbox-app（BASE_IMAGE 注入，gha cache mode=max）
+        run: |
+          if [ "${PUSH}" = "true" ]; then
+            docker buildx build --load \
+              -t sandbox-app \
+              --build-arg "BASE_IMAGE=${PREFIX}/sandbox-base:${VARIANT}-${REF}" \
+              --cache-from "type=gha,scope=sandbox-app-${VARIANT}" \
+              --cache-to "type=gha,mode=max,scope=sandbox-app-${VARIANT}" \
+              -f app/Dockerfile .
+          else
+            # PR 验证车道：default docker 驱动，FROM 解析 daemon 本地 sandbox-base（无 app 层缓存，可接受代价）
+            docker build --build-arg BASE_IMAGE=sandbox-base -t sandbox-app -f app/Dockerfile .
+          fi
+
+      - name: sandbox-app 抽查（aio-app 二进制 + /app/static）
+        run: |
+          docker run --rm --entrypoint bash sandbox-app -lc \
+            'command -v aio-app >/dev/null && test -f /app/static/index.html && echo "sandbox-app probe ok"'
+
+      - name: 构建 sandbox-code-server（BASE_IMAGE 注入）
+        run: |
+          if [ "${PUSH}" = "true" ]; then
+            docker buildx build --load \
+              -t sandbox-code-server \
+              --build-arg "BASE_IMAGE=${PREFIX}/sandbox-base:${VARIANT}-${REF}" \
+              --cache-from "type=gha,scope=sandbox-code-server-${VARIANT}" \
+              --cache-to "type=gha,scope=sandbox-code-server-${VARIANT}" \
+              -f code-server/Dockerfile .
+          else
+            docker build --build-arg BASE_IMAGE=sandbox-base -t sandbox-code-server -f code-server/Dockerfile .
+          fi
+
+      - name: sandbox-code-server 抽查
+        run: |
+          docker run --rm --entrypoint bash sandbox-code-server -lc \
+            'command -v code-server >/dev/null && echo "sandbox-code-server probe ok"'
+
+      - name: （push 路径）二次 buildx --push 发布 base/app/code-server
+        if: needs.prepare.outputs.push == 'true'
+        run: |
+          set -euo pipefail
+          # tag 组装用 bash 小函数（不用 docker/metadata-action——7 次调用太啰嗦）：
+          #   浮动 <variant> + 固定 <variant>-<ref>；v* 发布时 full 家族追加 :latest
+          gen_tags() {
+            local img="$1"
+            echo "${PREFIX}/${img}:${VARIANT}"
+            echo "${PREFIX}/${img}:${VARIANT}-${REF}"
+            if [ "${IS_TAG}" = "true" ] && [ "${VARIANT}" = "full" ]; then
+              echo "${PREFIX}/${img}:latest"
+            fi
+          }
+          # 派生镜像的 base 引用：push 路径一律 GHCR 全限定名（buildx 容器驱动看不见 daemon）
+          base_ref="${PREFIX}/sandbox-base:${VARIANT}-${REF}"
+          push_one() {
+            local img="$1" df="$2" scope="$3"
+            local args=() t
+            while IFS= read -r t; do args+=(--tag "$t"); done < <(gen_tags "$img")
+            [ "${img}" = "sandbox-base" ] || args+=(--build-arg "BASE_IMAGE=${base_ref}")
+            args+=(--cache-from "type=gha,scope=${scope}")
+            docker buildx build --push "${args[@]}" -f "$df" .
+          }
+          push_one sandbox-base        Dockerfile.base         "sandbox-base-${VARIANT}"
+          push_one sandbox-app         app/Dockerfile          "sandbox-app-${VARIANT}"
+          push_one sandbox-code-server code-server/Dockerfile  "sandbox-code-server-${VARIANT}"
+          echo "published $(gen_tags sandbox-base | wc -l) tags per image"
+
+      - name: （仅 minimal）栈冒烟——compose up + 网关 basic-auth 200
+        if: matrix.variant == 'minimal'
+        run: |
+          set -euo pipefail
+          # 镜像已带本地名（上方 buildx --load / docker build 打 tag）；gateway 用官方 caddy:2
+          cp .env.example .env
+          make hash   # 生成 gateway/secrets/hash（默认口令 admin，公开示例口令）
+          docker compose up -d --no-build   # 无 profile：仅 gateway + app（base 在 build profile 下不启动）
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS -u admin:admin http://localhost:8080/ >/dev/null 2>&1; then
+              echo "gateway basic-auth OK"
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          docker compose logs --tail=40 gateway app 2>/dev/null || true
+          docker compose down -v
+          [ "${ok}" = "1" ] || { echo "gateway 未就绪（150s 超时）" >&2; exit 1; }
