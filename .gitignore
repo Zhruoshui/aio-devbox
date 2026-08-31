@@ -58,3 +58,8 @@ vnc-screenshot.png
 
 # --- Offline transfer artifacts (make save / make load) ---
 aio-offline-bundle/
+
+# --- Generated artifacts ---
+# Dockerfile.base is assembled by `aio-config gen` from .aio/enabled.toml
+# (per-machine, gitignored). Canonical path: `make build-base` runs gen first.
+Dockerfile.base
