@@ -119,6 +119,15 @@ app, code-server, and vnc containers. Anything baked into the image layer at
 volume's contents (possibly empty), not what you installed. This is the
 single most common scenario bug.
 
+> **Deliberate divergence from upstream** (b3eb5ed, 2026-08-31): upstream
+> agent-infra/sandbox runs as `gem` (uid 1000) with the volume at
+> `/home/gem`; this repo switched all three containers to `USER root` +
+> `WORKDIR /root` with the volume at `/root` (kills the vnc user replication,
+> the code-server root↔gem switching, and the app EPERM chmod workaround).
+> When porting upstream changes, **do not reintroduce `gem`/uid-1000
+> assumptions**. Reverting is a one-way door: `git revert` PLUS
+> `chown -R 1000:1000` for files created during the root era.
+
 Install baked tools to a system path the volume does not cover:
 
 - `/usr/local/bin` - single binaries (uv, ruff, opencode, the rust/go proxies)
