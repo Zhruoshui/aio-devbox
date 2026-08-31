@@ -4,7 +4,9 @@
 // into Dockerfile.base. Pure file IO + string assembly - no Dockerfile parsing.
 // Idempotent: same selection -> same output (so `make build-base` is safe to
 // re-run). Fragments already carry their own `# >>> scenario: id >>>` banners,
-// so gen only joins them with blank-line separators.
+// so gen only joins them with blank-line separators. A manifest `scenarios`
+// of `["*"]` (the full preset) is expanded to all discovered non-always_on ids
+// before assembly (design §2.2); explicit selections are used verbatim.
 
 use std::collections::HashMap;
 use std::fs;
@@ -45,6 +47,12 @@ pub fn run(repo: &Path) -> Result<()> {
         .map(|s| (s.meta.id.as_str(), s))
         .collect();
 
+    // Resolve a "["*"]" wildcard in the manifest to the concrete ids of every
+    // discovered non-always_on scenario (design §2.2). A manifest with explicit
+    // ids - or no selection at all - is returned verbatim, so pre-wildcard
+    // selections assemble byte-identically (gen stays idempotent, AC3).
+    let selected = enabled.expand(&known)?;
+
     // Deterministic order: by profile LAYER (category_rank) then id, then dedup.
     // Always-on scenarios (L1 "os": node, python) are baked UNCONDITIONALLY -
     // their version selection lives in manifest.versions, not .scenarios - so
@@ -60,7 +68,7 @@ pub fn run(repo: &Path) -> Result<()> {
             keyed.push((s.meta.id.clone(), s.meta.category.clone()));
         }
     }
-    for id in &enabled.scenarios {
+    for id in &selected {
         let cat = by_id
             .get(id.as_str())
             .map(|s| s.meta.category.clone())

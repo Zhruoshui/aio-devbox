@@ -6,7 +6,9 @@
 // L1 infra stays in Dockerfile.base.head and never appears here. Space toggles
 // selectable items (no-op on headers and always_on rows); `s` saves the
 // selection to .aio/enabled.toml and quits, `q` quits without saving.
-// Pre-checks the ids already in the manifest.
+// Pre-checks the ids already in the manifest; a `scenarios = ["*"]` entry (the
+// full preset) is expanded to every selectable scenario so all boxes pre-check,
+// and saving writes back the concrete explicit list.
 //
 // Rows are a flat list interleaving non-selectable category headers and item
 // rows. Navigation (Up/Down) walks all rows. `checked` (Vec<bool>) and
@@ -42,9 +44,13 @@ pub fn run(repo: &Path) -> Result<()> {
     let scenarios = scenario::scan(&repo.join("scenarios"))?;
     let manifest_path = repo.join(".aio/enabled.toml");
     let enabled = manifest::load(&manifest_path)?;
+    // Expand a "["*"]" manifest (e.g. the full preset) to all discovered
+    // selectable scenarios so the picker pre-checks every box; saving writes
+    // back the concrete explicit list, never the wildcard (design §2.2).
+    let selected = enabled.expand(&scenarios)?;
     let mut checked: Vec<bool> = scenarios
         .iter()
-        .map(|s| enabled.scenarios.iter().any(|e| e == &s.meta.id))
+        .map(|s| selected.iter().any(|e| e == &s.meta.id))
         .collect();
 
     // Per-scenario selected version label (None for non-versioned). Initialized

@@ -4,4 +4,7 @@
 # Dockerfile.base is just head + tail, equivalent to the pre-scenario image).
 #
 # scenarios are applied in alphabetical order for reproducible builds.
+# Wildcard: scenarios = ["*"] (must be the only element) expands to EVERY
+# discovered non-always_on scenario - handy for a "full" build that auto-
+# includes future scenario dirs. Mixing "*" with explicit ids is an error.
 scenarios = []
