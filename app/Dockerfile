@@ -11,6 +11,13 @@
 # built and tagged first. Use `make build` / `make up` (which run
 # `make build-base` first), or `docker compose --profile build build base`.
 
+# Global build arg: lets CI's buildx (docker-container driver, which cannot see
+# local daemon images) point the base-derived stages at a GHCR-hosted
+# sandbox-base. Defaults to the local `sandbox-base`, so local builds are
+# unchanged. Declared before the first FROM so every FROM below sees it; not
+# used in any RUN, so no per-stage re-declaration is needed.
+ARG BASE_IMAGE=sandbox-base
+
 # --- Builder: compile the Rust release binary on the official Rust image. ---
 FROM rust:1-bookworm AS builder
 
@@ -40,7 +47,7 @@ COPY app/services.toml ./
 RUN touch src/main.rs && cargo build --release
 
 # --- web-builder: compile the React SPA with Vite (sandbox-base has node 20). ---
-FROM sandbox-base AS web-builder
+FROM ${BASE_IMAGE} AS web-builder
 WORKDIR /web
 # Lockfile-first for a deterministic, cacheable install.
 COPY web/package.json web/package-lock.json ./
@@ -52,7 +59,7 @@ RUN npm run build
 # --- Runtime: derive from the shared dev-env base image. ---
 # Carries node / python / git / opencode because Phase E/F spawn pty shells
 # (terminal, opencode) inside this container.
-FROM sandbox-base
+FROM ${BASE_IMAGE}
 
 COPY --from=builder /app/target/release/aio-app /usr/local/bin/aio-app
 

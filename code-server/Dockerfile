@@ -21,8 +21,12 @@
 # its base URL from window.location. See gateway/Caddyfile + design §3/§6.
 
 ARG CODE_SERVER_VERSION=4.130.0
+# Global build arg: lets CI's buildx (docker-container driver) point the base
+# stage at a GHCR-hosted sandbox-base. Defaults to local `sandbox-base`, so
+# local builds are unchanged. Declared before FROM so this stage sees it.
+ARG BASE_IMAGE=sandbox-base
 
-FROM sandbox-base
+FROM ${BASE_IMAGE}
 
 ARG CODE_SERVER_VERSION
 
