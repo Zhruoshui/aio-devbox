@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/08-03-scenario-preset-profiles/design.md", "reason": "技术设计:config crate 形状、装配契约、rust/python-dev 片段、Makefile/离线流程、Dockerfile.base 拆分迁移"}
+{"file": ".trellis/tasks/08-03-scenario-preset-profiles/prd.md", "reason": "需求与 AC:方案 A、R1-R6、5 条可测验收标准"}
+{"file": ".trellis/tasks/08-03-scenario-preset-profiles/implement.md", "reason": "6 阶段执行清单 + 验证命令 + 风险回滚点"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "backend 是 app/ 单 crate;config/ 作为新构建侧 crate 平级放置的依据"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "manifest 契约:tui(写)与 gen(读)跨边界单一所有者"}
+{"file": "docs/offline-install-guide.md", "reason": "场景片段安装方法参照(构建期在线等价 + 落系统路径避卷遮盖的既有哲学)"}

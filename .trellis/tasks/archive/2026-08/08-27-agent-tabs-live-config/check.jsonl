@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "核对 live 回读/新路由/写回通道是否偏离总契约(键级合并、ApplyResult、幂等语义)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门:测试覆盖矩阵(正常/缺失/损坏/json5 注释)与 clippy/fmt"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门:tsc strict、i18n 双语成对、无手填回退"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "复查 decode 边界唯一性与容错(畸形 live 项跳过不崩)"}

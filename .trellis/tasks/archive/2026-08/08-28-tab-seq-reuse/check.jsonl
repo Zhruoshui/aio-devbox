@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "质量门槛：typecheck/build/冒烟验证路径"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "effect cleanup/observer 约定；验证 beforeComponentRelease 归还序号无泄漏"}

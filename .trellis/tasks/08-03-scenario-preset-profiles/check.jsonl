@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-03-scenario-preset-profiles/prd.md", "reason": "验收标准 AC1-AC5 逐条核对"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "config crate 代码质量约定"}
+{"file": ".trellis/spec/guides/commit-guidelines.md", "reason": "提交:中文 subject + 英文前缀"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "tui/gen 共享 scenario+manifest 代码,不重复"}
+{"file": ".trellis/tasks/08-03-scenario-preset-profiles/design.md", "reason": "契约核对:片段落系统路径、装配顺序、gen 幂等"}

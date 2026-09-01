@@ -1,0 +1,4 @@
+{"file": ".claude/skills/aio-env-config/SKILL.md", "reason": "场景系统全景:分层模型、决策树、5 步流程、关键规则(系统路径/登录 shell PATH/HTTPS/版本固定)"}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "scenario.toml + fragment.Dockerfile 契约、两个 PATH 规则、卷遮盖规则、版本模板机制、保存前检查清单"}
+{"file": ".claude/skills/aio-env-config/references/layers.md", "reason": "L1-L5 分层模型;c23 场景属于 L3 lang,安装路径规范(gcc/clang 到系统路径)"}
+{"file": ".claude/skills/aio-env-config/references/recipes.md", "reason": "Recipe 1/3/6 参考:新 L3 语言场景、apt 工具场景、多场景规划与重建 gotchas"}

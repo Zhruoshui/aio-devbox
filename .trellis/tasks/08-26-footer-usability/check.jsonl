@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端整体质量门:tsc --noEmit + vite build + smoke-test"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查 StatsSnapshot 解码不散落 inline cast"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "检查 Statusbar 保持纯展示(fetch 只在 hook)"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "采样失败的 tracing::warn 用法与级别检查"}

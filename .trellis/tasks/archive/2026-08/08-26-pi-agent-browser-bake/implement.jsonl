@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/08-26-pi-agent-browser-bake/research/agent-browser-wrapper.sh", "reason": "上游 agent-infra sandbox 的 wrapper 参考实现(--cdp 注入 + 真身解析),本任务 wrapper 的改编母本"}
+{"file": ".trellis/tasks/08-26-pi-agent-browser-bake/research/agent-browser-init.sh", "reason": "上游 CDP 就绪等待 + cookie 注入参考(本任务不实现 init,仅供理解上游 daemon 惰性启动模型)"}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality check conventions"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error-handling conventions for axum routes/pty"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality conventions for the React workspace"}
+{"file": ".trellis/tasks/archive/2026-07/07-28-research-aio-architecture/research/08-server-architecture-reverse-engineered.md", "reason": "Verify implementation matches reference VNC/terminal/code-server behavior"}

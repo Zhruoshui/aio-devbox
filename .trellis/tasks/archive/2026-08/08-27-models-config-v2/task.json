@@ -1,0 +1,31 @@
+{
+  "id": "models-config-v2",
+  "name": "models-config-v2",
+  "title": "模型配置页二期——pi-web 表单流 + cc-switch 多配置项 + 用量修复",
+  "description": "五点需求:1) 供应商表单改 pi-web 布局+models.dev 一键填充 2) pi 页签管理现有配置+复用供应商模型列表 3) opencode 同 pi 4) claude/codex 改 cc-switch 式多配置项 5) 用量数据正确性(缓存归账)+表格对齐修复",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "ruoshui",
+  "assignee": "ruoshui",
+  "createdAt": "2026-08-27",
+  "completedAt": "2026-08-27",
+  "branch": null,
+  "base_branch": "feat/aio-sandbox-mvp",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-27-provider-form-piweb",
+    "08-27-agent-tabs-live-config",
+    "08-27-agent-multi-preset",
+    "08-27-usage-correctness"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

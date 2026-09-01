@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "canonical store / key masking / renderer key-level merge 契约——agents schema 改 preset 及 apply 当前 preset 必须遵循本指南;任务 3.8 亦要求更新它"}
+{"file": ".trellis/tasks/archive/2026-08/08-26-unified-model-config/research/cc-switch-config-model.md", "reason": "cc-switch preset 模型调研(PRD 引用 §1 ProviderManager/§3 切换机制/§6 取舍)——派生范式(preset 引用 providerId 不复制 blob)与不做 backfill 快照的依据"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "apply 遇 current 缺失/悬空时 push_err(不写半截文件)的错误处理约定"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 侧质量门:模块头注释/公共项 doc comment、no bare unwrap、cargo test 约定"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "store.rs 与 routes/models/render/ 的位置与模块组织约定"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "panes/models/ 组件拆分(ModelsPane 壳 + 视图子组件)约定,PresetList 落位参考"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Kumo 卡片样式(ml-card 衍生)、focus ring/disabled/loading、reduced-motion 等 PresetList 视觉约定"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "ModelsPane 状态与 handler 组织模式(addPreset/updatePreset/... 全走 PUT canonical 通道)"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "types.ts 严格解码约定——ClaudePresets/CodexPresets 接口与解码器须与后端 serde 形状对齐"}

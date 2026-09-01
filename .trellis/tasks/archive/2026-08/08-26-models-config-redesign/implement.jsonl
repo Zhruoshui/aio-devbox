@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "后端 /api/models 契约、canonical 结构、渲染器、discover/test/usage 语义（本任务 R1 删除 anthropic 块的依据与 touchpoint）"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "React 组件规范：typed props、JSX.Element、文件头注释、manifest url 替换等（拆分 panes/models 目录时遵守）"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端目录结构、pane 类型、ModelsPane 定位（确认 panes/models 拆分不影响 golden-layout 集成）"}
+{"file": "docs/open-design/cloudflare_kumo_ui.md", "reason": "R3 视觉规范：token 绑定、卡片分层、字阶、图表配色（分类/语义/递进）"}

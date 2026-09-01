@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Statusbar 改版 + icons sprite 扩展需遵循组件规范"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "新建 useStats 轮询 hook(3s interval + AbortController 清理)"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "StatsSnapshot 前后端契约镜像,单一 owner 原则(types.ts ↔ routes/stats.rs)"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "localStorage 布局持久化(aio.layout)与 online 状态归 App.tsx 的模式"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "/api/stats 采样失败降级策略(恒 200 + warn 一次)需符合后端错误处理约定"}

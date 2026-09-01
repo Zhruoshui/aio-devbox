@@ -1,0 +1,4 @@
+{"file": ".claude/skills/aio-env-config/references/compose-registry.md", "reason": "L5 web 服务三件套契约(compose profile + Caddyfile handle_path + services.toml type=web);本任务改的是该契约的拓扑前提(netns 共享),实现须与之一致并同步更新它"}
+{"file": ".trellis/tasks/08-24-vnc-refactor/design.md", "reason": "本任务技术设计:netns 语义契约、生命周期矩阵、file-by-file 变更清单、验证计划(AC1-AC6 映射)"}
+{"file": ".trellis/tasks/archive/2026-07/07-28-research-aio-architecture/research/02-architecture.md", "reason": "参考项目(agent-infra/sandbox)架构与端口表,重构对标的原始研究"}
+{"file": ".trellis/spec/guides/commit-guidelines.md", "reason": "Phase 3.4 提交规范(单 commit/revert 即回滚的设计与提交粒度匹配)"}

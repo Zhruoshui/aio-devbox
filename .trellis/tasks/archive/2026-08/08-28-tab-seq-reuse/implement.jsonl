@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "栈与结构总览：App.tsx 是 golden-layout 唯一属主，序号逻辑就在该文件"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "React 组件/注释约定；改 launch() 与组件工厂需遵循"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "componentState 单一解码约定(readServiceState/isServiceEntry)；seqRef 类型改造需对齐"}

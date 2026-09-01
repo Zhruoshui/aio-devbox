@@ -1,0 +1,3 @@
+{"file": ".claude/skills/aio-env-config/SKILL.md", "reason": "校验依据:决策树结论、关键规则(不装 /home/gem、login shell 可见、HTTPS、版本固定)"}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "校验清单:scenario.toml 字段、id==目录名、fragment 横幅、规则 1-5 逐条核对"}
+{"file": ".claude/skills/aio-env-config/references/recipes.md", "reason": "验证命令模板:docker exec bash -lc 的 login-shell 验证、Dockerfile.base 无 {{ 残留"}

@@ -1,0 +1,4 @@
+{"file": ".claude/skills/aio-env-config/SKILL.md", "reason": "配置系统全图：make config/gen/build-base 链路、场景分层、always_on 规则——通配符与预设设计的权威依据"}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "manifest 选区契约与两条 PATH 铁律（系统路径安装、登录 shell 可见）——通配符展开与 CI 抽查探针(bash -lc)须遵守"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "CI 不得分叉构建逻辑（复刻 make gen 命令行而非另写一套），复用思维守则"}
+{"file": ".trellis/spec/guides/commit-guidelines.md", "reason": "3.4 提交规范：英文 conventional 前缀 + 中文主标题/body"}

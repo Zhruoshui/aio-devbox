@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "usage 聚合契约(各 agent 日志源字段、30s 缓存、行身份 (agent,provider,model))与 canonical store 契约——成本补算读 canonical cost 配置须遵循;任务 §5 亦要求更新其 usage 段"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 质量门:模块/公共项 doc comment、no bare unwrap、cargo test 约定"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "usage 全链路 fallible-skip 约定(补算不得破坏:单条失败不炸响应)"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "UsageTab/ModelTable 表格改造的 Kumo 组件约定(粘性表头/截断/焦点态/reduced-motion)"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "types.ts 解码边界约定——UsageRow.cost 语义(Some/undefined)若涉解码须在此同步"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门:npm run build(tsc 严格)干净"}

@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-26-unified-model-config/research/pi-web-model-config.md", "reason": "待复刻的参考实现:models.json schema、/v1/models 发现(URL推导/头/多形态解析)、test 最小补全探测(16 token/无重试/20s超时)、原子写0600+缓存失效"}
+{"file": ".trellis/tasks/08-26-unified-model-config/research/cc-switch-config-model.md", "reason": "四 agent 渲染目标 verbatim 形状(claude env 键/codex toml+auth/opencode provider 片段/pi 节点)、/v1/models 多候选URL、切换式vs增量式分类、原子写与回滚模式"}
+{"file": ".trellis/tasks/08-26-unified-model-config/research/aio-integration-and-usage-sources.md", "reason": "AIO 接入点(routes/mod.rs 挂载、pane 类型扩展点 App.tsx:523-547、services.toml、Cargo 依赖缺口)与用量数据源实测字段(pi jsonl/opencode sqlite/claude/codex 装后路径)"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨 API/服务/组件三层:manifest 契约单一解码点(readServiceState)、ModelsPane API 响应一处解码、jsonl 记录新增字段需过边界检查"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "四个渲染器与两个扫描器结构相似:动手前先找既有 helper(原子写/备份/HTTP 客户端),避免四份平行实现"}

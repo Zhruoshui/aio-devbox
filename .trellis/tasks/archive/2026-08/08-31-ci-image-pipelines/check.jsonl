@@ -1,0 +1,4 @@
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "校验抽查探针是否用 bash -lc 登录 shell 语义、通配符展开是否保持 always_on 排除规则唯一归属"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "校验 workflow 未与 Makefile 分叉出第二套构建逻辑（gen 命令行一致性）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 侧（manifest/gen 改动）质量门槛与测试要求"}
+{"file": ".trellis/spec/guides/commit-guidelines.md", "reason": "提交信息规范校验"}

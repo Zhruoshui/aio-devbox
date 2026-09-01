@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "核对 schema 迁移/shadow 反序列化/renderer 取 current/validate 带 preset name 是否符合契约;完成后本指南应同步更新(agents preset 形状)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门:doc comments、no bare unwrap、cargo test models 全绿"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门:npm run build(tsc 严格 + vite)干净"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "核对 PresetList 视觉(Kumo 卡片、当前徽标语义色、focus/disabled/loading、reduced-motion)与 i18n 键完整性"}
+{"file": ".trellis/tasks/archive/2026-08/08-26-unified-model-config/research/cc-switch-config-model.md", "reason": "核对范式遵从:preset 派生自供应商库(不复制 settingsConfig blob)、无 backfill 快照、切换只改 current 不改数组序"}

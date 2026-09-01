@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/08-26-unified-model-config/prd.md", "reason": "验收基准:AC1-AC7(发现/检测/四agent生效/未装预置/用量与日志抽验一致/不破坏既有配置)"}
+{"file": ".trellis/tasks/08-26-unified-model-config/design.md", "reason": "检查实现是否偏离设计契约:API 路由形状、canonical schema、key 打码往返、键级合并不丢用户键、备份滚动×3、usage 窗口语义"}
+{"file": ".trellis/tasks/08-26-unified-model-config/research/aio-integration-and-usage-sources.md", "reason": "实测字段对照表:usage 聚合字段名与数据源实测一致(pi usage.input/opencode tokens.cache.read 等);容器重建验证须显式 build+force-recreate"}
+{"file": ".trellis/spec/guides/index.md", "reason": "AI 评审误报校验规则(trust boundary/设计注释/测试同义反复)与跨层/复用思考清单"}

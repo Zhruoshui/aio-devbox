@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "路由组总契约:canonical schema、renderer 键级合并管线、ApplyResult/masking 约定——live 回读扩展与 3 条新路由必须对齐"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "新路由错误契约(400 未知 agent / 404 NotFound / 422 Corrupt)须与后端错误处理规范一致"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "LiveProviderList 新组件与 AgentTabs 改造须遵循组件拆分/props 约定"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "types.ts 是唯一 decode 边界;AgentLive 扩展与 liveMatchState 新 helper 须遵守"}
+{"file": ".trellis/tasks/archive/2026-08/08-26-unified-model-config/research/pi-web-model-config.md", "reason": "pi-web models 面板布局参考——live provider 列表(行+展开+当前默认徽标)的视觉与交互原型"}

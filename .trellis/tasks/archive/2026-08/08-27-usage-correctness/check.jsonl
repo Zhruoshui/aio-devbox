@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "核对成本单位 $/M 约定、补算优先级(日志>0 保留 / 0/None 补)、匹配规则(精确->模糊)、零值行过滤是否符合;完成后更新其 usage 段"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门:doc comments、no bare unwrap、cargo test models 全绿"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门:npm run build(tsc 严格)干净"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "核对表格对齐(cache 拆两列/粘性表头/截断/右对齐/reduced-motion)与 hasCost 语义修正"}

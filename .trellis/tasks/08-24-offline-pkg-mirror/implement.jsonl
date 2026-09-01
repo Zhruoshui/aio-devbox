@@ -1,0 +1,5 @@
+{"file": ".claude/skills/aio-env-config/references/compose-registry.md", "reason": "L5 外挂服务的三件套契约(compose profile + Caddyfile handle_path + services.toml type=web),mirror 服务完全套用此模式"}
+{"file": ".claude/skills/aio-env-config/references/paths-and-offline.md", "reason": "镜像层/共享卷/可写层三存储面模型 —— aio_pkgs 卷设计(镜像装服务、卷装数据)的依据"}
+{"file": "docs/offline-install-guide.md", "reason": "既有离线方法论(三原语/§3.4 卷迁移/方法D cargo vendor/方法F wheelhouse),warm 脚本与 cargo 产品化在其上扩展;新章节挂它的整机分发段"}
+{"file": "docs/offline-tool-install.md", "reason": "各离线方法的实测记录(npm prefix tar/wheelhouse/cargo vendor),Step 5/7 的验证基线"}
+{"file": ".trellis/tasks/08-24-offline-pkg-mirror/design.md", "reason": "本任务技术设计:compose 服务/卷/属主、verdaccio 配置、aio-mirror-env 接线与降级、warm 目标、分发与回滚"}

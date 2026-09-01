@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/archive/2026-07/07-28-research-aio-architecture/research/02-architecture.md", "reason": "Reference AIO topology - ports, routes, components; informs container/route design"}
+{"file": ".trellis/tasks/archive/2026-07/07-28-research-aio-architecture/research/08-server-architecture-reverse-engineered.md", "reason": "Reference server/VNC/code-server/terminal implementation details; maps to design phases D/E/G"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec entry point (Rust axum app)"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Cross-package reuse guidance (sandbox-base shared image)"}
