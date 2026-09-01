@@ -1,6 +1,11 @@
 // RegisterDialog - modal form for user-registered buttons (POST /api/buttons
 // via the onRegister callback from App).
 //
+// Two button types (issue #1): "agent" (terminal command, the original form)
+// and "web" (dev server port preview - swaps the cmd field for a port input).
+// The type toggle is a segmented control; switching keeps the label but only
+// the active type's field is validated/submitted.
+//
 // Kumo dialog guidance (docs/open-design/cloudflare_kumo_ui.md): keep the
 // dialog mounted and drive visibility through open state so entry/exit motion
 // completes; visible field labels; per-field errors associated with their
@@ -12,19 +17,23 @@ import { useEffect, useRef, useState } from "react";
 
 import { t, type Lang } from "./i18n";
 import { Icon } from "./icons";
+import type { RegisterButtonInput, RegisterButtonType } from "./types";
 
 interface Props {
   open: boolean;
   lang: Lang;
   onClose: () => void;
-  onRegister: (label: string, cmd: string) => Promise<boolean>;
+  onRegister: (input: RegisterButtonInput) => Promise<boolean>;
 }
 
 export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.Element {
+  const [type, setType] = useState<RegisterButtonType>("agent");
   const [label, setLabel] = useState("");
   const [cmd, setCmd] = useState("");
+  const [port, setPort] = useState("");
   const [labelErr, setLabelErr] = useState(false);
   const [cmdErr, setCmdErr] = useState(false);
+  const [portErr, setPortErr] = useState(false);
   const [failed, setFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Opener element is captured on open so focus can be restored on close.
@@ -37,10 +46,13 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
   // visibility transition then computes visible immediately) before focusing.
   useEffect(() => {
     if (!open) return;
+    setType("agent");
     setLabel("");
     setCmd("");
+    setPort("");
     setLabelErr(false);
     setCmdErr(false);
+    setPortErr(false);
     setFailed(false);
     openerRef.current = document.activeElement;
     // The overlay fades in over visibility+opacity, and focus() on a
@@ -68,7 +80,7 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, label, cmd]);
+  }, [open, label, cmd, port]);
 
   function close(): void {
     onClose();
@@ -80,18 +92,35 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
     e.preventDefault();
     if (submitting) return;
     const l = label.trim();
-    const c = cmd.trim();
     const okL = !!l;
-    const okC = !!c;
     setLabelErr(!okL);
-    setCmdErr(!okC);
+
+    let okField = true;
+    if (type === "agent") {
+      const c = cmd.trim();
+      okField = !!c;
+      setCmdErr(!okField);
+      setPortErr(false);
+    } else {
+      const p = Number(port.trim());
+      // Mirror the server-side rules: 1-65535, and 8088 is the workbench's
+      // own port (proxying it would recurse).
+      okField = Number.isInteger(p) && p >= 1 && p <= 65535 && p !== 8088;
+      setPortErr(!okField);
+      setCmdErr(false);
+    }
     if (!okL) {
       firstFieldRef.current?.focus();
       return;
     }
-    if (!okC) return;
+    if (!okField) return;
+
     setSubmitting(true);
-    const ok = await onRegister(l, c);
+    const input: RegisterButtonInput =
+      type === "agent"
+        ? { label: l, type: "agent", cmd: cmd.trim() }
+        : { label: l, type: "web", port: Number(port.trim()) };
+    const ok = await onRegister(input);
     setSubmitting(false);
     if (ok) {
       close();
@@ -119,6 +148,22 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
         <p className="sub">{t(lang, "dialogSub")}</p>
         <form onSubmit={submit} noValidate>
           <div className="field">
+            <div className="seg" role="radiogroup" aria-label={t(lang, "dialogTitle")}>
+              {(["agent", "web"] as const).map((tp) => (
+                <button
+                  key={tp}
+                  type="button"
+                  role="radio"
+                  aria-checked={type === tp}
+                  className={`seg-btn${type === tp ? " active" : ""}`}
+                  onClick={() => setType(tp)}
+                >
+                  {t(lang, tp === "agent" ? "typeAgent" : "typeWeb")}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="field">
             <label htmlFor="f-label">{t(lang, "fieldLabel")}</label>
             <input
               id="f-label"
@@ -138,31 +183,50 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
               {t(lang, "errLabel")}
             </span>
           </div>
-          <div className="field">
-            <label htmlFor="f-cmd">{t(lang, "fieldCmd")}</label>
-            <input
-              id="f-cmd"
-              name="cmd"
-              maxLength={64}
-              placeholder={t(lang, "fieldCmdPh")}
-              autoComplete="off"
-              value={cmd}
-              aria-invalid={cmdErr}
-              onChange={(e) => {
-                setCmd(e.target.value);
-                if (cmdErr) setCmdErr(false);
-              }}
-            />
-            <span className="hint">{t(lang, "fieldCmdHint")}</span>
-            <span className={`field-error${cmdErr ? " show" : ""}`} role="alert">
-              {t(lang, "errCmd")}
-            </span>
-            {failed && (
-              <span className="field-error show" role="alert">
-                {t(lang, "errFailed")}
+          {type === "agent" ? (
+            <div className="field">
+              <label htmlFor="f-cmd">{t(lang, "fieldCmd")}</label>
+              <input
+                id="f-cmd"
+                name="cmd"
+                maxLength={64}
+                placeholder={t(lang, "fieldCmdPh")}
+                autoComplete="off"
+                value={cmd}
+                aria-invalid={cmdErr}
+                onChange={(e) => {
+                  setCmd(e.target.value);
+                  if (cmdErr) setCmdErr(false);
+                }}
+              />
+              <span className="hint">{t(lang, "fieldCmdHint")}</span>
+              <span className={`field-error${cmdErr ? " show" : ""}`} role="alert">
+                {t(lang, "errCmd")}
               </span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="field">
+              <label htmlFor="f-port">{t(lang, "fieldPort")}</label>
+              <input
+                id="f-port"
+                name="port"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder={t(lang, "fieldPortPh")}
+                autoComplete="off"
+                value={port}
+                aria-invalid={portErr}
+                onChange={(e) => {
+                  setPort(e.target.value);
+                  if (portErr) setPortErr(false);
+                }}
+              />
+              <span className="hint">{t(lang, "fieldPortHint")}</span>
+              <span className={`field-error${portErr ? " show" : ""}`} role="alert">
+                {t(lang, "errPort")}
+              </span>
+            </div>
+          )}
           <div className="dialog-actions">
             <button type="button" className="btn btn-secondary" onClick={close}>
               {t(lang, "cancel")}
@@ -172,6 +236,11 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
               {t(lang, "submit")}
             </button>
           </div>
+          {failed && (
+            <span className="field-error show" role="alert">
+              {t(lang, "errFailed")}
+            </span>
+          )}
         </form>
       </div>
     </div>

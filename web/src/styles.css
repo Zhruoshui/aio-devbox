@@ -687,6 +687,38 @@ input {
   margin-top: var(--space-2);
 }
 
+/* Button-type segmented control (register dialog): two mutually exclusive
+ * choices (terminal command / web port preview). Scoped to .dialog .seg so
+ * it never collides with .statusbar .seg. */
+.dialog .seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+}
+.dialog .seg-btn {
+  height: 30px;
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 3px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.dialog .seg-btn:hover {
+  color: var(--fg);
+}
+.dialog .seg-btn.active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--elev-ring);
+}
+
 .btn {
   height: 36px;
   display: inline-flex;

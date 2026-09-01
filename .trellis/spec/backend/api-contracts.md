@@ -93,3 +93,60 @@ Correct: the 3s `/api/stats` poll is the heartbeat — any failure flips
 `online` false within one period; the manifest channel stays responsible for
 button visibility only. Poll (3s) and sample (2s) periods are coprime so the
 readout does not beat against the sampler.
+
+## POST/DELETE /api/buttons + GET /preview/:port — user web-type buttons & dev-server preview
+
+### 1. Scope / Trigger
+
+Added by the web-button-preview task (`.trellis/tasks/09-01-web-button-preview/`,
+issue #1). `POST /api/buttons` previously created agent buttons only; it now
+accepts `type: "web"` + `port`, and a new dynamic reverse proxy serves
+`/preview/<port>/*` from the app (axum) — NOT the gateway (a Caddy route cannot
+reach a loopback-bound dev server; the gateway's catch-all already hands
+`/preview/*` to axum, so Caddyfile/compose stay untouched).
+
+### 2. Signatures
+
+- `POST /api/buttons` — owner: `app/src/routes/buttons.rs::ButtonInput`
+  (`{label, cmd?, type?, port?}`; `type` defaults to `"agent"`). Web buttons
+  persist `cmd: ""` + `port: u16` in `buttons.toml`
+  (`ButtonDef.port: Option<u16>`, `skip_serializing_if` — old files deserialize
+  unchanged; agent rows omit the key).
+- `GET /api/manifest` — unchanged shape; web user buttons emit
+  `url: "/preview/<port>/"`, `target: "127.0.0.1:<port>"` (TCP probe, same
+  semantics as built-in web buttons). Owner: `config.rs::load_buttons`
+  (web-without-port rows are dropped with a warn, never a dead pane).
+- `GET /preview/:port(/:path)` — owner: `app/src/routes/preview.rs`
+  (`preview_proxy`). Routes: `/preview/:port`, `/preview/:port/`,
+  `/preview/:port/*path` (matchit 0.7.3 catch-all needs a non-empty tail).
+- Frontend mirror: `web/src/types.ts::RegisterButtonInput`.
+
+### 3. Contracts
+
+Validation matrix (POST, 400 on violation): web without port; port 0;
+port 8088 (axum itself — proxying would recurse); unknown `type`; agent with
+empty/oversized cmd. Web rows normalize `cmd` to `""`.
+
+Proxy behavior: HTTP all-methods forwarded (hop-by-hop headers stripped, Host
+rewritten to `127.0.0.1:<port>`), response bodies streamed unbuffered
+(reqwest `bytes_stream` → `Body::from_stream`; SSE survives). WS upgrades are
+detected via `Option<WebSocketUpgrade>` + the Upgrade header, connected with
+tokio-tungstenite (plaintext, `WS_CONNECT_TIMEOUT` 2s), pumped message-level
+both ways until either side closes; the upstream-negotiated
+`Sec-WebSocket-Protocol` is echoed back to the browser (vite HMR negotiates
+`vite-hmr` and aborts without it). Errors: upstream unreachable → 502;
+non-numeric port / port 0 / 8088 → 404 (fast-fail, no proxy attempt).
+
+### 4. Tests Required
+
+- Unit: `config.rs` (web parsing, legacy no-port file, web-without-port drop),
+  `buttons.rs::validate_shape` matrix, `preview.rs` pure fns
+  (`port_allowed`, `upstream_path`, hop-by-hop filter).
+- Focused integration (issue #1): register → manifest → proxy HTTP/SSE/WS →
+  delete, 21 assertions (`/tmp/preview-itest/setup.sh` harness).
+
+### 5. Wrong vs Correct
+
+Wrong: proxying 8088 (self-recursion `/preview/8088/preview/...`), rewriting
+HTML to fix root-absolute asset URLs (vite/Next need upstream `base` config —
+documented in README), stripping the WS subprotocol on the way back.

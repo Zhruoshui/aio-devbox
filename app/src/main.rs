@@ -44,6 +44,7 @@ use routes::{
         edit_live_provider, get_agents, get_config, import_pi, put_config,
         sync_live_provider, test::test, usage::usage,
     },
+    preview::preview_proxy,
     seam::seam, stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
 };
 use state::AppState;
@@ -119,6 +120,15 @@ async fn main() {
         .route("/api/models/usage", get(usage))
         // models.dev metadata catalog (1h cache, 08-27-provider-form-piweb).
         .route("/api/models/catalog", get(get_catalog))
+        // Dynamic dev-server preview (web-type user buttons): reverse-proxy
+        // to the dev server on the shared netns loopback. Static segments
+        // win over any catch-all; `*path` needs a non-empty tail, so the
+        // bare and trailing-slash forms get their own routes (same matchit
+        // 0.7.3 behavior as the /api trio below). WS upgrades and streamed
+        // bodies (SSE) are forwarded - see routes/preview.rs.
+        .route("/preview/:port", any(preview_proxy))
+        .route("/preview/:port/", any(preview_proxy))
+        .route("/preview/:port/*path", any(preview_proxy))
         // Reserved seams (design §13/§14C): 502 stub on any method. The bare
         // prefix, the trailing slash, and every sub-path are each covered.
         // `/api/manifest` and `/api/term/ws` above are static segments so they

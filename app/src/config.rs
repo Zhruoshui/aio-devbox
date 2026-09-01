@@ -49,10 +49,15 @@ pub struct ButtonsFile {
 pub struct ButtonDef {
     pub id: String,
     pub label: String,
-    /// "agent" (default) or "web" (reserved; MVP only creates agent).
+    /// "agent" (default) or "web" (dev server port preview via /preview/<port>/).
     #[serde(rename = "type", default = "default_button_type")]
     pub button_type: String,
     pub cmd: String,
+    /// Target port for web buttons (dev server in the shared netns). Absent
+    /// for agent buttons (`skip_serializing_if` keeps the file diff minimal
+    /// and old files - written before this field - deserialize unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 fn default_button_type() -> String {
@@ -231,21 +236,41 @@ pub fn parse_button_defs(path: &Path) -> Vec<ButtonDef> {
 /// Parse user-registered buttons from `buttons.toml` on the workspace volume,
 /// as `Service`s for the manifest. A missing/empty/malformed file yields an
 /// empty list (first `make up`, empty volume, or a bad edit).
+///
+/// Web buttons map to the same `ServiceType::Web` path as built-ins: the
+/// target is the dev server's loopback port on the shared netns (pty-spawned
+/// processes share app's network stack), and the url is the axum-side dynamic
+/// reverse proxy at `/preview/<port>/` (design: axum proxy, not a Caddy route,
+/// because gateway cannot reach a loopback-bound dev server).
 pub fn load_buttons(path: &Path) -> Vec<Service> {
     parse_button_defs(path)
         .into_iter()
-        .map(|b| Service {
-            id: b.id,
-            service_type: if b.button_type == "web" {
-                ServiceType::Web
-            } else {
-                ServiceType::Agent
-            },
-            target: None,
-            url: None,
-            label: Some(b.label),
-            deletable: true,
-            cmd: Some(b.cmd),
+        .filter_map(|b| match (b.button_type.as_str(), b.port) {
+            ("web", Some(port)) => Some(Service {
+                id: b.id,
+                service_type: ServiceType::Web,
+                target: Some(format!("127.0.0.1:{port}")),
+                url: Some(format!("/preview/{port}/")),
+                label: Some(b.label),
+                deletable: true,
+                cmd: None,
+            }),
+            // A web button without a port cannot be probed or proxied - drop
+            // it with a warning instead of rendering a dead pane (a bad hand
+            // edit of buttons.toml must never break the manifest).
+            ("web", None) => {
+                tracing::warn!("web button {:?} has no port; dropping", b.id);
+                None
+            }
+            _ => Some(Service {
+                id: b.id,
+                service_type: ServiceType::Agent,
+                target: None,
+                url: None,
+                label: Some(b.label),
+                deletable: true,
+                cmd: Some(b.cmd),
+            }),
         })
         .collect()
 }
@@ -359,6 +384,80 @@ cmd = "htop"
         assert!(v[0].deletable);
         assert_eq!(v[0].cmd.as_deref(), Some("htop"));
         assert_eq!(v[0].label.as_deref(), Some("htop"));
+        std::fs::remove_file(&tmp).unwrap();
+    }
+
+    #[test]
+    fn load_buttons_parses_web_button() {
+        let tmp = tempfile_path();
+        std::fs::write(
+            &tmp,
+            r#"
+[[button]]
+id = "my-vite"
+label = "my vite"
+type = "web"
+cmd = ""
+port = 5173
+"#,
+        )
+        .unwrap();
+        let v = load_buttons(&tmp);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].id, "my-vite");
+        assert_eq!(v[0].service_type, ServiceType::Web);
+        assert_eq!(v[0].target.as_deref(), Some("127.0.0.1:5173"));
+        assert_eq!(v[0].url.as_deref(), Some("/preview/5173/"));
+        assert_eq!(v[0].cmd, None);
+        assert!(v[0].deletable);
+        std::fs::remove_file(&tmp).unwrap();
+    }
+
+    #[test]
+    fn load_buttons_web_without_port_is_dropped() {
+        let tmp = tempfile_path();
+        // Hand-edited file: a web button missing its port must not break the
+        // manifest (dropped with a warning, other buttons survive).
+        std::fs::write(
+            &tmp,
+            r#"
+[[button]]
+id = "broken"
+label = "broken"
+type = "web"
+cmd = ""
+
+[[button]]
+id = "ok"
+label = "ok"
+cmd = "htop"
+"#,
+        )
+        .unwrap();
+        let v = load_buttons(&tmp);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].id, "ok");
+        std::fs::remove_file(&tmp).unwrap();
+    }
+
+    #[test]
+    fn load_buttons_legacy_file_without_port_field() {
+        let tmp = tempfile_path();
+        // File written before the port field existed: must deserialize fine.
+        std::fs::write(
+            &tmp,
+            r#"
+[[button]]
+id = "htop"
+label = "htop"
+type = "agent"
+cmd = "htop"
+"#,
+        )
+        .unwrap();
+        let v = load_buttons(&tmp);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].service_type, ServiceType::Agent);
         std::fs::remove_file(&tmp).unwrap();
     }
 

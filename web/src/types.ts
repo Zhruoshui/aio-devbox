@@ -33,6 +33,22 @@ export interface Manifest {
   services: ServiceEntry[];
 }
 
+// POST /api/buttons request contract - mirrors the axum backend
+// `ButtonInput` in app/src/routes/buttons.rs EXACTLY. `type` defaults to
+// "agent" server-side, so the original {label, cmd} shape still works;
+// web buttons swap cmd for port (dev server on the shared netns, previewed
+// via /preview/<port>/).
+export type RegisterButtonType = "agent" | "web";
+
+export interface RegisterButtonInput {
+  label: string;
+  /** Required for type="agent" ("" accepted by TS but rejected server-side). */
+  cmd?: string;
+  type?: RegisterButtonType;
+  /** Required for type="web"; 1-65535, 8088 rejected (the app's own port). */
+  port?: number;
+}
+
 // Stats contract - mirrors the Rust `StatsSnapshot` in app/src/routes/stats.rs
 // EXACTLY. Backend is the single owner of the /api/stats payload shape; this
 // interface is the single frontend-side decoder target (no inline casts).

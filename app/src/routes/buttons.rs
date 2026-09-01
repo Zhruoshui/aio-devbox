@@ -23,10 +23,18 @@ use crate::state::AppState;
 const MAX_LEN: usize = 64;
 
 /// Request body for POST /api/buttons.
+///
+/// `type` defaults to "agent" so the original `{label, cmd}` payload still
+/// registers a terminal button unchanged. `type=web` swaps `cmd` for `port`
+/// (a dev server on the shared netns, previewed via /preview/<port>/).
 #[derive(Debug, Deserialize)]
 pub struct ButtonInput {
     pub label: String,
+    #[serde(default)]
     pub cmd: String,
+    #[serde(rename = "type", default)]
+    pub button_type: String,
+    pub port: Option<u16>,
 }
 
 /// Response body for POST /api/buttons.
@@ -37,6 +45,8 @@ pub struct ButtonOut {
     #[serde(rename = "type")]
     pub button_type: String,
     pub cmd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 pub async fn create_button(
@@ -44,28 +54,23 @@ pub async fn create_button(
     Json(input): Json<ButtonInput>,
 ) -> Result<(StatusCode, Json<ButtonOut>), (StatusCode, String)> {
     let label = input.label.trim();
-    let cmd = input.cmd.trim();
-    if label.is_empty() || cmd.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "label and cmd must be non-empty".to_string(),
-        ));
+    if label.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "label must be non-empty".to_string()));
     }
-    if label.len() > MAX_LEN || cmd.len() > MAX_LEN {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("label and cmd must be <= {MAX_LEN} chars"),
-        ));
+    if label.len() > MAX_LEN {
+        return Err((StatusCode::BAD_REQUEST, format!("label must be <= {MAX_LEN} chars")));
     }
 
+    let (button_type, cmd, port) = validate_shape(&input)?;
     let _guard = state.file_lock.lock().await;
     let mut defs = parse_button_defs(&state.buttons_file);
     let id = unique_id(slugify(label), &defs);
     let def = ButtonDef {
         id: id.clone(),
         label: label.to_string(),
-        button_type: "agent".to_string(),
-        cmd: cmd.to_string(),
+        button_type: button_type.to_string(),
+        cmd,
+        port,
     };
     defs.push(def.clone());
     write_buttons_atomic(&state.buttons_file, &defs)
@@ -78,8 +83,46 @@ pub async fn create_button(
             label: def.label,
             button_type: def.button_type,
             cmd: def.cmd,
+            port: def.port,
         }),
     ))
+}
+
+/// Type-specific shape validation: returns the normalized `(type, cmd, port)`
+/// triple to persist, or a 400. An absent `type` defaults to "agent" so the
+/// original `{label, cmd}` payload shape still works unchanged.
+///
+/// Port 8088 is axum itself - proxying it would recurse
+/// (`/preview/8088/preview/...`), so it is rejected here and again at the
+/// proxy layer.
+fn validate_shape(input: &ButtonInput) -> Result<(String, String, Option<u16>), (StatusCode, String)> {
+    let button_type = if input.button_type.is_empty() { "agent" } else { input.button_type.as_str() };
+    match button_type {
+        "agent" => {
+            let cmd = input.cmd.trim();
+            if cmd.is_empty() {
+                return Err((StatusCode::BAD_REQUEST, "cmd must be non-empty".to_string()));
+            }
+            if cmd.len() > MAX_LEN {
+                return Err((StatusCode::BAD_REQUEST, format!("cmd must be <= {MAX_LEN} chars")));
+            }
+            Ok(("agent".to_string(), cmd.to_string(), None))
+        }
+        "web" => match input.port {
+            Some(p) if p == 0 || p == 8088 => Err((
+                StatusCode::BAD_REQUEST,
+                format!("port {p} is not allowed (0 or the app's own 8088)"),
+            )),
+            // Web buttons store an empty cmd: the pty field is meaningless
+            // here, and keeping the key makes hand-edits / round-trips stable.
+            Some(p) => Ok(("web".to_string(), String::new(), Some(p))),
+            None => Err((StatusCode::BAD_REQUEST, "web buttons require a port".to_string())),
+        },
+        other => Err((
+            StatusCode::BAD_REQUEST,
+            format!("unknown button type {other:?} (expected \"agent\" or \"web\")"),
+        )),
+    }
 }
 
 pub async fn delete_button(
@@ -170,12 +213,60 @@ mod tests {
             label: "htop".into(),
             button_type: "agent".into(),
             cmd: "htop".into(),
+            port: None,
         }];
         assert_eq!(unique_id("htop".into(), &defs), "htop-2");
         let defs2 = vec![
-            ButtonDef { id: "htop".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into() },
-            ButtonDef { id: "htop-2".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into() },
+            ButtonDef { id: "htop".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into(), port: None },
+            ButtonDef { id: "htop-2".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into(), port: None },
         ];
         assert_eq!(unique_id("htop".into(), &defs2), "htop-3");
+    }
+
+    fn input(label: &str, cmd: &str, button_type: &str, port: Option<u16>) -> ButtonInput {
+        ButtonInput {
+            label: label.into(),
+            cmd: cmd.into(),
+            button_type: button_type.into(),
+            port,
+        }
+    }
+
+    #[test]
+    fn validate_agent_unchanged() {
+        // Original payload shape (no type field -> agent) keeps working.
+        let (t, cmd, port) = validate_shape(&input("htop", "htop", "", None)).unwrap();
+        assert_eq!((t.as_str(), cmd.as_str(), port), ("agent", "htop", None));
+        let (t, _, port) = validate_shape(&input("htop", "htop", "agent", None)).unwrap();
+        assert_eq!((t.as_str(), port), ("agent", None));
+    }
+
+    #[test]
+    fn validate_web_requires_port() {
+        let err = validate_shape(&input("webby", "", "web", None)).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let err = validate_shape(&input("webby", "", "web", Some(0))).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        // 8088 is axum itself: rejected to avoid proxy self-recursion.
+        let err = validate_shape(&input("webby", "", "web", Some(8088))).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn validate_web_normalizes() {
+        let (t, cmd, port) = validate_shape(&input("webby", "ignored", "web", Some(5173))).unwrap();
+        assert_eq!((t.as_str(), cmd.as_str(), port), ("web", "", Some(5173)));
+    }
+
+    #[test]
+    fn validate_unknown_type_rejected() {
+        let err = validate_shape(&input("x", "y", "page", None)).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn validate_agent_cmd_still_required() {
+        let err = validate_shape(&input("x", "", "", None)).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 }

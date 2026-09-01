@@ -23,7 +23,9 @@ TUI 里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
   (可多开)。没有死面板。
 - **自定义按钮。** 侧边栏底部 `+` 表单可注册“终端+命令”按钮(经
   `POST/DELETE /api/buttons` 持久化到工作区卷的 `/root/.aio/buttons.toml`),
-  扛得过容器重建。
+  扛得过容器重建。也可注册 **web 型按钮**,指向你在终端里起的任意 dev server
+  端口(vite、`python -m http.server`……):端口有监听时按钮出现,点击经 app 的
+  `/preview/<port>/` 反代在 iframe 中打开(WebSocket / SSE 友好)。
 - **构建期场景预置。** 一个 Rust TUI(`aio-config`)按层分组列出场景;勾选结果
   被组装进 `Dockerfile.base` 并构建进 `sandbox-base`。工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node(18 / 20 / 22)与 CPython(3.11 / 3.12 / 3.13)是
@@ -84,7 +86,7 @@ make clean                             # 停止、删卷、删已构建镜像
 | 容器 | 镜像 | 职责 |
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + 反向代理到 `app`、`code-server`、`vnc`,也转发 WS 升级。 |
-| `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些按钮在线)、`/api/term/ws` pty WebSocket 桥、`POST/DELETE /api/buttons`(用户自注册按钮,存卷上)。`FROM sandbox-base`。 |
+| `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些按钮在线)、`/api/term/ws` pty WebSocket 桥、`POST/DELETE /api/buttons`(用户自注册按钮,存卷上)、`/preview/<port>/` dev server 动态反代。`FROM sandbox-base`。 |
 | `code-server` | `sandbox-code-server`(构建) | 浏览器版 VSCode。profile 控制(`--profile code-server`),通过 TCP 探测 `app:8200` 自动探测。`FROM sandbox-base`。 |
 | `vnc` | `sandbox-vnc`(构建) | Xvnc + Chromium + noVNC Web 客户端。profile 控制(`--profile vnc`),通过 TCP 探测 `app:6080` 自动探测。`FROM debian:bookworm-slim`(与 `sandbox-base` 解耦)。`shm_size 2gb` 供 Chromium。 |
 | `base` | `sandbox-base`(构建) | 共享基础镜像。挂在 `build` profile 下,故**绝不**作为运行时容器启动。 |
@@ -256,5 +258,26 @@ docs/                    offline-install-guide.md(+ offline-tool-install.md 实�
 
 分阶段构建。MVP 已完成:gateway + app(axum + React SPA)+ code-server + vnc,带四
 层与版本化 L1 运行时的场景预置系统、离线支持,以及侧边栏按钮化工作区(自动探测
-按钮、按需启动 agent TUI、用户自注册按钮)。尚未做:按需 TUI 按钮之外的 L5 外部
-服务、自定义 web 型按钮(需跨容器端口预览)、终端多实例。
+按钮、按需启动 agent TUI、用户自注册 agent/web 按钮 + dev server 端口预览)。
+尚未做:按需 TUI 按钮之外的 L5 外部服务、终端多实例。
+
+### dev server 预览(`/preview/<port>/`)
+
+注册一个 web 型按钮(侧边栏 `+` → 选「Web 端口预览」,填 dev server 监听的端口),
+点击即可在 iframe 中打开。app 把 `/preview/<port>/*` 反代到共享网络命名空间里的
+`127.0.0.1:<port>`,所以工作台 / code-server 任一终端里起的服务都可达(含只绑
+loopback 的)。端口有监听时按钮出现(TCP 探活,与内置按钮同语义),无监听时隐藏。
+WebSocket(vite HMR)与 SSE 流原样透传、不缓冲。
+
+两个已知边界:
+
+- **根绝对资源 URL 在任何子路径下都会断。** 输出 `/_next/...` 风格 URL 的应用
+  无法挂在 `/preview/<port>/` 下(pi-web 因此需要独立源)。反代不做 HTML 改写。
+- **vite 需要两行配置**才能跑在子路径下 —— `vite.config.ts`:
+  ```ts
+  export default defineConfig({
+    base: '/preview/5173/',
+    server: { hmr: { path: '/preview/5173/' } },
+  });
+  ```
+  输出纯相对 URL 的服务(`python -m http.server`、多数静态预览)零配置可用。
