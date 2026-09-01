@@ -5,15 +5,14 @@
 A self-hosted, all-in-one remote development environment. One `docker compose up`
 brings up a Caddy gateway plus pluggable service containers, and a browser-served
 workspace presents them behind a collapsible sidebar of buttons: VSCode in the
-browser (code-server), Chromium over VNC, a terminal, and on-demand AI-agent TUIs
-like opencode — each button opens a tab, and only capabilities actually present
-in the image get a button. Personal project.
+browser (code-server), Chromium over VNC, a terminal, on-demand AI-agent TUIs
+(opencode, pi), and a model-configuration page — each button opens a tab, and
+only capabilities actually present in the image get a button. Personal project.
 
-Toolchains (Node, Python, Rust, Go, nvm, uv, …) are **build-time scenario
-presets** — you pick them (and Node/Python versions) in a TUI, and they are baked
-into a shared `sandbox-base` image that every dev container inherits. The whole
-stack is **offline-capable**: build on an online machine, `docker save`/`load`
-the images, and run air-gapped.
+Toolchains (Node, Python, Rust, Go, …) are **build-time scenario presets** — you
+pick them (and Node/Python versions) in a TUI, and they are baked into a shared
+`sandbox-base` image that every dev container inherits. The whole stack is
+**offline-capable**: build on an online machine, ship the images, run air-gapped.
 
 ## Features
 
@@ -21,25 +20,32 @@ the images, and run air-gapped.
   (HTTP basic auth). A collapsible left sidebar lists your buttons; every click
   launches a NEW instance as a tab (terminal opens by default), and tabs can be
   dragged into split/tiled layouts (golden-layout) or closed via their ✕.
-- **Pluggable buttons, auto-detected.** Web buttons (code-server, VNC) are gated
-  by compose profiles — no running container, no button. Agent/TUI buttons
-  (terminal, opencode, …) appear only when their command actually exists on the
-  login-shell PATH, and launch on click in an xterm.js + WebSocket pty bridge
-  inside the `app` container (multiple instances allowed). No dead panes.
+- **Pluggable buttons, auto-detected — three types.**
+  - `web` (code-server, VNC): gated by compose profiles — no running container,
+    no button (TCP-probe from the app).
+  - `agent` (terminal, opencode, pi): appear only when the command actually
+    exists on the login-shell PATH; launch on click in an xterm.js + WebSocket
+    pty bridge inside the `app` container (multiple instances allowed).
+  - `page` (模型配置 / model config): a native React pane, always enabled —
+    unified provider/model configuration for the baked-in agent CLIs (edit
+    config, import from pi, apply per agent, usage stats).
+
+  No dead panes.
 - **Register your own buttons.** The sidebar's `+` form registers a
   "terminal + command" button (persisted in `/root/.aio/buttons.toml` on the
   workspace volume via `POST/DELETE /api/buttons`), surviving container recreate.
 - **Build-time scenario presets.** A Rust TUI (`aio-config`) lists scenarios
-  grouped by layer; the selection is assembled into `Dockerfile.base` and built
-  into `sandbox-base`. No per-container Dockerfiles for toolchains.
-- **Versioned base runtimes.** Node (18 / 20 / 22) and CPython (3.11 / 3.12 /
-  3.13) are `always_on` scenarios with a version dropdown — pick a version, not
-  whether to install.
+  grouped by layer; the selection is assembled into `Dockerfile.base` (a
+  generated file, not in git) and built into `sandbox-base`. No per-container
+  Dockerfiles for toolchains.
+- **Versioned base runtimes.** Node and CPython are `always_on` scenarios with
+  a version dropdown — pick a version, not whether to install.
 - **Survives container recreate.** The workspace is a named Docker volume on
   `/root`; runtime version managers (nvm, uv) install into the volume so
   `nvm install` / `uv python install` survive `down`/`up`.
-- **Offline-ready.** Build online, ship images via `docker save`/`load`, run with
-  `make up NOBUILD=1`. A full offline tool-install handbook lives in
+- **Offline-ready.** Build online, ship via `make save` → `make load` (or plain
+  `docker save`/`load`), run with `make up NOBUILD=1`. A full offline
+  tool-install handbook lives in
   [`docs/offline-install-guide.md`](docs/offline-install-guide.md).
 
 ## Quick start
@@ -51,9 +57,10 @@ make up PROFILES="code-server vnc"     # start with web buttons (terminal always
 # → open http://localhost:8080   (admin / admin)
 ```
 
-With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so the
-sidebar shows the terminal button (plus any baked-in agent TUI like opencode);
-add `code-server` / `vnc` profiles to light up the browser-IDE and Chromium buttons.
+With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so
+the sidebar shows the terminal and model-config buttons (plus any baked-in
+agent TUI); add `code-server` / `vnc` profiles to light up the browser-IDE and
+Chromium buttons.
 
 ```sh
 make down                              # stop (keeps images + workspace volume)
@@ -76,14 +83,14 @@ make clean                             # stop, drop the volume, remove built ima
                           │ React    │   │ profile:     │  │ profile:  │
                           │ SPA      │   │ code-server  │  │ vnc       │
                           │ :8088    │   └──────┬───────┘  └─────┬──────┘
+                          │ :30141 ← │ (pi-web, iframe pane, published to host)
                           └────┬─────┘          │                │
-                 /api/term/ws  │ pty (root)      │                │
-                 /api/manifest │                │                │
-                               ▼                ▼                ▼
-                  ┌──────────────────────────────────────────────────────┐
-                  │  shared named volume  aio_workspace  →  /root        │
-                  │  (root, uid 0)  — mounted by all three               │
-                  └──────────────────────────────────────────────────────┘
+                               │                ▼                ▼
+                 /api/term/ws  │ pty (root)  ┌────────────────────────────┐
+                 /api/manifest │             │  aio_workspace  →  /root   │
+                 /api/models/* │             │  (root, uid 0) shared vol   │
+                 /api/buttons  │────────────►│  mounted by all three      │
+                               │             └────────────────────────────┘
 
    build-only (never runs at runtime):  base  →  sandbox-base
         app/Dockerfile  and  code-server/Dockerfile  are  FROM sandbox-base
@@ -93,9 +100,9 @@ make clean                             # stop, drop the volume, remove built ima
 | Container | Image | Role |
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + reverse proxy to `app`, `code-server`, `vnc`. Serves the WS upgrades too. |
-| `app` | `sandbox-app` (built) | Axum server: serves the React SPA, `GET /api/manifest` (which buttons are live), the `/api/term/ws` pty WebSocket bridge, and `POST/DELETE /api/buttons` (user-registered buttons on the volume). `FROM sandbox-base`. |
-| `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated (`--profile code-server`), auto-detected by TCP probe to `app:8200`. `FROM sandbox-base`. |
-| `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated (`--profile vnc`), auto-detected by TCP probe to `app:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
+| `app` | `sandbox-app` (built) | Axum server: React SPA, `GET /api/manifest` (live buttons), `/api/term/ws` pty WebSocket bridge, `POST/DELETE /api/buttons` (user buttons), `/api/models/*` (model-config page), `/api/stats`. Autostarts pi-web on `:30141` when baked. `FROM sandbox-base`. |
+| `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated, auto-detected by TCP probe to `app:8200`. `FROM sandbox-base`. |
+| `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated, auto-detected by TCP probe to `app:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
 | `base` | `sandbox-base` (built) | The shared base image. Gated behind the `build` profile so it **never** starts as a runtime container. |
 
 **Shared network namespace:** `code-server` and `vnc` join app's network stack
@@ -104,8 +111,8 @@ exist — everything on the shared stack is reached as `app:PORT`). Chromium in
 the VNC pane therefore reaches dev servers started in the workbench or
 code-server terminals at `http://localhost:<port>` (same loopback, no
 HTTPS-first upgrade). Reserved ports on the shared netns: `8088` (axum),
-`8200` (code-server), `6080` (websockify), `5900` (Xvnc, loopback) — pick
-other ports for dev servers.
+`8200` (code-server), `6080` (websockify), `5900` (Xvnc, loopback), `30141`
+(pi-web, published to the host) — pick other ports for dev servers.
 
 **Build order matters:** `app` and `code-server` are `FROM sandbox-base`, so
 `sandbox-base` must be built and tagged first. The Makefile handles this
@@ -114,48 +121,53 @@ other ports for dev servers.
 ## Scenario presets
 
 Dev environments are organized into **profile layers**. Each scenario is a
-build-time Dockerfile fragment baked into `sandbox-base`, tagged with a `category`
-so the TUI groups scenarios by layer:
+build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
+`category` so the TUI groups scenarios by layer:
 
 | Layer | `category` | What lives here | Selectable? |
 |---|---|---|---|
-| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential) in `Dockerfile.base.head`; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
+| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
 | L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd) | yes |
-| L3 Language toolchains | `lang` | rust / go / python-dev + version managers nvm / uv | yes |
-| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode) | yes |
+| L3 Language toolchains | `lang` | rust / go / c23 / python-dev + version managers nvm / uv | yes |
+| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode, pi, pi-web) | yes |
 | L5 External services | `service` | _(future, not yet implemented)_ | — |
 
-L1 has two parts. The **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
-build-essential) stays hardcoded in `Dockerfile.base.head` and never
-reaches the TUI — it's the foundation every `FROM sandbox-base` service inherits.
-The **versioned runtimes** Node + Python are `always_on` scenarios: always baked
-(code-server and the app web-builder depend on Node), shown in the TUI as locked
-rows `[*]` with a version `[label]` cycled by **Left/Right** — you pick a version,
-not whether to install. L2–L4 are normal toggleable preferences.
+The L1 **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
+build-essential) stays hardcoded in `Dockerfile.base.head` and never reaches
+the TUI — it's the foundation every `FROM sandbox-base` service inherits. The
+**versioned runtimes** Node + Python are `always_on` scenarios: always baked
+(code-server and the app web-builder depend on Node), shown in the TUI as
+locked rows `[*]` whose version `[label]` cycles with **Left/Right**. L2–L4
+are normal toggleable preferences.
 
-Current scenarios:
+Current scenarios (all install to **system paths** — `/opt`, `/usr/local`,
+`/etc/profile.d` — never `/root/*`, which the shared workspace volume would
+mask):
 
 | Scenario | Layer | `always_on` | Versions | Installs to |
 |---|---|---|---|---|
-| `node` | L1 `os` | ✓ | 20.18.0 / 22.11.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
-| `python` | L1 `os` | ✓ | 3.12.7 / 3.11.10 / 3.13.0 | python-build-standalone → `/usr/local` |
+| `node` | L1 `os` | ✓ | 22.23.2 *(default)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
+| `python` | L1 `os` | ✓ | 3.12.7 *(default)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
+| `fonts` | L1 `os` | — | — | Maple Mono NF CN (mono + Nerd Font icons + CJK, ~78MB) → `/usr/local/share/fonts`, aliased as default for mono/sans/serif via `/etc/fonts/local.conf`; fixes tofu in server-side rendering |
 | `shell-utils` | L2 `shell` | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin` (Debian `bat`→`batcat`, `fd`→`fdfind` symlinks) |
 | `rust` | L3 `lang` | — | — | rustup stable + rustfmt + clippy + rust-analyzer → `/opt/rust`, proxies → `/usr/local/bin` |
-| `python-dev` | L3 `lang` | — | — | uv + ruff → `/usr/local/bin` (overlaps with `uv` — enable one) |
 | `go` | L3 `lang` | — | — | Go 1.23 tarball → `/usr/local/go` |
+| `c23` | L3 `lang` | — | — | clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin` |
+| `python-dev` | L3 `lang` | — | — | uv + ruff → `/usr/local/bin` (overlaps with `uv` — enable one) |
 | `nvm` | L3 `lang` | — | — | nvm.sh → `/opt/nvm`; runtime `NVM_DIR=~/.nvm` (on the volume) so `nvm install` survives recreate. Login shells only. |
 | `uv` | L3 `lang` | — | — | uv → `/usr/local/bin`; runtime `uv python install` → volume (overlaps with `python-dev`) |
-| `opencode` | L4 `app` | — | — | opencode AI-agent CLI → `/usr/local/bin`. Sidebar button appears only when baked in (command-exists detection) and launches on click in a pty. |
+| `opencode` | L4 `app` | — | — | opencode AI-agent CLI → `/usr/local/bin`. Sidebar button only when baked (command-exists detection). |
+| `pi` | L4 `app` | — | — | pi coding agent → `/usr/local/bin`; extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal |
+| `pi-web` | L4 `app` | — | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath) |
 
-**Workflow.** `make config` opens the TUI (ratatui): scenarios are listed grouped
-by layer. Toggle selectable scenarios with **Space**; L1 `always_on` rows show
-`[*]` with a version `[label]` cycled by **Left/Right** (can't be unchecked). `s`
-saves the selection (scenario ids + version labels) to `.aio/enabled.toml`.
-`make build-base` then runs `aio-config gen`, which assembles `Dockerfile.base`
-from `Dockerfile.base.head` + the `always_on` L1 runtimes + the enabled
-`scenarios/<id>/fragment.Dockerfile` files (ordered by `category` then id) +
-`Dockerfile.base.tail`, substituting the selected version's `{{version}}`/`{{tag}}`
-into versioned fragments, and builds `sandbox-base`.
+**Workflow.** `make config` opens the TUI (ratatui): scenarios grouped by
+layer; toggle with **Space**, cycle `always_on` versions with **Left/Right**,
+`s` saves to `.aio/enabled.toml`. `make build-base` then runs `aio-config gen`,
+which assembles `Dockerfile.base` from `Dockerfile.base.head` + the `always_on`
+L1 runtimes + the enabled `scenarios/<id>/fragment.Dockerfile` files (ordered
+by `category` then id) + `Dockerfile.base.tail`, substituting the selected
+version's `{{version}}`/`{{tag}}` into versioned fragments, and builds
+`sandbox-base`.
 
 ```sh
 make config                       # TUI: pick scenarios + L1 versions → .aio/enabled.toml
@@ -163,15 +175,20 @@ make up                           # gen + build sandbox-base + compose up
 docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 runtimes ready
 ```
 
+**Presets & wildcard.** `.aio/presets/{minimal,full}.toml` are ready-made
+selections: `minimal` = always_on baseline only (`scenarios = []`), `full` =
+`scenarios = ["*"]`, which `gen` expands to every discovered non-`always_on`
+scenario (so new scenarios are auto-included). CI copies a preset to
+`.aio/enabled.toml` to build the two GHCR variants; the wildcard must be the
+only element (`["*", "rust"]` is an error).
+
 **Adding a scenario** = drop `scenarios/<id>/{scenario.toml,fragment.Dockerfile}`
 and set `category` in `scenario.toml`. For a versioned scenario, add `always_on`
 (if always baked), `default_version`, and a `[[versions]]` array (each entry:
 `label` for the dropdown + extra keys substituted into `{{key}}` placeholders in
 the fragment). Defaults: `category="lang"`, `always_on=false`, no versions — no
-change to the configurator. Scenario tools install to **system paths** (`/opt`,
-`/usr/local`, `/etc/profile.d`) as root, never `/root/*`
-(the workspace named volume would mask it). Changing the selection rebuilds the
-image (the `docker save`/`load` offline path is unchanged).
+change to the configurator. Changing the selection rebuilds the image (the
+offline path is unchanged).
 
 > **Rebuild after reselecting.** `make up` rebuilds the `sandbox-base` image but
 > does not recreate already-running containers. After changing the selection, run
@@ -192,8 +209,12 @@ image (the `docker save`/`load` offline path is unchanged).
 | `make hash [PASS=…]` | Generate the gateway bcrypt hash for password `PASS` (default `admin`). |
 | `make down [PROFILES=…]` | Stop the stack (keeps images and the workspace volume). |
 | `make restart` / `make logs` | Restart / tail logs. |
+| `make save` / `make load` | Offline bundle: `save` packs images + `.env` + gateway hash + selection into `aio-offline-bundle/`; `load` restores them on the offline machine. |
 | `make clean` | Destructive: `down -v` + remove built images. |
 | `make pull [VARIANT=…]` | Pull prebuilt images from GHCR + retag to local compose names (see below). |
+
+Internal helpers: `build-config` (builds the `aio-config` image), `ensure-hash`
+(writes the default-password hash if missing; run by `up` / `pull`).
 
 Pass optional services as space-separated profiles: `make up PROFILES="code-server vnc"`.
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start.
@@ -217,10 +238,18 @@ make hash PASS=secret  # custom password
 
 ## Offline install
 
-Build on an online machine, `docker save` the images, `docker load` on the
-offline machine, then `make up NOBUILD=1` (skips `build-base` / `gen`). The
-`aio-config` image also fetches crates from crates.io at build time, so it is
-built online and loaded offline like the rest.
+```sh
+# online machine
+make save                                  # → aio-offline-bundle/: images.tar + env + hash + enabled.toml
+# offline machine (ship the bundle over)
+make load                                  # restore images + .env + hash + selection
+make up NOBUILD=1 PROFILES="code-server vnc"
+```
+
+If the `pi` scenario is baked, run `aio-pi-extensions` once in a terminal after
+first start to register the baked extensions into `~/.pi`. The `aio-config`
+image also fetches crates from crates.io at build time, so it is built online
+and loaded offline like the rest.
 
 For the full handbook — how to add arbitrary tools/packages to a running offline
 stack without rebuilding or networking (7 tested recipes: static binaries, npm
@@ -235,7 +264,7 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 `sandbox-vnc`:
 
 - `minimal` — the bare always-on baseline (Node + Python), nothing else.
-- `full` — every scenario fragment baked in (rust / go / nvm / uv / opencode / …).
+- `full` — every scenario fragment baked in (rust / go / c23 / pi / opencode / …).
 
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)
@@ -258,7 +287,7 @@ access at all, use the offline path above (`make save` / `make load`).
 ## Project layout
 
 ```
-Dockerfile.base          sandbox-base image (generated: head + scenarios + tail)
+Dockerfile.base          sandbox-base image (GENERATED by `make gen`, not in git)
 Dockerfile.base.head     sandbox-base head (root bootstrap: apt; no language runtimes)
 Dockerfile.base.tail     sandbox-base tail (USER root + WORKDIR /root)
 scenarios/               scenario library, layered by category; <id>/{scenario.toml,fragment.Dockerfile}
@@ -270,17 +299,20 @@ gateway/                 Caddyfile + entrypoint.sh (+ secrets/hash, generated)
 vnc/                     Xvnc + Chromium + noVNC (FROM debian:bookworm-slim)
 code-server/             VSCode-in-browser image (FROM sandbox-base)
 docker-compose.yml       gateway + app + code-server + vnc + base (build profile)
-Makefile                 build-config / config / gen / build-base / build / up / hash / down / clean
+Makefile                 config / gen / build-base / up / hash / save / load / pull / clean
 .env / .env.example      SANDBOX_USER (hash is generated, not env-delivered)
 docs/                    offline-install-guide.md (+ offline-tool-install.md test log)
 .aio/enabled.toml        scenario selection (written by `make config`, read by `gen`)
+.aio/presets/            minimal.toml / full.toml — CI presets (`["*"]` wildcard = all)
+aio-offline-bundle/      output of `make save` (gitignored)
 ```
 
 ## Status
 
 Built phase by phase. The MVP is complete: gateway + app (axum + React SPA) +
 code-server + vnc, the scenario-preset system with four layers and versioned L1
-runtimes, offline support, and the sidebar-button workspace (auto-detected
-buttons, on-demand agent TUIs, user-registered buttons). Not yet done: L5
-external services beyond on-demand TUI buttons, custom web-type user buttons
-(needs cross-container port preview), and multi-instance terminals.
+runtimes, offline support, the sidebar-button workspace (auto-detected
+web/agent/page buttons, user-registered buttons, unified model config), and the
+pi / pi-web agent stack. Not yet done: L5 external services beyond on-demand
+TUI buttons, and custom web-type user buttons (needs cross-container port
+preview) — user-registered buttons are terminal+command only.
