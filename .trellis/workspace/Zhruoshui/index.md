@@ -1,4 +1,4 @@
-# Workspace Index - ruoshui
+# Workspace Index - Zhruoshui
 
 > Journal tracking for AI development sessions.
 

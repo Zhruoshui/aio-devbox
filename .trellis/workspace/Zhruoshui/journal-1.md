@@ -1,4 +1,4 @@
-# Journal - ruoshui (Part 1)
+# Journal - Zhruoshui (Part 1)
 
 > AI development session journal
 > Started: 2026-07-28
