@@ -51,7 +51,7 @@
 - [x] 更新 `.trellis/spec/backend/model-config-guide.md`：anthropic 块移除、`incompatibleReason` 收紧、前端结构 `panes/models/`。
 - [x] 若值得沉淀：`.trellis/spec/frontend/` 补 ModelsPane 拆分/图表配色约定（按 `trellis-update-spec` 判断）。
 - [x] 按仓库约定 commit（`feat: ...`），不要 push。
-- [x] 更新 `.trellis/workspace/ruoshui/journal-1.md` 当日进展。
+- [x] 更新 `.trellis/workspace/Zhruoshui/journal-1.md` 当日进展。
 
 > **Finish status (2026-08-27)**: R1-R4 全部落地。验证：cargo test 148 全绿
 > (throwaway rust:1-bookworm 容器跑)；`npm run build` 干净(tsc 严格 + vite)；

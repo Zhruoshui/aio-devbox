@@ -130,7 +130,7 @@ cleanup in entrypoint.sh (container crash-loops on recreate without it),
 - Research: `.trellis/tasks/archive/2026-07/07-28-research-aio-architecture/research/08-server-architecture-reverse-engineered.md`
   (AIO VNC stack: openbox + `agent-browser-init.sh` + `browser-supervisor.py`,
   CDP 9222).
-- Journal: `.trellis/workspace/ruoshui/journal-1.md` (2026-07-29 entry — full
+- Journal: `.trellis/workspace/Zhruoshui/journal-1.md` (2026-07-29 entry — full
   investigation + verification logs).
 - implement.md "Risky points / rollback" has the noVNC-path and SingletonLock
   notes (kept); the CSD/decoration notes were removed with the revert.
