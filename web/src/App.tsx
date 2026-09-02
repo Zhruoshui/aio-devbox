@@ -38,7 +38,7 @@ import {
 import "golden-layout/dist/css/goldenlayout-base.css";
 import "./gl-kumo.css";
 
-import type { Manifest, ServiceEntry } from "./types";
+import type { Manifest, RegisterButtonInput, ServiceEntry } from "./types";
 import { t, type Lang } from "./i18n";
 import { Icon, IconSprite, serviceIcon } from "./icons";
 import { Sidebar } from "./Sidebar";
@@ -518,13 +518,13 @@ export function App(): JSX.Element {
   );
 
   // Register a user button via POST /api/buttons, then refresh so it appears
-  // (command_exists is probed on the next manifest fetch).
-  async function registerButton(label: string, cmd: string): Promise<boolean> {
+  // (command_exists / TCP probe runs on the next manifest fetch).
+  async function registerButton(input: RegisterButtonInput): Promise<boolean> {
     try {
       const r = await fetch("/api/buttons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label, cmd }),
+        body: JSON.stringify(input),
       });
       if (!r.ok) return false;
       refresh();

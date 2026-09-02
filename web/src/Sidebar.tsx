@@ -44,7 +44,10 @@ export function Sidebar({
     {
       key: "web",
       label: t(lang, "groupWeb"),
-      items: enabled.filter((s) => s.type === "web"),
+      // User-registered buttons (deletable) belong to the "custom" group
+      // only - without the exclusion every user web button would show up
+      // here AND there (09-02-web-button-ux-fix R1).
+      items: enabled.filter((s) => s.type === "web" && !s.deletable),
     },
     {
       key: "page",

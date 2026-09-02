@@ -24,11 +24,15 @@ futures-util = "0.3"
 nix = { version = "0.29", features = ["fs"] }
 # Model config: HTTP client for /v1/models discovery + availability test.
 # default-features off to avoid pulling openssl; rustls-tls for clean linking.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # Model config: read-only access to opencode's SQLite session DB (usage stats).
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Model config: parse opencode.jsonc (JSON with comments) for the renderer.
 json5 = "0.4"
+# /preview proxy: forward WebSocket upgrades (vite HMR & co) to the dev
+# server on the shared netns. `connect` enables the client handshake
+# (connect_async); TLS stacks stay off - the upstream is always 127.0.0.1.
+tokio-tungstenite = { version = "0.23", default-features = false, features = ["connect"] }
 
 [profile.release]
 opt-level = 2

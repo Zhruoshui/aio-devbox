@@ -34,6 +34,10 @@ pick them (and Node/Python versions) in a TUI, and they are baked into a shared
 - **Register your own buttons.** The sidebar's `+` form registers a
   "terminal + command" button (persisted in `/root/.aio/buttons.toml` on the
   workspace volume via `POST/DELETE /api/buttons`), surviving container recreate.
+  It also registers **web-type buttons** pointing at any dev server port you
+  started in a terminal (vite, `python -m http.server`, …) — the button
+  appears when the port is listening and opens the dev server in an iframe
+  via the app's `/preview/<port>/` reverse proxy (WebSocket / SSE friendly).
 - **Build-time scenario presets.** A Rust TUI (`aio-config`) lists scenarios
   grouped by layer; the selection is assembled into `Dockerfile.base` (a
   generated file, not in git) and built into `sandbox-base`. No per-container
@@ -100,7 +104,7 @@ make clean                             # stop, drop the volume, remove built ima
 | Container | Image | Role |
 |---|---|---|
 | `gateway` | `caddy:2` | HTTP basic auth + reverse proxy to `app`, `code-server`, `vnc`. Serves the WS upgrades too. |
-| `app` | `sandbox-app` (built) | Axum server: React SPA, `GET /api/manifest` (live buttons), `/api/term/ws` pty WebSocket bridge, `POST/DELETE /api/buttons` (user buttons), `/api/models/*` (model-config page), `/api/stats`. Autostarts pi-web on `:30141` when baked. `FROM sandbox-base`. |
+| `app` | `sandbox-app` (built) | Axum server: React SPA, `GET /api/manifest` (live buttons), `/api/term/ws` pty WebSocket bridge, `POST/DELETE /api/buttons` (user buttons), `/api/models/*` (model-config page), `/api/stats`, and the `/preview/<port>/` dev-server reverse proxy. Autostarts pi-web on `:30141` when baked. `FROM sandbox-base`. |
 | `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated, auto-detected by TCP probe to `app:8200`. `FROM sandbox-base`. |
 | `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated, auto-detected by TCP probe to `app:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
 | `base` | `sandbox-base` (built) | The shared base image. Gated behind the `build` profile so it **never** starts as a runtime container. |
@@ -312,7 +316,34 @@ aio-offline-bundle/      output of `make save` (gitignored)
 Built phase by phase. The MVP is complete: gateway + app (axum + React SPA) +
 code-server + vnc, the scenario-preset system with four layers and versioned L1
 runtimes, offline support, the sidebar-button workspace (auto-detected
-web/agent/page buttons, user-registered buttons, unified model config), and the
-pi / pi-web agent stack. Not yet done: L5 external services beyond on-demand
-TUI buttons, and custom web-type user buttons (needs cross-container port
-preview) — user-registered buttons are terminal+command only.
+web/agent/page buttons, user-registered agent and web buttons with dev-server
+port preview, unified model config), and the pi / pi-web agent stack. Not yet
+done: L5 external services beyond on-demand TUI buttons, and multi-instance
+terminals.
+
+### Dev server preview (`/preview/<port>/`)
+
+Register a web-type button (sidebar `+` → type "Web port preview", enter the
+port your dev server listens on) and click it to open the server in an iframe.
+The app reverse-proxies `/preview/<port>/*` to `127.0.0.1:<port>` on the shared
+network namespace, so servers started in ANY workbench/code-server terminal are
+reachable — including ones bound to loopback only. The button shows when the
+port has a listener (TCP probe, same semantics as the built-in buttons) and
+hides when it doesn't. WebSocket (vite HMR) and SSE streams pass through
+unbuffered.
+
+Two known boundaries:
+
+- **Root-absolute asset URLs break under any subpath.** Apps that emit
+  `/_next/...`-style URLs cannot sit behind `/preview/<port>/` (same reason
+  pi-web needs a dedicated origin). The proxy does no HTML rewriting.
+- **vite needs two config lines** to run under the subpath — in
+  `vite.config.ts`:
+  ```ts
+  export default defineConfig({
+    base: '/preview/5173/',
+    server: { hmr: { path: '/preview/5173/' } },
+  });
+  ```
+  Servers emitting purely relative URLs (`python -m http.server`, most static
+  previews) work with zero configuration.
