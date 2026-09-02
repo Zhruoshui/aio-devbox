@@ -680,6 +680,20 @@ input {
   display: block;
 }
 
+/* Register dialog port liveness hint (09-02-web-button-ux-fix): non-blocking
+   probe result under the port field - warn for a dead port, ok for a live
+   one. Hidden while the format error shows (RegisterDialog renders it only
+   when !portErr). */
+.field .probe-hint {
+  font-size: var(--text-xs);
+}
+.field .probe-hint.warn {
+  color: var(--warn);
+}
+.field .probe-hint.ok {
+  color: var(--success);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

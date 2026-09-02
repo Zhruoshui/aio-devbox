@@ -119,6 +119,13 @@ reach a loopback-bound dev server; the gateway's catch-all already hands
 - `GET /preview/:port(/:path)` — owner: `app/src/routes/preview.rs`
   (`preview_proxy`). Routes: `/preview/:port`, `/preview/:port/`,
   `/preview/:port/*path` (matchit 0.7.3 catch-all needs a non-empty tail).
+- `GET /api/buttons/probe?port=<N>` — added by 09-02-web-button-ux-fix.
+  Owner: `app/src/routes/buttons.rs::probe_port`. TCP-dials `127.0.0.1:<port>`
+  (same 400ms timeout as the manifest liveness probe in `config.rs`), returns
+  `200 {"listening": bool}`. Port rules mirror POST validation (integer
+  1-65535, 0/8088/non-numeric → 400). Non-blocking UX hint for the register
+  dialog: `listening:false` is a warning, never an error — registration of a
+  dead port stays allowed.
 - Frontend mirror: `web/src/types.ts::RegisterButtonInput`.
 
 ### 3. Contracts

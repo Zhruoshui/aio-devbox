@@ -11,8 +11,9 @@
 // allowlist. We only validate shape (non-empty, length-capped).
 
 use std::path::Path;
+use std::time::Duration;
 
-use axum::extract::{Path as AxumPath, State};
+use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -123,6 +124,45 @@ fn validate_shape(input: &ButtonInput) -> Result<(String, String, Option<u16>), 
             format!("unknown button type {other:?} (expected \"agent\" or \"web\")"),
         )),
     }
+}
+
+/// Query for GET /api/buttons/probe.
+#[derive(Debug, Deserialize)]
+pub struct ProbeQuery {
+    pub port: String,
+}
+
+/// Response body for GET /api/buttons/probe.
+#[derive(Debug, Serialize)]
+pub struct ProbeOut {
+    pub listening: bool,
+}
+
+/// TCP-probe `127.0.0.1:<port>` so the register dialog can warn about a port
+/// with no dev server behind it before the user commits (UX: registering a
+/// dead port silently yields a grey button / 502 preview). Non-blocking: a
+/// `listening:false` is a hint, not an error. Same port rules as
+/// `validate_shape` (1-65535, 8088 is the app itself), same 400 on violation,
+/// same 400ms timeout as the manifest's liveness probe in `config.rs`.
+pub async fn probe_port(
+    Query(q): Query<ProbeQuery>,
+) -> Result<Json<ProbeOut>, (StatusCode, String)> {
+    let Ok(p) = q.port.parse::<u16>() else {
+        return Err((StatusCode::BAD_REQUEST, format!("port {:?} is not a number", q.port)));
+    };
+    if p == 0 || p == 8088 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("port {p} is not allowed (0 or the app's own 8088)"),
+        ));
+    }
+    let target = format!("127.0.0.1:{p}");
+    let connect = tokio::net::TcpStream::connect(&target);
+    let listening = matches!(
+        tokio::time::timeout(Duration::from_millis(400), connect).await,
+        Ok(Ok(_))
+    );
+    Ok(Json(ProbeOut { listening }))
 }
 
 pub async fn delete_button(
@@ -268,5 +308,38 @@ mod tests {
     fn validate_agent_cmd_still_required() {
         let err = validate_shape(&input("x", "", "", None)).unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    // --- probe_port ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn probe_live_port_listening() {
+        // Bind an ephemeral listener so the test has a guaranteed-open port.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let out = probe_port(Query(ProbeQuery { port: port.to_string() }))
+            .await
+            .unwrap();
+        assert!(out.listening);
+    }
+
+    #[tokio::test]
+    async fn probe_dead_port_not_listening() {
+        // 65535: the only u16 port nothing may listen on by construction here
+        // (port 0 is a probe-parameter error, not an address to dial).
+        let out = probe_port(Query(ProbeQuery { port: "65535".into() }))
+            .await
+            .unwrap();
+        assert!(!out.listening);
+    }
+
+    #[tokio::test]
+    async fn probe_rejects_invalid_ports() {
+        for bad in ["0", "8088", "abc", "-1", "65536", ""] {
+            let err = probe_port(Query(ProbeQuery { port: bad.into() }))
+                .await
+                .unwrap_err();
+            assert_eq!(err.0, StatusCode::BAD_REQUEST, "port {bad:?} must be 400");
+        }
     }
 }

@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { t, type Lang } from "./i18n";
+import { fmt, t, type Lang } from "./i18n";
 import { Icon } from "./icons";
 import type { RegisterButtonInput, RegisterButtonType } from "./types";
 
@@ -36,6 +36,12 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
   const [portErr, setPortErr] = useState(false);
   const [failed, setFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Probe hint (web type only): is anything listening on the typed port?
+  // "unknown" = not probed yet (initial / invalid format / request in flight).
+  // Non-blocking UX: a dead port shows a warning but registration stays
+  // allowed (09-02-web-button-ux-fix R2).
+  const [probe, setProbe] = useState<"unknown" | "listening" | "dead">("unknown");
+  const [probedPort, setProbedPort] = useState<number | null>(null);
   // Opener element is captured on open so focus can be restored on close.
   const openerRef = useRef<Element | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
@@ -54,6 +60,8 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
     setCmdErr(false);
     setPortErr(false);
     setFailed(false);
+    setProbe("unknown");
+    setProbedPort(null);
     openerRef.current = document.activeElement;
     // The overlay fades in over visibility+opacity, and focus() on a
     // still-hidden element is a no-op. Wait two frames so the visibility
@@ -81,6 +89,39 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, label, cmd, port]);
+
+  // Debounced liveness probe (web type): 500ms after the port settles into a
+  // format-valid value, GET /api/buttons/probe and surface listening/dead.
+  // Only the latest request's result is adopted (stale responses are dropped
+  // via the cleanup flag), and the result carries the port it probed so a
+  // fast subsequent edit never renders a mismatched hint.
+  useEffect(() => {
+    if (type !== "web" || !open) return;
+    const p = Number(port.trim());
+    if (!Number.isInteger(p) || p < 1 || p > 65535 || p === 8088) {
+      setProbe("unknown");
+      setProbedPort(null);
+      return;
+    }
+    setProbe("unknown");
+    let stale = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/buttons/probe?port=${p}`);
+        if (!r.ok || stale) return;
+        const body: { listening: boolean } = await r.json();
+        if (stale) return;
+        setProbe(body.listening ? "listening" : "dead");
+        setProbedPort(p);
+      } catch {
+        // Network/gateway hiccup: stay "unknown", no hint rendered.
+      }
+    }, 500);
+    return () => {
+      stale = true;
+      window.clearTimeout(timer);
+    };
+  }, [port, type, open]);
 
   function close(): void {
     onClose();
@@ -222,6 +263,16 @@ export function RegisterDialog({ open, lang, onClose, onRegister }: Props): JSX.
                 }}
               />
               <span className="hint">{t(lang, "fieldPortHint")}</span>
+              {probe !== "unknown" && !portErr && probedPort === Number(port.trim()) && (
+                <span
+                  className={`probe-hint${probe === "dead" ? " warn" : " ok"}`}
+                  role="status"
+                >
+                  {probe === "dead"
+                    ? fmt(lang, "probeDead", probedPort)
+                    : fmt(lang, "probeListening", probedPort)}
+                </span>
+              )}
               <span className={`field-error${portErr ? " show" : ""}`} role="alert">
                 {t(lang, "errPort")}
               </span>

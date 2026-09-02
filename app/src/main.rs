@@ -38,7 +38,7 @@ mod routes;
 mod state;
 
 use routes::{
-    buttons::{create_button, delete_button}, manifest::manifest,
+    buttons::{create_button, delete_button, probe_port}, manifest::manifest,
     models::{
         apply_agent, catalog::get_catalog, delete_live_provider, discover::discover,
         edit_live_provider, get_agents, get_config, import_pi, put_config,
@@ -98,6 +98,7 @@ async fn main() {
         // Static segments win over the `/api/*rest` catch-all. `:id` is axum
         // 0.7 / matchit path-param syntax.
         .route("/api/buttons", post(create_button))
+        .route("/api/buttons/probe", get(probe_port))
         .route("/api/buttons/:id", delete(delete_button))
         // Model config: canonical store (GET/PUT) + pi import (POST) +
         // M2 discover (POST /v1/models fetch) + test (minimal completion probe) +
