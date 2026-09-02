@@ -32,9 +32,20 @@ services:
     # asset URLs (/_next/...) and serves its own /api/* (collides with axum's
     # /api), so it needs a dedicated origin root - see services.toml's piWeb
     # entry. Host-side, this port needs the usual one-time
-    # `sbx ports <sandbox> --publish 30141:30141/tcp`.
+    # `sbx ports <sandbox> --publish <port>:30141/tcp`.
+    #
+    # The HOST-side publish port is configurable (issue #3): when the host
+    # republishes 30141 as something else (`sbx ports --publish 30142:30141`
+    # or multi-instance deployments), the iframe URL must point at the host
+    # port, not the in-container one. PI_WEB_HOST_PORT feeds the
+    # {env:PI_WEB_HOST_PORT:30141} placeholder in services.toml's piWeb url
+    # (expanded once at app startup); the same variable drives the ports
+    # mapping. Set it via .env (compose interpolation) or the shell:
+    #   PI_WEB_HOST_PORT=30142 make up
+    environment:
+      PI_WEB_HOST_PORT: ${PI_WEB_HOST_PORT:-30141}
     ports:
-      - "30141:30141"
+      - "${PI_WEB_HOST_PORT:-30141}:30141"
     volumes:
       - workspace:/root
     networks:

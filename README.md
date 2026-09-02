@@ -118,6 +118,16 @@ HTTPS-first upgrade). Reserved ports on the shared netns: `8088` (axum),
 `8200` (code-server), `6080` (websockify), `5900` (Xvnc, loopback), `30141`
 (pi-web, published to the host) — pick other ports for dev servers.
 
+**pi-web host port:** the iframe URL carries the *host-side* publish port
+(`http://<host>:<PI_WEB_HOST_PORT>/`), which is `30141` by default but differs
+when the host republishes it (an `sbx` sandbox running
+`sbx ports <sandbox> --publish 30142:30141/tcp`, or a second instance reusing
+the port range). Set `PI_WEB_HOST_PORT` (via `.env` or
+`PI_WEB_HOST_PORT=30142 make up`) and compose both publishes that host port
+and tells the app to render the iframe URL with it; unset = `30141` (current
+behavior). The in-sandbox port is always `30141` — liveness probes and the
+autostart are unaffected.
+
 **Build order matters:** `app` and `code-server` are `FROM sandbox-base`, so
 `sandbox-base` must be built and tagged first. The Makefile handles this
 (`make up` → `build-base` → `compose up --build`).
