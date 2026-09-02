@@ -14,6 +14,10 @@ pick them (and Node/Python versions) in a TUI, and they are baked into a shared
 `sandbox-base` image that every dev container inherits. The whole stack is
 **offline-capable**: build on an online machine, ship the images, run air-gapped.
 
+📖 Wiki: [project wiki](https://github.com/Zhruoshui/aio-devbox/wiki) —
+architecture overview, scenario presets, offline bundle, and FAQ (skeleton
+now, filled in progressively).
+
 ## Features
 
 - **One command to a browser IDE.** `make up` → open `http://localhost:8080`
