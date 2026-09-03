@@ -1,0 +1,41 @@
+# GitHub Actions: 发布项目 Wiki（docs/wiki/ 为源，同步到 GitHub Wiki 仓库）
+#
+# Wiki 是独立 git 仓库 <repo>.wiki.git，本 workflow 用
+# Andrew-Chen-Wang/github-wiki-action 把 docs/wiki/ 下的 Markdown 推上去。
+# 目标仓库：https://github.com/Zhruoshui/aio-devbox.wiki
+#
+# ⚠️ 首次运行前需手动初始化：在 GitHub 网页打开仓库的 Wiki 标签页，
+#    点击 "Create the first page" 创建首页（并随便提交一次）。
+#    Wiki 仓库不存在时本 workflow 会推送失败，初始化一次后即恢复正常。
+#
+# 认证：默认 GITHUB_TOKEN + permissions: contents: write 即可推 wiki，无需 PAT。
+#
+# 触发：push 到 main，且仅当 docs/wiki/** 或本 workflow 文件变更时运行。
+# 并发：group: publish-wiki，同组取消防跑（cancel-in-progress），避免并发推送 wiki。
+
+name: publish-wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - '.github/workflows/publish-wiki.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-wiki
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 发布 Wiki（docs/wiki/ → <repo>.wiki）
+        uses: Andrew-Chen-Wang/github-wiki-action@v4
+        with:
+          path: docs/wiki

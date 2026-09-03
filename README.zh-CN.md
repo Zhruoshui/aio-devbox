@@ -12,6 +12,9 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 (并选 Node/Python 版本),它们被烘进一个所有开发容器共享的 `sandbox-base`
 镜像。整套栈**支持离线**:联网机构建,打包镜像运走,气隙环境也能跑。
 
+📖 Wiki 文档:[项目 Wiki](https://github.com/Zhruoshui/aio-devbox/wiki)——
+架构总览、场景配置、离线分发、常见问题(骨架已建,正文逐步填充)。
+
 ## 特性
 
 - **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`(HTTP
