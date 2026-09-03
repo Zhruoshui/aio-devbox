@@ -87,8 +87,19 @@ type = "web"
 # URL must stay static. pi-web trusts loopback + IP literals
 # (request-security.ts), so both pass its Host check; PI_WEB_ALLOWED_HOSTS=app
 # (set by the autostart) keeps http://app:30141 working from sandbox-net.
+#
+# {env:PI_WEB_HOST_PORT:30141} is expanded ONCE at app startup (config.rs
+# expand_placeholders) with the process env; unset/empty => the default 30141
+# (= current behavior). The HOST-side published port differs from the in-
+# sandbox one when the host republishes; in the sbx scenario both sides of
+# the publish must equal PI_WEB_HOST_PORT (e.g. PI_WEB_HOST_PORT=30142 +
+# `sbx ports --publish 30142:30142`), so docker-compose passes
+# PI_WEB_HOST_PORT through (defaulting to 30141) - see the app service in
+# docker-compose.yml and issue #3. `target` stays app:30141: TCP liveness
+# probes the sandbox-net-internal port, which the host-side publish never
+# changes.
 target = "app:30141"
-url = "http://{host}:30141/"
+url = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/"
 label = "pi Web"
 
 [[service]]

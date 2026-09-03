@@ -257,17 +257,49 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log("close:", { beforeClose, afterClose, closeOk });
 
   // --- 6. Register a user button, launch it, delete it ----------------------
+  // Pre-cleanup: delete ANY leftover smokebtn buttons from earlier (failed)
+  // runs - the backend dedupes same-label registrations (smokebtn-2, -3, ...),
+  // and a leftover keeps rendering under the same label, which would fail
+  // this step's final "button is gone" assertion on every rerun.
+  {
+    const manifest = await fetch(`${URL}api/manifest`, { headers: AUTH }).then((r) => r.json());
+    for (const svc of manifest.services) {
+      if (svc.deletable && svc.label === "smokebtn") {
+        await fetch(`${URL}api/buttons/${svc.id}`, { method: "DELETE", headers: AUTH }).catch(() => {});
+      }
+    }
+  }
   // RegisterButton now opens the Kumo-style modal dialog (register-btn in the
   // sidebar footer -> .dialog with #f-label / #f-cmd fields -> .btn-primary).
   await page.click(".register-btn");
   await page.waitForSelector(".overlay.open .dialog", { timeout: 5000 });
-  await page.waitForSelector("#f-label", { visible: true, timeout: 5000 });
+  // NB: NOT page.waitForSelector(#f-label, {visible:true}) - on recent Chromium
+  // (node:20-bookworm's ~137+) with puppeteer-core 22.15, the visible-wait's
+  // MutationPoller never fires when the element transitions hidden->visible,
+  // so the wait times out even though the field is up and visible (verified:
+  // the dialog opens at ~850ms, rAF healthy, wait still fails at 8s). Poll
+  // the visibility predicate ourselves via waitForFunction instead.
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("#f-label");
+      if (!el) return false;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+    },
+    { timeout: 5000 },
+  );
   await page.type("#f-label", "smokebtn");
   await page.type("#f-cmd", "echo smokeok-marker");
-  await Promise.all([
+  const [postRes] = await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/buttons") && r.request().method() === "POST"),
     page.click(".btn-primary"),
   ]);
+  // The id is NOT always the label's slug: a leftover button with the same
+  // label from a previous (failed) run makes the backend dedupe it
+  // (smokebtn-2, -3, ...). Use the id the POST actually assigned so repeated
+  // runs of this test are idempotent.
+  const createdId = await postRes.json().then((b) => b.id);
   // The SPA refreshes the manifest after a successful POST; the new button is
   // visible once command_exists finds `echo` (/usr/bin/echo on the base image).
   await page.waitForSelector('.launch-btn[title^="smokebtn"]', { timeout: 10000 });
@@ -280,7 +312,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Delete via the API (the UI ✕ is hover-revealed; the API is the contract),
   // then refresh via the UI and assert the button is gone.
-  const delRes = await fetch(`${URL}api/buttons/smokebtn`, { method: "DELETE", headers: AUTH });
+  // Also best-effort delete the bare slug so a prior run's leftover never
+  // poisons the next run's assertion.
+  const delRes = await fetch(`${URL}api/buttons/${createdId}`, { method: "DELETE", headers: AUTH });
+  await fetch(`${URL}api/buttons/smokebtn`, { method: "DELETE", headers: AUTH }).catch(() => {});
   await page.click(".refresh-btn");
   await sleep(1000);
   const titlesAfterDelete = await page.$$eval(".launch-btn .launch-label", (els) =>

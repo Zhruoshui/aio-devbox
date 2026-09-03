@@ -157,3 +157,42 @@ non-numeric port / port 0 / 8088 → 404 (fast-fail, no proxy attempt).
 Wrong: proxying 8088 (self-recursion `/preview/8088/preview/...`), rewriting
 HTML to fix root-absolute asset URLs (vite/Next need upstream `base` config —
 documented in README), stripping the WS subprotocol on the way back.
+
+## GET /api/manifest — `{env:VAR:default}` placeholder in built-in urls
+
+### 1. Scope / Trigger
+
+Added by the piweb-port-env task (`.trellis/tasks/09-02-piweb-port-env/`,
+issue #3). Built-in `services.toml` urls may carry `{env:VAR:default}`
+placeholders; they are expanded ONCE at app startup (`main.rs` maps
+`config::expand_placeholders` over the loaded list) — env doesn't change
+during the process lifetime, so the manifest handler never re-expands.
+
+### 2. Signatures
+
+- Owner: `app/src/config.rs::expand_placeholders` (+ private `expand_one`).
+- Today's only consumer: piWeb's
+  `url = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/"` — the HOST-side
+  publish port (compose passes `PI_WEB_HOST_PORT` through, defaulting 30141;
+  `target` stays `app:30141`, the sandbox-net-internal probe, unaffected).
+- Frontend is unaware: it still only substitutes `{host}` client-side.
+
+### 3. Contracts
+
+- Semantics: set VAR (non-empty) => its value; unset OR EMPTY var => the
+  default after the second colon. An empty env var is treated as unset on
+  purpose — compose projects interpolate `PI_WEB_HOST_PORT=` from a
+  half-edited `.env`, and an empty port would render `http://host:/`.
+- Malformed specs (`{env:VAR}` with no default, `{env:}`, unbalanced braces,
+  non-env braced groups like `{host}`) pass through verbatim — a typo in
+  services.toml stays visible in the manifest instead of being silently
+  swallowed.
+- User buttons (`buttons.toml`) are NOT expanded — their urls are generated
+  (`/preview/<port>/`), not authored, so they can't carry placeholders.
+
+### 4. Tests Required
+
+- Unit (`config.rs` tests): env-override, missing-env default, empty-env
+  default, multiple/adjacent placeholders, malformed pass-through, no
+  closing brace, plain string. Verified live: `PI_WEB_HOST_PORT=30142` makes
+  the manifest piWeb url `http://{host}:30142/`; unset keeps `:30141`.
