@@ -1,4 +1,0 @@
-id = "nvm"
-name = "nvm (Node 版本管理器)"
-description = "nvm.sh 烘 /opt/nvm;运行时 NVM_DIR=~/.nvm(卷)装别的 node 版本,抗 recreate"
-category = "lang"

@@ -1,5 +1,9 @@
 # Plan: L1 版本化(node/python 可选版本)+ nvm/uv 可选场景
 
+> **历史文档**:本计划已于 2026-08 落地。其中 nvm/uv 等 L3 场景已于 2026-09-03
+> 被 `scenarios/mise` 全量收编删除(任务 09-02-mise-scenario);现状见
+> `scenarios/mise/fragment.Dockerfile`。L1 always_on 版本化机制不受影响。
+
 ## 目标(已与用户确认)
 1. **L1 进 TUI**(推翻 Q2=A、回答 Q5):node/python 作为"始终启用、不可取消、带版本下拉"的条目可见。
 2. **node/python 走 tarball 装系统路径,版本可选**(node: nodejs.org;python: python-build-standalone)。不用 nvm/uv 装 L1 默认版本。

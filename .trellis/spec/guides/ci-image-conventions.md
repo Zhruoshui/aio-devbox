@@ -49,8 +49,9 @@ always_on 排除规则唯一归属 `config/src/manifest.rs::expand`。
 镜像内工具抽查一律 `docker run --rm --entrypoint bash <img> -lc 'command -v …'`:
 
 - `bash -lc` = 登录 shell 语义,顺带守护场景的 PATH 铁律(Rule 2);
-- `command -v` 而非 `--version`(对无标准 version 旗标的工具稳健,且能探
-  `nvm` 这类 profile.d 定义的 shell 函数)。
+- `command -v` 而非 `--version`(对无标准 version 旗标的工具稳健);
+- mise 场景额外补一路非 login 抽查(`bash -c` 无 -l),守护 ENV + shims
+  通道(code-server 非 login 终端、非交互子进程的可见性)。
 
 ## 约定 5: 标签方案(三处对齐)
 

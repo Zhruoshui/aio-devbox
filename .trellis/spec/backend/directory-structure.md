@@ -46,11 +46,14 @@ from the Makefile. See `.trellis/tasks/08-03-scenario-preset-profiles/`.
 - Fragments run as root (inserted before the tail's `USER gem`).
 - Install to **system paths** (`/opt`, `/usr/local`), NEVER `/home/gem/*` -- the
   workspace named volume masks `/home/gem`, so baked-in tools there go stale.
-- Tools in a **custom bin dir** (e.g. rustup's `/opt/rust/cargo/bin`, go's
-  `/usr/local/go/bin`) are NOT on the login-shell PATH: `bash -l` sources
-  `/etc/profile` which resets PATH, dropping the custom dir. **Symlink the
-  proxies into `/usr/local/bin`** so every shell type finds them. Tools installed
-  directly to `/usr/local/bin` (uv, ruff, opencode, node) need no symlink.
+- Tools in a **custom bin dir** are NOT on the login-shell PATH: `bash -l`
+  sources `/etc/profile` which resets PATH, dropping the custom dir. Two
+  accepted patterns: **symlink the proxies into `/usr/local/bin`** (fixed
+  command set), or the mise scenario's **dual-channel** approach — ENV
+  (`PATH=/opt/mise/shims:$PATH`, inherited by every process) plus
+  `/etc/profile.d/mise.sh` re-exporting the env vars and running
+  `eval "$(mise activate bash)"` for login shells. Tools installed
+  directly to `/usr/local/bin` (the mise binary itself, node) need neither.
 - `id` in `scenario.toml` must equal the directory name (`gen` enforces it).
 
 ## Common Mistake: `RUN chmod` after `FROM sandbox-base`

@@ -202,8 +202,7 @@ Produce a table like:
 |---|---|---|---|---|
 | Node 22 | L1 `os` always_on | existing | `scenarios/node/scenario.toml` + `.aio/enabled.toml` | 22.11.0 |
 | Python 3.13 | L1 `os` always_on | existing | `scenarios/python/scenario.toml` + `.aio/enabled.toml` | 3.13.0 / tag 20241016 |
-| Rust | L3 `lang` | existing | `.aio/enabled.toml` (tick) | stable |
-| Go | L3 `lang` | existing | `.aio/enabled.toml` (tick) | 1.23.4 |
+| Rust + Go | L3 `lang` | existing | `.aio/enabled.toml` (tick mise) | via mise ARG block (rust 1.93.1, go 1.23.4) |
 | Jupyter pane | L5 `service` | new | `docker-compose.yml` + `Caddyfile` + `app/services.toml` + `jupyter/Dockerfile` | - |
 | aichat | L4 `app` + button | new | `scenarios/aichat/*` + `app/services.toml` | v1.18.7 |
 
@@ -214,7 +213,7 @@ scenario.toml files that already exist under `scenarios/`:
 # 0. author the new files first (aichat: scenarios/aichat/* + services.toml entry;
 #    jupyter: docker-compose.yml service + Caddyfile block + services.toml entry + jupyter/Dockerfile)
 # 1. scenario selection + versions (TUI now sees aichat too)
-make config                # tick rust, go, aichat; set node=22.11.0, python=3.13.0
+make config                # tick mise, aichat; set node=22.11.0, python=3.13.0
 # 2. assemble + build the base image with all baked scenarios
 make build-base
 # 3. rebuild derived images (app picks up services.toml changes too) + start

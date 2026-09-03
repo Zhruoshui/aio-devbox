@@ -36,8 +36,8 @@ Two `type`s:
   is actually installed** - bake the scenario and the button appears; don't
   bake it and it hides. This replaced the old `ENABLE_*` env-var scheme that
   produced "dead panes" (button shown, tool missing). Existing: `terminal` (cmd
-  `""`, always present), `opencode` (cmd `opencode`, shown only if the
-  `opencode` scenario is baked).
+  `""`, always present), `opencode` (cmd `opencode`, shown only if the mise
+  scenario is baked - it ships the opencode binary via its shims).
 
 `label` is optional (falls back to a friendly form of `id`).
 
@@ -168,8 +168,8 @@ the changed fragment only lands via `make build-base` -> `Dockerfile.base`.
 
 `vnc/Dockerfile` is `FROM debian:bookworm-slim`, not `FROM sandbox-base`.
 It's a pure browser surface (Chromium + noVNC) and doesn't need the dev
-tooling the scenarios bake. Decoupling it means adding a rust/go/python-dev
-scenario doesn't stale-date or rebuild the vnc image. So scenarios only affect
+tooling the scenarios bake. Decoupling it means adding or bumping a
+lang-layer scenario doesn't stale-date or rebuild the vnc image. So scenarios only affect
 `sandbox-base` (and the `app`/`code-server` images derived from it). If a
 request is "add X to the vnc container", that's a `vnc/Dockerfile` edit, not
 a scenario - and it's unusual; vnc is meant to stay thin.

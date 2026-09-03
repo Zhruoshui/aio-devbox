@@ -1,0 +1,8 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "mise"
+name = "mise (L3 工具链统一管理器)"
+description = "rust+go+uv+ruff+opencode 五工具全家桶,统一由 mise 烘焙到 /opt/mise(系统路径,躲卷遮盖)。启用即安装全部五工具(all-or-nothing,~1.5GB,含 rust 1.4GB);版本升级=编辑 fragment 顶部 ARG 块;运行时 mise use 自装工具落容器可写层,recreate 即丢"
+category = "lang"

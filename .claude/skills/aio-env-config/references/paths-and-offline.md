@@ -9,7 +9,7 @@ installs differ from baked-in scenarios. The key distinction is **baked
 | Location | What's there | Survives container recreate? | Visible to | When to use |
 |---|---|---|---|---|
 | Image layer (baked) | `/usr/local`, `/opt`, `/usr/local/bin`, `/etc/profile.d` | Yes (it's in the image) | every container `FROM sandbox-base` | persistent system tooling - **scenarios install here** |
-| Shared volume | `/root/...` (`~/.local/bin`, `~/.cargo`, `~/.nvm/versions`, `~/.local/share/uv`) | Yes (named volume `aio_workspace`) | app, code-server, vnc (all mount the volume) | runtime user data + self-contained runtime tools |
+| Shared volume | `/root/...` (`~/.local/bin`, user runtime data) | Yes (named volume `aio_workspace`) | app, code-server, vnc (all mount the volume) | runtime user data + self-contained runtime tools |
 | Container writable layer | `/usr`, `/etc` written at runtime (not via a build) | NO (gone on recreate) | only that container | temporary / verification only |
 
 The `sandbox-base` image + scenarios own the **baked** row. Everything you do
@@ -29,8 +29,11 @@ runtime.
 
 That's why every scenario installs to a system path (`/usr/local/bin`, `/opt`,
 `/usr/local`) that the volume doesn't cover. The only things that go under
-`/root` are written **at runtime** (by the user, or by a version manager
-like nvm/uv), so they're meant to live on the volume and survive recreate.
+`/root` are written **at runtime** (by the user), so they're meant to live on
+the volume and survive recreate. The mise scenario redirects ALL its state
+(`MISE_DATA_DIR`, `MISE_CONFIG_DIR`, `RUSTUP_HOME`, `CARGO_HOME` → `/opt/mise`)
+for exactly this reason - mise's defaults all live under `/root` and would be
+masked.
 
 ## The ~/.local/bin auto-PATH trick (runtime tools)
 
@@ -132,12 +135,15 @@ Does it need to be part of the shipped image (reproducible, on fresh checkouts)?
 ├─ YES -> scenario fragment, install to a SYSTEM path (/usr/local, /opt). make build-base.
 └─ NO  -> runtime install on the shared volume
           ├─ self-contained binary/script -> ~/.local/bin  (auto-PATH, survives recreate)
-          ├─ version-manager runtime (nvm/uv-managed) -> ~/.nvm, ~/.local/share/uv (on volume by design)
+          ├─ offline mise tool transfer -> whole-data-dir move to the SAME absolute path
+          │    (see docs/offline-tool-install.md §14; MISE_DATA_DIR + MISE_CONFIG_DIR
+          │     must be overridden together, single tar carries both)
           └─ apt package (temporary only) -> container writable layer (gone on recreate; don't rely on it)
 ```
 
-The version managers (nvm, uv) are a deliberate hybrid: the **manager binary**
-is baked to a system path (`/opt/nvm`, `/usr/local/bin/uv`) so it's always
-there, but the **runtimes it installs** go to the volume (`~/.nvm/versions`,
-`~/.local/share/uv/python`) so they survive recreate and the user owns them.
-If you're authoring a new version-manager scenario, follow that split.
+Note on mise: unlike the old nvm/uv hybrid (manager baked system-side,
+runtimes on the volume), the mise scenario bakes everything to `/opt/mise`
+(image layer). Runtime `mise use <tool>` in a deployed sandbox therefore lands
+on the **container writable layer** and is lost on recreate - a known,
+accepted tradeoff. The offline whole-directory recipe above is the supported
+way to add mise-managed tools to an offline machine.
