@@ -120,13 +120,16 @@ HTTPS-first upgrade). Reserved ports on the shared netns: `8088` (axum),
 
 **pi-web host port:** the iframe URL carries the *host-side* publish port
 (`http://<host>:<PI_WEB_HOST_PORT>/`), which is `30141` by default but differs
-when the host republishes it (an `sbx` sandbox running
-`sbx ports <sandbox> --publish 30142:30141/tcp`, or a second instance reusing
-the port range). Set `PI_WEB_HOST_PORT` (via `.env` or
-`PI_WEB_HOST_PORT=30142 make up`) and compose both publishes that host port
-and tells the app to render the iframe URL with it; unset = `30141` (current
-behavior). The in-sandbox port is always `30141` — liveness probes and the
-autostart are unaffected.
+when the host republishes it (an `sbx` sandbox mapping it to another host
+port, or a second instance reusing the port range). Set `PI_WEB_HOST_PORT`
+(via `.env` or `PI_WEB_HOST_PORT=30142 make up`) and compose both publishes
+that port and tells the app to render the iframe URL with it; unset = `30141`
+(current behavior). **Pairing note (sbx):** with the variable set, compose
+binds `PI_WEB_HOST_PORT` *inside the sandbox* too (`30143` → container
+`30141`), so the sbx publish must target the same sandbox-side port —
+`sbx ports <sandbox> --publish 30142:30143/tcp`, not `:30141` (nothing
+listens on 30141 in the sandbox once the variable is set). The in-container
+port is always `30141` — liveness probes and the autostart are unaffected.
 
 **Build order matters:** `app` and `code-server` are `FROM sandbox-base`, so
 `sandbox-base` must be built and tagged first. The Makefile handles this
