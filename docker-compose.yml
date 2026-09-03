@@ -32,13 +32,14 @@ services:
     # asset URLs (/_next/...) and serves its own /api/* (collides with axum's
     # /api), so it needs a dedicated origin root - see services.toml's piWeb
     # entry. Host-side, this port needs the usual one-time
-    # `sbx ports <sandbox> --publish <port>:<port>/tcp` — the sandbox-side
-    # port equals PI_WEB_HOST_PORT (compose binds it), NOT 30141.
+    # `sbx ports <sandbox> --publish <port>:<port>/tcp` — BOTH sides equal
+    # PI_WEB_HOST_PORT (compose binds it in the sandbox), NOT 30141.
     #
     # The HOST-side publish port is configurable (issue #3): when the host
-    # republishes 30141 as something else (`sbx ports --publish 30142:30143`
-    # with PI_WEB_HOST_PORT=30143, or multi-instance deployments), the iframe
-    # URL must point at the host port, not the in-container one.
+    # republishes 30141 as something else (an `sbx` sandbox with
+    # `sbx ports --publish 30142:30142` + PI_WEB_HOST_PORT=30142, or
+    # multi-instance deployments), the iframe URL must point at the host
+    # port, not the in-container one.
     # PI_WEB_HOST_PORT feeds the {env:PI_WEB_HOST_PORT:30141} placeholder in
     # services.toml's piWeb url (expanded once at app startup); the same
     # variable drives the ports mapping, so the sandbox-side bind and the

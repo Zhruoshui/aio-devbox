@@ -1,0 +1,4 @@
+{"file": "mise-poc/FINDINGS.md", "reason": "mise PoC 实测记录：三个 Phase 的全部约束（rustup 家目录重定向、rust-analyzer 死循环、离线整目录搬迁）是本任务的设计依据"}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "场景文件契约 + 两条 PATH 规则 + checklist,新场景必须遵守"}
+{"file": ".claude/skills/aio-env-config/references/layers.md", "reason": "L3 层定义与 always_on 规则,决定哪些场景在收编范围内"}
+{"file": ".claude/skills/aio-env-config/references/paths-and-offline.md", "reason": "烘焙 vs 运行时落盘规则与离线三原语,mise 搬迁配方要与之对齐"}
