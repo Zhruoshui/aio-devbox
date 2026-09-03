@@ -7,7 +7,7 @@
 #             镜像内工具抽查 + [push 路径] 发布到 GHCR
 #
 # 触发矩阵（prepare 内实现）：
-#   push main          -> variants=[minimal,full]  push=true  ref=sha7
+#   push feat/taosi    -> variants=[minimal,full]  push=true  ref=sha7
 #   push tag v*        -> variants=[minimal,full]  push=true  ref=标签名
 #   pull_request       -> variants=[minimal]       push=false ref=sha7
 #   workflow_dispatch  -> 输入选择变体；push 输入开关(默认 true，false=干跑) ref=sha7
@@ -24,7 +24,7 @@ name: images
 
 on:
   push:
-    branches: [main]
+    branches: [feat/taosi]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
