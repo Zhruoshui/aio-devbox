@@ -215,10 +215,17 @@ jobs:
             tools="node python3"
           else
             # full = 全部可选场景的代表工具；bash -lc 顺带守护场景编写的 login-shell PATH 规则
-            tools="node python3 rustc cargo go gofmt uv ruff clang gcc gdb cmake ninja fzf rg bat fd opencode pi pi-web nvm fc-list"
+            # （mise 场景 = profile.d/activate 通道；rust/go/uv/ruff/opencode 均由 mise 烘焙）
+            tools="node python3 mise rustc cargo go gofmt uv ruff clang gcc gdb cmake ninja fzf rg bat fd opencode pi pi-web fc-list"
           fi
           docker run --rm --entrypoint bash sandbox-base -lc \
             "for t in ${tools}; do command -v \${t} >/dev/null || { echo \"MISSING in sandbox-base: \${t}\"; exit 1; }; done; echo 'sandbox-base probe ok'"
+          if [ "${VARIANT}" = "full" ]; then
+            # mise 场景双保险的另一路：非 login shell（无 -l）走 ENV + shims 通道，
+            # 覆盖 code-server 非 login 终端与被 spawn 的非交互子进程
+            docker run --rm --entrypoint bash sandbox-base -c \
+              "for t in mise rustc cargo go gofmt uv ruff opencode; do command -v \${t} >/dev/null || { echo \"MISSING (non-login): \${t}\"; exit 1; }; done; echo 'sandbox-base non-login probe ok'"
+          fi
 
       - name: （push 路径）登录 GHCR
         if: needs.prepare.outputs.push == 'true'

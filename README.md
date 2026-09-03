@@ -45,8 +45,11 @@ pick them (and Node/Python versions) in a TUI, and they are baked into a shared
 - **Versioned base runtimes.** Node and CPython are `always_on` scenarios with
   a version dropdown — pick a version, not whether to install.
 - **Survives container recreate.** The workspace is a named Docker volume on
-  `/root`; runtime version managers (nvm, uv) install into the volume so
-  `nvm install` / `uv python install` survive `down`/`up`.
+  `/root`; runtime user data (projects, configs, `~/.local/bin` tools) lives
+  on the volume and survives `down`/`up`. Note: runtime `mise use` in a
+  deployed sandbox lands on the container writable layer and is lost on
+  recreate (known tradeoff — offline whole-dir transfer is the supported
+  path, see `docs/offline-tool-install.md` §14).
 - **Offline-ready.** Build online, ship via `make save` → `make load` (or plain
   `docker save`/`load`), run with `make up NOBUILD=1`. A full offline
   tool-install handbook lives in
@@ -147,7 +150,7 @@ build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
 |---|---|---|---|
 | L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
 | L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd) | yes |
-| L3 Language toolchains | `lang` | rust / go / c23 / python-dev + version managers nvm / uv | yes |
+| L3 Language toolchains | `lang` | mise (rust + go + uv + ruff + opencode, all-in-one) / c23 | yes |
 | L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode, pi, pi-web) | yes |
 | L5 External services | `service` | _(future, not yet implemented)_ | — |
 
@@ -169,13 +172,9 @@ mask):
 | `python` | L1 `os` | ✓ | 3.12.7 *(default)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
 | `fonts` | L1 `os` | — | — | Maple Mono NF CN (mono + Nerd Font icons + CJK, ~78MB) → `/usr/local/share/fonts`, aliased as default for mono/sans/serif via `/etc/fonts/local.conf`; fixes tofu in server-side rendering |
 | `shell-utils` | L2 `shell` | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin` (Debian `bat`→`batcat`, `fd`→`fdfind` symlinks) |
-| `rust` | L3 `lang` | — | — | rustup stable + rustfmt + clippy + rust-analyzer → `/opt/rust`, proxies → `/usr/local/bin` |
-| `go` | L3 `lang` | — | — | Go 1.23 tarball → `/usr/local/go` |
 | `c23` | L3 `lang` | — | — | clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin` |
-| `python-dev` | L3 `lang` | — | — | uv + ruff → `/usr/local/bin` (overlaps with `uv` — enable one) |
-| `nvm` | L3 `lang` | — | — | nvm.sh → `/opt/nvm`; runtime `NVM_DIR=~/.nvm` (on the volume) so `nvm install` survives recreate. Login shells only. |
-| `uv` | L3 `lang` | — | — | uv → `/usr/local/bin`; runtime `uv python install` → volume (overlaps with `python-dev`) |
-| `opencode` | L4 `app` | — | — | opencode AI-agent CLI → `/usr/local/bin`. Sidebar button only when baked (command-exists detection). |
+| `mise` | L3 `lang` | — | — | mise (L3 toolchain manager) bakes rust + go + uv + ruff + opencode into `/opt/mise` (all five, all-or-nothing, ~1.5GB); versions via the fragment's ARG block; visibility = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
+| `opencode` | L4 `app` | — | — | (baked by the `mise` scenario) opencode AI-agent CLI via mise shims. Sidebar button only when baked (command-exists detection). |
 | `pi` | L4 `app` | — | — | pi coding agent → `/usr/local/bin`; extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal |
 | `pi-web` | L4 `app` | — | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath) |
 
@@ -199,7 +198,7 @@ selections: `minimal` = always_on baseline only (`scenarios = []`), `full` =
 `scenarios = ["*"]`, which `gen` expands to every discovered non-`always_on`
 scenario (so new scenarios are auto-included). CI copies a preset to
 `.aio/enabled.toml` to build the two GHCR variants; the wildcard must be the
-only element (`["*", "rust"]` is an error).
+only element (`["*", "mise"]` is an error).
 
 **Adding a scenario** = drop `scenarios/<id>/{scenario.toml,fragment.Dockerfile}`
 and set `category` in `scenario.toml`. For a versioned scenario, add `always_on`
@@ -283,7 +282,7 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 `sandbox-vnc`:
 
 - `minimal` — the bare always-on baseline (Node + Python), nothing else.
-- `full` — every scenario fragment baked in (rust / go / c23 / pi / opencode / …).
+- `full` — every scenario fragment baked in (mise [rust/go/uv/ruff/opencode] / c23 / pi / …).
 
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)

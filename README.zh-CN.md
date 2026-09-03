@@ -36,8 +36,10 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
   工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node 与 CPython 是 `always_on` 场景,带版本下拉——
   选的是版本,不是装不装。
-- **扛容器重建。** 工作区是挂在 `/root` 的命名卷;运行时版本管理器(nvm、uv)
-  把运行时装进卷,所以 `nvm install` / `uv python install` 能扛过 `down`/`up`。
+- **扛容器重建。** 工作区是挂在 `/root` 的命名卷;运行时用户数据(项目、配置、
+  `~/.local/bin` 工具)都在卷上,扛过 `down`/`up`。注意:已部署沙箱里运行时
+  `mise use` 落容器可写层,recreate 即丢(已知取舍——离线整目录搬迁是受支持
+  的路径,见 `docs/offline-tool-install.md` §14)。
 - **支持离线。** 联网机 `make save` 打包(镜像 + `.env` + 网关哈希 + 场景选择),
   离线机 `make load` 恢复(或裸 `docker save`/`load`),`make up NOBUILD=1` 运行。
   完整的离线补装手册见 [`docs/offline-install-guide.md`](docs/offline-install-guide.md)。
@@ -115,7 +117,7 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 |---|---|---|---|
 | L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential、字体);**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
 | L2 Shell 便利 | `shell` | CLI 工具(fzf / rg / bat / fd) | 是 |
-| L3 语言工具链 | `lang` | rust / go / c23 / python-dev + 版本管理器 nvm / uv | 是 |
+| L3 语言工具链 | `lang` | mise(rust + go + uv + ruff + opencode 全家桶)/ c23 | 是 |
 | L4 应用 | `app` | CLI 应用 / AI agent(opencode、pi、pi-web) | 是 |
 | L5 外部服务 | `service` | _(未来,尚未实现)_ | — |
 
@@ -134,13 +136,9 @@ app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]
 | `python` | L1 `os` | ✓ | 3.12.7 *(默认)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
 | `fonts` | L1 `os` | — | — | Maple Mono NF CN(等宽 + Nerd Font 图标 + 中文,~78MB)→ `/usr/local/share/fonts`,经 `/etc/fonts/local.conf` 钉为 mono/sans/serif 默认;修复服务端渲染豆腐块 |
 | `shell-utils` | L2 `shell` | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin`(Debian `bat`→`batcat`、`fd`→`fdfind` 软链) |
-| `rust` | L3 `lang` | — | — | rustup stable + rustfmt + clippy + rust-analyzer → `/opt/rust`,代理 → `/usr/local/bin` |
-| `go` | L3 `lang` | — | — | Go 1.23 tarball → `/usr/local/go` |
 | `c23` | L3 `lang` | — | — | clang-22(apt.llvm.org,完整 C23)+ 复用 gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace;无版本后缀软链 → `/usr/local/bin` |
-| `python-dev` | L3 `lang` | — | — | uv + ruff → `/usr/local/bin`(与 `uv` 重叠——二选一) |
-| `nvm` | L3 `lang` | — | — | nvm.sh → `/opt/nvm`;运行时 `NVM_DIR=~/.nvm`(在卷上)使 `nvm install` 扛重建。仅 login shell。 |
-| `uv` | L3 `lang` | — | — | uv → `/usr/local/bin`;运行时 `uv python install` → 卷(与 `python-dev` 重叠) |
-| `opencode` | L4 `app` | — | — | opencode AI agent CLI → `/usr/local/bin`。侧边栏按钮仅在烘进镜像时出现(命令存在探测)。 |
+| `mise` | L3 `lang` | — | — | mise(L3 工具链统一管理器)把 rust + go + uv + ruff + opencode 一并烘到 `/opt/mise`(五工具全家桶,~1.5GB);版本升级 = 改 fragment ARG 块;可见性 = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
+| `opencode` | L4 `app` | — | — | (由 `mise` 场景附带烘焙)opencode AI agent CLI,经 mise shims 提供。侧边栏按钮仅在烘进镜像时出现(命令存在探测)。 |
 | `pi` | L4 `app` | — | — | pi coding agent → `/usr/local/bin`;扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷) |
 | `pi-web` | L4 `app` | — | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径) |
 
@@ -161,7 +159,7 @@ docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行
 **预设与通配符。** `.aio/presets/{minimal,full}.toml` 是现成选区:`minimal` =
 仅 always_on 基线(`scenarios = []`),`full` = `scenarios = ["*"]`,由 `gen`
 展开为所有发现的非 `always_on` 场景(新场景自动纳入)。CI 把预设拷成
-`.aio/enabled.toml` 构建两个 GHCR 变体;通配符必须独占数组(`["*", "rust"]`
+`.aio/enabled.toml` 构建两个 GHCR 变体;通配符必须独占数组(`["*", "mise"]`
 是错误)。
 
 **新增场景** = 放 `scenarios/<id>/{scenario.toml,fragment.Dockerfile}`,在
@@ -237,7 +235,7 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 `sandbox-vnc`:
 
 - `minimal`——纯 always_on 基线(Node + Python),别无其他。
-- `full`——全部场景片段都烘进去(rust / go / c23 / pi / opencode……)。
+- `full`——全部场景片段都烘进去(mise [rust/go/uv/ruff/opencode] / c23 / pi / …)。
 
 ```sh
 make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)

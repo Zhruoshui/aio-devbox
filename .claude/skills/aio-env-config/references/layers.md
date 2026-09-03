@@ -11,8 +11,8 @@ the order `aio-config gen` assembles fragments into `Dockerfile.base`.
 |---|---|---|---|---|
 | L1 OS / 基础环境 | `os` | foundational infra + versioned runtimes that everything depends on | node, python are | apt, ca-certs, build-essential (in head); Node, CPython (scenarios) |
 | L2 Shell 便利 | `shell` | CLI convenience tools, pure binaries, no aliases | no | fzf, ripgrep, bat, fd |
-| L3 语言开发链路 | `lang` | language toolchains + language version/package managers | no | rust, go, python-dev, nvm, uv |
-| L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | no | opencode |
+| L3 语言开发链路 | `lang` | language toolchains + language version/package managers | no | mise (rust+go+uv+ruff+opencode 五工具联合体) |
+| L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | no | (opencode 已由 mise 场景附带收编) |
 | L5 外部服务 | `service` | containerized web services with their own port + pane | reserved/future | code-server, vnc (wired today as compose profiles, not scenarios) |
 
 The canonical order is `["os", "shell", "lang", "app", "service"]` (see
@@ -83,22 +83,26 @@ scenario-authoring.md §"The two rules"):
 |---|---|---|
 | L1 node/python | `/usr/local` | system path, on PATH, survives volume |
 | L2 shell-utils | `/usr/bin` (apt) or `/usr/local/bin` (symlinks) | apt + Debian-rename symlinks |
-| L3 rust/go | `/opt/rust`, `/usr/local/go` + symlinks to `/usr/local/bin` | custom ENV PATH + symlink for login shells |
-| L3 nvm | `/opt/nvm` (baked) + `~/.nvm` (runtime, on volume) | nvm.sh baked system-side; versions on volume to survive recreate |
-| L3 uv | `/usr/local/bin` (baked) + `~/.local/share/uv` (runtime, on volume) | binary system-side; managed pythons on volume |
-| L4 opencode | `/usr/local/bin` | single static binary |
+| L3 mise (rust+go+uv+ruff+opencode) | mise binary `/usr/local/bin`; everything else `/opt/mise` (data+config+rustup+cargo, `MISE_DATA_DIR`/`MISE_CONFIG_DIR`/`RUSTUP_HOME`/`CARGO_HOME` all redirected) | system path survives volume; visibility = ENV shims PATH (all processes) + `/etc/profile.d/mise.sh` activate (login shells) |
+| L4 opencode | (baked by the mise scenario into `/opt/mise/installs/opencode`, shim on `/opt/mise/shims`) | single mise-managed binary |
 
 L5 services run in their own container; their install path is inside that
 container's Dockerfile, not a scenario.
 
 ## Picking the layer for a new request
 
-- "add a language + compiler" -> L3 `lang` (rust, go). If it ships a runtime the
-  app depends on, consider L1 `always_on` (like node) - but that's rare.
-- "add a version manager for an existing runtime" -> L3 `lang` (nvm, uv). It
-  complements the L1 default; it doesn't replace it.
+- "add a language + compiler" -> the mise scenario already covers rust/go/uv/
+  ruff via its ARG block (bump the version there); a genuinely new toolchain
+  either joins the mise scenario's [tools] list or gets its own scenario if it
+  needs special handling. If it ships a runtime the app depends on, consider
+  L1 `always_on` (like node) - but that's rare.
+- "add a version manager for an existing runtime" -> that's mise itself
+  (L3). It complements the L1 default; it doesn't replace it. Note runtime
+  `mise use` writes to the container writable layer (lost on recreate) - see
+  the mise scenario's description.
 - "add a CLI tool I type in the terminal" -> L2 `shell` if it's a pure utility
-  (fzf, rg), L4 `app` if it's a named application/agent (opencode).
+  (fzf, rg), L4 `app` if it's a named application/agent (opencode is baked by
+  mise; new agents usually just join the mise [tools] list).
 - "add something with its own web UI on a port" -> L5 `service` (compose +
   caddy + services.toml), NOT a scenario. See compose-registry.md.
 - "add a system apt package" -> edit `Dockerfile.base.head`'s apt list, no scenario.

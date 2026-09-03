@@ -18,9 +18,9 @@ built Dockerfile is deterministic regardless of tick order.
 Minimal (non-versioned, selectable):
 
 ```toml
-id = "rust"
-name = "Rust 工具链"
-description = "rustup stable + rustfmt + clippy + rust-analyzer,装到 /opt/rust"
+id = "mise"
+name = "mise (L3 工具链统一管理器)"
+description = "rust+go+uv+ruff+opencode 五工具全家桶,统一由 mise 烘焙到 /opt/mise"
 category = "lang"
 ```
 
@@ -81,7 +81,7 @@ the single owner of selection semantics):
 scenarios = ["*"]   # full preset: all selectable scenarios, always_on excluded
 ```
 
-- `"*"` must be the **only** element; `["*", "rust"]` makes `gen` bail
+- `"*"` must be the **only** element; `["*", "mise"]` makes `gen` bail
   (a clear contract beats lenient dedup).
 - An explicit id list behaves exactly as before (byte-identical `gen` output).
 - The wildcard is why a **new scenario directory is automatically picked up**
@@ -130,15 +130,20 @@ single most common scenario bug.
 
 Install baked tools to a system path the volume does not cover:
 
-- `/usr/local/bin` - single binaries (uv, ruff, opencode, the rust/go proxies)
+- `/usr/local/bin` - single binaries (the mise binary itself)
 - `/usr/local` - tarball trees (node, python-build-standalone)
-- `/opt/<tool>` - bigger toolchains (rust at `/opt/rust`, nvm.sh at `/opt/nvm`)
-- `/etc/profile.d/<x>.sh` - login-shell PATH/profile hooks (nvm)
+- `/opt/<tool>` - bigger toolchains / managed trees (mise redirects
+  `MISE_DATA_DIR` + `MISE_CONFIG_DIR` + `RUSTUP_HOME` + `CARGO_HOME` all to
+  `/opt/mise`; installs inside are absolute-path symlinks, so offline
+  whole-directory transfer must land on the same path)
+- `/etc/profile.d/<x>.sh` - login-shell PATH/profile hooks (mise activate)
 
 The only things that belong under `/root` are **runtime** (not baked)
-user data: `~/.nvm/versions` (nvm installs at runtime), `~/.local/share/uv`
-(uv installs pythons at runtime), `~/.cargo` for a user's own `cargo install`.
-Those go on the volume on purpose, to survive container recreate.
+user data: a user's own `cargo install` output (`~/.cargo` is redirected to
+`/opt/mise/cargo` for the baked toolchain, so user cargo runs share it).
+Note: runtime `mise use <tool>` in the deployed sandbox writes to the
+container writable layer (NOT the volume) and is lost on recreate - a known,
+accepted tradeoff of the mise scenario.
 
 ### Rule 2: make the tool findable in a login shell
 
@@ -150,13 +155,16 @@ invisible in the terminal pane even though it's on PATH for non-login shells.
 
 Two patterns, both used in the repo:
 
-1. **Symlink the binary/proxy into `/usr/local/bin`** (on every shell's PATH).
-   Used by rust (symlinks every binary in `/opt/rust/cargo/bin` to
-   `/usr/local/bin`) and go (`/usr/local/go/bin/{go,gofmt}` -> `/usr/local/bin`).
-   Best for a fixed set of command names.
-2. **Drop a `/etc/profile.d/<x>.sh`** that exports PATH. Used by nvm, which
-   needs `NVM_DIR` + sourcing `nvm.sh` at login. Best when the PATH depends on
-   runtime state or there's a function to define.
+1. **ENV PATH + shims/symlinks** (every shell inherits). The mise scenario
+   ENV-exports the four redirect vars plus `PATH=/opt/mise/shims:$PATH` —
+   inherited by ALL processes (non-login shells, non-interactive children,
+   code-server terminals). Previously rust/go symlinked into `/usr/local/bin`;
+   the shims directory replaces that symlink farm and auto-maintains as the
+   tool set changes.
+2. **Drop a `/etc/profile.d/<x>.sh`** that exports PATH. Used by mise
+   (re-exports the four vars + `eval "$(mise activate bash)"`), best when the
+   PATH depends on runtime state. activate's hook-env computes dynamic env
+   (RUSTUP_TOOLCHAIN etc.) more correctly than a static PATH.
 
 A tool at `/usr/local/bin` needs neither - it's already on the default PATH. A
 tool that needs `ENV PATH=/opt/foo/bin:$PATH` in the Dockerfile will be missing
@@ -170,8 +178,8 @@ The sandbox network policy blocks plain HTTP (port 80) and the NodeSource host.
 `curl`/`wget`/apt in a fragment must use `https://` URLs. apt sources are
 already forced to HTTPS in `Dockerfile.base.head` with a ca-certs bootstrap;
 don't add a plain-http apt source in a fragment. NodeSource is blocked, so
-node uses nodejs.org; opencode.ai installer is blocked, so opencode uses the
-GitHub release tarball. Prefer GitHub releases and official HTTPS tarballs.
+node uses nodejs.org; mise fetches from GitHub releases and its registry
+backends, all HTTPS. Prefer GitHub releases and official HTTPS tarballs.
 
 ### Rule 4 (versions): pin with an ARG
 
@@ -206,7 +214,6 @@ that calls `apt-get install` must first `apt-get update` again (see the
       `docker exec aio-app-1 bash -lc '<tool> --version'`.
 - [ ] If the scenario ships a representative CLI: consider adding it to the
       full-variant probe list in `.github/workflows/images.yml` (`bash -lc` +
-      `command -v` — Rule 2 is exactly what makes the probe pass; shell
-      functions like `nvm` are probeable via their `profile.d` hook). A new
+      `command -v` — Rule 2 is exactly what makes the probe pass). A new
       scenario joins the CI full build automatically via the `["*"]` preset;
       the probe list is the only manual follow-up.

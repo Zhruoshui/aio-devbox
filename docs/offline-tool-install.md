@@ -241,3 +241,42 @@ esac
 - **已闭环**:6 类工具离线搬移(含 python+uv,native wheel ABI 匹配实测) + 跨容器可见 + login/非 login 终端 PATH(`~/.profile` + `~/.bashrc`) + force-recreate / down-up 持久 + 跨容器服务可达。
 - **已知硬边界**:apt 持久服务要进镜像(需重建)、rustup 1.29 真·频道装未通(用 `toolchain link` 替代)。
 - **本报告未覆盖(需另行评估)**:arm64 / 版本漂移 / 换 base 的耦合、apt 进镜像端到端、真气隙传输通道(u盘/scp)、工具增量升级、共享卷配额、加新服务/面板(services.toml + app 重建)。
+
+## 14. mise 管理工具的整目录搬迁(2026-09-03 新增)
+
+> 背景:sandbox-base 的 L3 工具链(rust/go/uv/ruff/opencode)已统一由 `scenarios/mise`
+> 用 mise 烘焙到 `/opt/mise`(见 mise-poc/FINDINGS.md Phase C 与 scenarios/mise/fragment.Dockerfile)。
+> 基线版本升级走 `make build-base` + `make save/load`(§9 镜像位)不变;本节配方解决的是
+> **不动镜像**、给已部署环境补装 mise 管理的新工具/新版本。
+
+**三步配方**(PoC Phase C 实测,任务 09-02 复验):
+
+```bash
+# 1) 联网机:在与烘焙一致的 env 覆盖下安装(隔离路径,不与镜像 /opt/mise 混用)
+MISE_DATA_DIR=/root/mise-x MISE_CONFIG_DIR=/root/mise-x mise use -g fd@10.2.0
+tar -cf mise-bundle.tar -C /root mise-x     # data + config 单 tar(config 在 data dir 内)
+
+# 2) 传输 mise-bundle.tar 到离线机
+
+# 3) 离线机:解压回完全相同的绝对路径,同 env 覆盖后校验登记
+MISE_DATA_DIR=/root/mise-x MISE_CONFIG_DIR=/root/mise-x MISE_OFFLINE=1 mise install
+fd --version
+```
+
+**四条实测约束**(违反即失败,失败模式见 mise-poc/FINDINGS.md):
+
+1. **同路径**:installs 内部是绝对路径 symlink(如 `shims/fd -> /root/mise-x/installs/fd/...`),
+   搬迁换路径即断。解压目标必须与联网机路径完全一致。
+2. **两 env 一致覆盖**:`MISE_DATA_DIR` 与 `MISE_CONFIG_DIR` 必须同时设且指向同一目录。
+   只设 data 不设 config → mise 读默认 `~/.config/mise/config.toml`,shim 报
+   "No version is set" 或误触发 auto_install。
+3. **单 tar 含 config**:全局 `[tools]` 清单就是 `MISE_CONFIG_DIR/config.toml`,与 data dir
+   同处一目录,一个 tar 全带走。
+4. **`MISE_OFFLINE=1` 是硬失败开关**:缺什么直接报错,不会回退到 downloads cache
+   (downloads cache 单独搬也无效,aqua 后端照样报 offline error)。
+
+**注意**:本配方在**隔离目录**(如上例 `/root/mise-x`,在共享卷上,抗 recreate)验证;
+「运行中 sandbox 里把卷路径 data dir 与镜像 `/opt/mise` 混用」(shims PATH 化后卷上
+shims 不在 PATH、全局 config 跨 data dir 共享会误触发 auto_install)属后续任务,
+本配方不承诺。镜像内 `/opt/mise` 的 auto_install 已在烘焙期关闭
+(config.toml `[settings]` 段),离线机器缺工具时显式报错而非静默 hang。

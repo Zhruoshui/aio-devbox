@@ -1,5 +1,13 @@
 # mise PoC 实测记录（2026-09-02）
 
+> **已固化(2026-09-03)**:PoC 结论已落为 `scenarios/mise/`(L3 全量收编
+> rust/go/uv/ruff + 附带收编 opencode),见该目录 fragment.Dockerfile 与任务
+> `.trellis/tasks/09-02-mise-scenario/`。注意固化版与 PoC 的差异:config 改由
+> `MISE_CONFIG_DIR=/opt/mise` 第四个 env 重定向(卷遮盖负向验证);rust 显式
+> `profile = "default"`;auto_install 直接写进 config.toml 的 `[settings]` 段
+> (PoC 的 `mise settings set` 写的正是这个文件,后写的 config 会把它抹掉)。
+> 本文件保留为依据记录。
+
 > 先验性测试结论。mise 版本 **v2026.9.0**，基座镜像 `sandbox-base:latest`（c1e4f5a4a0f9）。
 > 三个 Phase 全部在一次性容器中完成，未触碰 `.aio/enabled.toml`、现有场景与运行中的 stack。
 > 复现实验：`docker build -f mise-poc/Dockerfile -t mise-poc-baked:v2 .`（约 90s）。
@@ -89,3 +97,5 @@ rustup `default` profile 不含 rust-analyzer（现有 rust 场景是显式 `--c
 ## 清理状态
 
 所有 PoC 容器/卷/镜像/临时 tar 已删除；仅保留本文件 + `Dockerfile`（90s 可重建）。
+固化任务(09-02)的 Step 2 临时验证件 `Dockerfile.l3` 已随任务收尾删除（内容由
+`scenarios/mise/fragment.Dockerfile` 完整承接）。

@@ -1,4 +1,0 @@
-id = "go"
-name = "Go 工具链"
-description = "go 1.23 官方 tarball,装 /usr/local/go;go/gofmt 软链 /usr/local/bin(login 也可见)"
-category = "lang"
