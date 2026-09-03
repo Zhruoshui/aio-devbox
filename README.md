@@ -124,12 +124,14 @@ when the host republishes it (an `sbx` sandbox mapping it to another host
 port, or a second instance reusing the port range). Set `PI_WEB_HOST_PORT`
 (via `.env` or `PI_WEB_HOST_PORT=30142 make up`) and compose both publishes
 that port and tells the app to render the iframe URL with it; unset = `30141`
-(current behavior). **Pairing note (sbx):** with the variable set, compose
-binds `PI_WEB_HOST_PORT` *inside the sandbox* too (`30143` → container
-`30141`), so the sbx publish must target the same sandbox-side port —
-`sbx ports <sandbox> --publish 30142:30143/tcp`, not `:30141` (nothing
-listens on 30141 in the sandbox once the variable is set). The in-container
-port is always `30141` — liveness probes and the autostart are unaffected.
+(current behavior). **Pairing note (sbx):** the browser reaches the sandbox
+only via `sbx ports`, and the iframe URL uses `PI_WEB_HOST_PORT` verbatim —
+so the sbx publish must use the SAME port on both sides. With the variable
+set, compose binds `PI_WEB_HOST_PORT` *inside the sandbox* too (`30142` →
+container `30141`), so: `sbx ports <sandbox> --publish 30142:30142/tcp` —
+not `:30141` (nothing listens on 30141 in the sandbox once the variable is
+set). The in-container port is always `30141` — liveness probes and the
+autostart are unaffected.
 
 **Build order matters:** `app` and `code-server` are `FROM sandbox-base`, so
 `sandbox-base` must be built and tagged first. The Makefile handles this
