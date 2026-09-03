@@ -52,43 +52,52 @@ RUN curl -fsSL "https://github.com/coder/code-server/releases/download/v${CODE_S
 #
 # To add/remove an extension: edit the list below, then re-run `make build`.
 #
-# IMPORTANT: code-server uses the Open VSX registry, NOT the Microsoft
-# marketplace, so license-restricted MS extensions are unavailable via Open VSX
-# and must be vendored as a .vsix from GitHub releases (same pattern as the
-# code-server .deb / node tarball above):
-#   - C/C++ IntelliSense: ms-vscode.cpptools is absent from Open VSX -> fetched
-#     as cpptools-linux-x64.vsix below. (clangd extension is also absent.) The
-#     .vsix bundles its own native language server (cpptools/cpptools-srv), so
-#     no extra system deps are needed.
-#   - Python: Pylance (ms-python.vscode-pylance) is absent; ruff + debugpy +
+# MINIMAL CORE SET (issue #9): only extensions that close a loop with a
+# scenario baked into sandbox-base (LSP / debug / lint-format) or with this
+# repo's own config formats. Everything else - language packs for stacks
+# absent from the image (Vue/Tailwind/Jupyter-without-a-kernel), cosmetics,
+# git UI - was removed as dead weight. Trial installs at runtime are the right
+# place for taste-driven extensions. Each entry carries a `# ←` comment naming
+# what it is aligned to, so the list cannot silently drift from the scenario
+# system again (that drift is how this issue started).
+#
+# IMPORTANT license notes (issue #9):
+#   - code-server uses the Open VSX registry, NOT the Microsoft marketplace.
+#   - ms-vscode.cpptools is UNUSABLE in code-server regardless of how it is
+#     installed: its runtime license check rejects non-MS hosts ("may be used
+#     only with Microsoft Visual Studio, Visual Studio Code...") and the
+#     language server exits immediately. Vendoring its .vsix does NOT bypass
+#     this - do not reintroduce it. clangd (Open VSX + the binary baked by
+#     the c23 scenario) is the C/C++ path.
+#   - Python: Pylance is license-restricted the same way; ruff + debugpy +
 #     the python ext cover lint/format/debug/autocomplete instead.
-ARG CPPTOOLS_VERSION=1.33.8
+#   - golang.go deliberately NOT installed: its gopls auto-download at first
+#     activation takes ~40s and lands in the workspace volume; if Go support
+#     is wanted, bake gopls into scenarios/go first (issue #9 option (b)).
 RUN mkdir -p /opt/cs-extensions
 RUN set -e; \
+    # Each entry below carries an aligned-to comment (a scenario baked into
+    # sandbox-base, or this repo's config formats) so the list cannot silently
+    # drift from the scenario system again - see issue #9. Lines starting with
+    # '#' are stripped by the Dockerfile parser even inside continuations.
     for ext in \
+      # <- rust scenario (rustup component, symlinked /usr/local/bin)
       rust-lang.rust-analyzer \
-      serayuzgur.crates \
+      # <- repo config format (scenario/services/enabled.toml)
       tamasfe.even-better-toml \
-      twxs.cmake \
-      ms-vscode.cmake-tools \
-      xaver.clang-format \
+      # <- python always_on
       ms-python.python \
+      # <- python always_on (debug)
       ms-python.debugpy \
+      # <- python-dev scenario (/usr/local/bin/ruff)
       charliermarsh.ruff \
-      ms-toolsai.jupyter \
-      Vue.volar \
-      dbaeumer.vscode-eslint \
-      esbenp.prettier-vscode \
-      bradlc.vscode-tailwindcss \
-      antfu.vite \
-      steoates.autoimport \
-      EditorConfig.EditorConfig \
-      eamodio.gitlens \
-      mhutchie.git-graph \
-      vscode-icons-team.vscode-icons \
-      oderwat.indent-rainbow \
-      aaron-bond.better-comments \
-      ms-vscode.live-server \
+      # <- c23 scenario (clangd-22; cpptools is license-blocked in code-server)
+      llvm-vs-code-extensions.vscode-clangd \
+      # <- c23 scenario (clang-format-22)
+      xaver.clang-format \
+      # <- c23 scenario (cmake/ninja)
+      twxs.cmake \
+      # <- repo config format (compose/CI/trellis)
       redhat.vscode-yaml \
     ; do \
       echo ">>> installing $ext"; \
@@ -96,13 +105,7 @@ RUN set -e; \
         --extensions-dir /opt/cs-extensions \
         --user-data-dir /tmp/cs-build; \
     done; \
-    echo ">>> installing ms-vscode.cpptools (vendored .vsix v${CPPTOOLS_VERSION})"; \
-    curl -fsSL -o /tmp/cpptools.vsix \
-        "https://github.com/microsoft/vscode-cpptools/releases/download/v${CPPTOOLS_VERSION}/cpptools-linux-x64.vsix"; \
-    code-server --install-extension /tmp/cpptools.vsix \
-        --extensions-dir /opt/cs-extensions \
-        --user-data-dir /tmp/cs-build; \
-    rm -rf /tmp/cpptools.vsix /tmp/cs-build
+    rm -rf /tmp/cs-build
 
 EXPOSE 8200
 # `--auth none` because caddy enforces basicauth at the gateway (design §6/§10).
