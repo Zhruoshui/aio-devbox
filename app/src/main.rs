@@ -38,14 +38,17 @@ mod routes;
 mod state;
 
 use routes::{
-    buttons::{create_button, delete_button, probe_port}, manifest::manifest,
+    buttons::{create_button, delete_button, probe_port},
+    manifest::manifest,
     models::{
         apply_agent, catalog::get_catalog, delete_live_provider, discover::discover,
-        edit_live_provider, get_agents, get_config, import_pi, put_config,
-        sync_live_provider, test::test, usage::usage,
+        edit_live_provider, get_agents, get_config, import_pi, put_config, sync_live_provider,
+        test::test, usage::usage,
     },
     preview::preview_proxy,
-    seam::seam, stats::{stats, spawn_stats_sampler}, terminal::terminal_ws,
+    seam::seam,
+    stats::{spawn_stats_sampler, stats},
+    terminal::terminal_ws,
 };
 use state::AppState;
 
@@ -66,21 +69,29 @@ const MODELS_FILE: &str = "/root/.aio/models.json";
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let buttons_file =
-        PathBuf::from(std::env::var("AIO_BUTTONS_FILE").unwrap_or_else(|_| BUTTONS_FILE.to_string()));
+    let buttons_file = PathBuf::from(
+        std::env::var("AIO_BUTTONS_FILE").unwrap_or_else(|_| BUTTONS_FILE.to_string()),
+    );
     let models_file =
         PathBuf::from(std::env::var("AIO_MODELS_FILE").unwrap_or_else(|_| MODELS_FILE.to_string()));
-    let state = AppState::new(config::load_services(), buttons_file, models_file);
+    // Expand {env:VAR:default} placeholders (piWeb url's host publish port)
+    // once at startup - env doesn't change during the process lifetime.
+    let services: Vec<_> = config::load_services()
+        .into_iter()
+        .map(|mut s| {
+            s.url = s.url.map(|u| config::expand_placeholders(&u));
+            s
+        })
+        .collect();
+    let state = AppState::new(services, buttons_file, models_file);
 
     // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
     spawn_stats_sampler(state.clone());
 
     // Static SPA tree. `/` serves index.html (dir index); unknown paths fall
     // back to index.html (SPA client-side routing, used from Phase C onward).
-    let serve_dir = ServeDir::new(STATIC_DIR).fallback(ServeFile::new(format!(
-        "{}/index.html",
-        STATIC_DIR
-    )));
+    let serve_dir =
+        ServeDir::new(STATIC_DIR).fallback(ServeFile::new(format!("{}/index.html", STATIC_DIR)));
 
     let app = Router::new()
         // Real route: live service manifest for the workspace UI.
@@ -152,4 +163,3 @@ async fn main() {
     tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.expect("server error");
 }
-

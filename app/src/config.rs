@@ -211,6 +211,51 @@ pub fn load_services() -> Vec<Service> {
         .service
 }
 
+/// Expand `{env:VAR:default}` placeholders in a string with the process env:
+/// set VAR => its value; unset/empty VAR => `default`. Multiple placeholders
+/// are each expanded; a malformed spec (`{env:}`, `{env:VAR}` with no third
+/// colon, unbalanced braces) is left as-is so a typo in services.toml is
+/// visible in the manifest rather than silently swallowed.
+///
+/// Runs once at startup (env doesn't change during the process lifetime), not
+/// per request - see issue #3 / the piWeb `url` for why the port must follow
+/// the host-side publish port (`PI_WEB_HOST_PORT`).
+pub(crate) fn expand_placeholders(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find('{') {
+        let (before, after_start) = rest.split_at(start);
+        out.push_str(before);
+        // Need a closing brace for a candidate; otherwise flush the rest.
+        let Some(close_rel) = after_start.find('}') else {
+            out.push_str(after_start);
+            return out;
+        };
+        let candidate = &after_start[1..close_rel]; // between { and }
+        out.push_str(&expand_one(candidate));
+        rest = &after_start[close_rel + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Expand a single `{...}` candidate: `{env:VAR:default}` on match, otherwise
+/// the braced original (e.g. piWeb's `{host}`, handled client-side).
+fn expand_one(candidate: &str) -> String {
+    match candidate.strip_prefix("env:") {
+        Some(rest) => match rest.split_once(':') {
+            Some((var, default)) => std::env::var(var)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| default.to_string()),
+            // `{env:VAR}` without a default is a malformed spec: keep it
+            // verbatim so the mistake is visible in the manifest.
+            None => format!("{{{candidate}}}"),
+        },
+        None => format!("{{{candidate}}}"),
+    }
+}
+
 /// Parse the raw `[[button]]` defs from `buttons.toml`. Missing/empty file =>
 /// empty; malformed => empty + warn (a bad edit never breaks the manifest).
 /// Shared by `load_buttons` (manifest) and the CRUD handler (read/modify/write).
@@ -281,7 +326,10 @@ pub fn merge_services(builtin: &[Service], user: Vec<Service>) -> Vec<Service> {
     let mut out: Vec<Service> = builtin.to_vec();
     for u in user {
         if out.iter().any(|b| b.id == u.id) {
-            tracing::warn!("user button id {:?} collides with a built-in; dropping", u.id);
+            tracing::warn!(
+                "user button id {:?} collides with a built-in; dropping",
+                u.id
+            );
             continue;
         }
         out.push(u);
@@ -307,10 +355,7 @@ pub async fn build_manifest(services: &[Service], dirs: &[PathBuf]) -> Manifest 
             id: svc.id.clone(),
             service_type: svc.service_type,
             enabled,
-            label: svc
-                .label
-                .clone()
-                .unwrap_or_else(|| humanize_id(&svc.id)),
+            label: svc.label.clone().unwrap_or_else(|| humanize_id(&svc.id)),
             deletable: svc.deletable,
             url,
             cmd,
@@ -490,8 +535,14 @@ cmd = "htop"
         // ignored by the probe.
         assert!(command_exists("sh", &bin_dirs));
         assert!(command_exists("sh -c 'true'", &bin_dirs));
-        assert!(!command_exists("definitely-not-a-real-binary-xyzzy", &bin_dirs));
-        assert!(!command_exists("definitely-not-a-real-binary-xyzzy --flag", &bin_dirs));
+        assert!(!command_exists(
+            "definitely-not-a-real-binary-xyzzy",
+            &bin_dirs
+        ));
+        assert!(!command_exists(
+            "definitely-not-a-real-binary-xyzzy --flag",
+            &bin_dirs
+        ));
         let _ = dirs; // silence unused on non-unix
     }
 
@@ -518,6 +569,72 @@ cmd = "htop"
         let merged = merge_services(&builtin, user);
         assert_eq!(merged.len(), 1);
         assert!(!merged[0].deletable); // built-in kept, user dropped
+    }
+
+    #[test]
+    fn expand_placeholders_env_overrides_default() {
+        // `{host}` (client-side) passes through untouched; the env placeholder
+        // resolves from the process env.
+        let s = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/";
+        assert_eq!(expand_placeholders(s), "http://{host}:30141/");
+    }
+
+    #[test]
+    fn expand_placeholders_missing_env_uses_default() {
+        // Both VARS are namespaced to this test and very unlikely to be set;
+        // `remove_var` first so the check can't be affected by outer env.
+        std::env::remove_var("AIO_TEST_EXPAND_PORT");
+        let s = "http://host:{env:AIO_TEST_EXPAND_PORT:8080}/";
+        assert_eq!(expand_placeholders(s), "http://host:8080/");
+    }
+
+    #[test]
+    fn expand_placeholders_set_env_uses_value() {
+        std::env::set_var("AIO_TEST_EXPAND_PORT", "30142");
+        let s = "http://host:{env:AIO_TEST_EXPAND_PORT:8080}/";
+        assert_eq!(expand_placeholders(s), "http://host:30142/");
+        std::env::remove_var("AIO_TEST_EXPAND_PORT");
+    }
+
+    #[test]
+    fn expand_placeholders_empty_env_uses_default() {
+        // An explicitly-empty env var is treated as unset: compose projects
+        // often interpolate `PI_WEB_HOST_PORT=` from a half-edited .env, and
+        // an empty port would yield "http://host:/".
+        std::env::set_var("AIO_TEST_EXPAND_PORT", "");
+        let s = "{env:AIO_TEST_EXPAND_PORT:30141}";
+        assert_eq!(expand_placeholders(s), "30141");
+        std::env::remove_var("AIO_TEST_EXPAND_PORT");
+    }
+
+    #[test]
+    fn expand_placeholders_multiple_and_malformed() {
+        std::env::set_var("AIO_TEST_EXPAND_A", "x");
+        std::env::set_var("AIO_TEST_EXPAND_B", "y");
+        // Multiple placeholders in one string.
+        let s = "{env:AIO_TEST_EXPAND_A:1}-{env:AIO_TEST_EXPAND_B:2}";
+        assert_eq!(expand_placeholders(s), "x-y");
+        // Adjacent placeholders, no separator.
+        assert_eq!(
+            expand_placeholders("{env:AIO_TEST_EXPAND_A:1}{env:AIO_TEST_EXPAND_B:2}"),
+            "xy"
+        );
+        // Malformed specs pass through verbatim (visible in the manifest,
+        // not silently swallowed): {env:VAR} missing default, empty spec, and
+        // a non-env braced group.
+        std::env::set_var("AIO_TEST_EXPAND_A", "z");
+        assert_eq!(
+            expand_placeholders("{env:AIO_TEST_EXPAND_A}"),
+            "{env:AIO_TEST_EXPAND_A}"
+        );
+        assert_eq!(expand_placeholders("{env:}"), "{env:}");
+        assert_eq!(expand_placeholders("{notenv}"), "{notenv}");
+        // No closing brace: rest flushed verbatim.
+        assert_eq!(expand_placeholders("a{env:VAR:1"), "a{env:VAR:1");
+        // No placeholder at all.
+        assert_eq!(expand_placeholders("plain"), "plain");
+        std::env::remove_var("AIO_TEST_EXPAND_A");
+        std::env::remove_var("AIO_TEST_EXPAND_B");
     }
 
     #[test]
