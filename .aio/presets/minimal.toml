@@ -1,7 +1,8 @@
-# Minimal preset: the always_on baseline only (node + python are baked
-# unconditionally by gen; their version selection is pinned here). CI copies
-# this to .aio/enabled.toml to build the minimal variant. `scenarios = []` is a
-# legal selection -> Dockerfile.base is just head + tail + always_on fragments.
+# Minimal preset: the always_on baseline only (node + python + the pi/pi-web
+# AI-workbench stack are baked unconditionally by gen; the versioned ones have
+# their version selection pinned here). CI copies this to .aio/enabled.toml to
+# build the minimal variant. `scenarios = []` is a legal selection ->
+# Dockerfile.base is just head + tail + always_on fragments.
 scenarios = []
 
 [[versions]]

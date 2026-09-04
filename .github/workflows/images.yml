@@ -212,7 +212,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${VARIANT}" = "minimal" ]; then
-            tools="node python3"
+            # minimal = always_on 基线:node/python(构建依赖)+ pi/pi-web(AI 工作台
+            # 核心栈,issue #8)
+            tools="node python3 pi pi-web"
           else
             # full = 全部可选场景的代表工具；bash -lc 顺带守护场景编写的 login-shell PATH 规则
             # （mise 场景 = profile.d/activate 通道；rust/go/uv/ruff/opencode 均由 mise 烘焙）

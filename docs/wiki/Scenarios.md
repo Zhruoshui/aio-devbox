@@ -15,7 +15,7 @@
 | L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on` | node、python、fonts |
 | L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | shell-utils(fzf/rg/bat/fd) |
 | L3 语言工具链 | `lang` | 编译器 / 工具链 / 语言版本管理 | **mise**(rust+go+uv+ruff+opencode 五合一)、c23 |
-| L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | pi、pi-web(opencode 由 mise 附带烘焙) |
+| L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | **pi、pi-web**(`always_on`,AI 工作台核心栈;opencode 由 mise 附带烘焙) |
 | L5 外部服务 | `service` | 自带端口 + 面板的 Web 服务 | 预留(code-server / vnc 目前走 compose profiles,不是场景) |
 
 ## 当前场景清单
@@ -31,8 +31,8 @@
 | `shell-utils` | L2 | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin`(Debian 改名 `batcat` / `fdfind` 软链回) |
 | `mise` | L3 | — | — | mise 统一管理器把 **rust + go + uv + ruff + opencode** 一并烘到 `/opt/mise`(all-or-nothing,~1.5GB);版本升级 = 改 fragment 顶部 ARG 块 |
 | `c23` | L3 | — | — | clang-22(apt.llvm.org,完整 C23)+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace |
-| `pi` | L4 | — | — | pi coding agent → `/usr/local/bin`;扩展烘 `/opt/pi-extensions`,终端跑一次 `aio-pi-extensions` 离线登记 |
-| `pi-web` | L4 | — | — | pi 的 Web UI(npm 全局);app entrypoint 自启 `:30141`,iframe 内嵌、端口直发 |
+| `pi` | L4 | ✓ | — | pi coding agent → `/usr/local/bin`;扩展烘 `/opt/pi-extensions`,终端跑一次 `aio-pi-extensions` 离线登记。`always_on`(issue #8):app 的模型配置页 / 用量统计运行期读写 pi 的配置与会话数据 |
+| `pi-web` | L4 | ✓ | — | pi 的 Web UI(npm 全局);app entrypoint 自启 `:30141`,iframe 内嵌、端口直发。`always_on`(issue #8):面板是工作台核心界面之一 |
 
 ## mise 场景的关键设计(2026-09 起 L3 的统一形态)
 
@@ -60,8 +60,8 @@ make build       # gen 生成 Dockerfile.base → 构建 sandbox-base
 make up          # 重建业务容器(会用新镜像)
 ```
 
-- TUI 里场景按层分组,**空格**勾选;Node / Python 是 `always_on` 锁定行
-  `[*]`,**左/右方向键**切版本;
+- TUI 里场景按层分组,**空格**勾选;`always_on` 场景是锁定行 `[*]`——
+  Node / Python 用**左/右方向键**切版本,pi / pi-web 无版本下拉、纯锁定;
 - 结果写入 `.aio/enabled.toml`(gitignored,本机私有);版本清单记在
   `[[versions]]` 段;
 - 改完必须 `make build` 重建 `sandbox-base`,再 `make up` 让业务容器用上新
@@ -71,7 +71,7 @@ make up          # 重建业务容器(会用新镜像)
 
 `.aio/presets/{minimal,full}.toml` 是现成选区,CI 构建两个 GHCR 变体用:
 
-- `minimal` = `scenarios = []`(仅 always_on 基线);
+- `minimal` = `scenarios = []`(仅 always_on 基线:node + python + pi/pi-web);
 - `full` = `scenarios = ["*"]`,gen 展开为**所有**发现的非 always_on 场景,
   新场景自动纳入;
 - `["*"]` 必须独占数组,`["*", "mise"]` 是错误(gen 会 bail)。

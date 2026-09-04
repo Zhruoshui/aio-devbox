@@ -14,9 +14,9 @@ use crate::scenario;
 pub struct Enabled {
     /// Scenario ids to bake in. Applied in alphabetical order by `gen`
     /// (design §2.4) for reproducible output regardless of selection order.
-    /// Always-on scenarios (L1 node/python) are NOT listed here - `gen`
-    /// includes them unconditionally; only their version selection lives in
-    /// `versions` below.
+    /// Always-on scenarios (node/python + pi/pi-web) are NOT listed here -
+    /// `gen` includes them unconditionally; only their version selection
+    /// lives in `versions` below.
     pub scenarios: Vec<String>,
 
     /// Version selections for versioned scenarios (always_on or not). Each

@@ -39,6 +39,9 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
   工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node 与 CPython 是 `always_on` 场景,带版本下拉——
   选的是版本,不是装不装。
+- **AI 工作台核心固化。** pi 栈(`pi` agent + `pi-web` UI)同样是 `always_on`:
+  app 的模型配置页在运行期读写 pi 自己的配置与会话数据,因此每个镜像都自带
+  工作台核心 agent。
 - **扛容器重建。** 工作区是挂在 `/root` 的命名卷;运行时用户数据(项目、配置、
   `~/.local/bin` 工具)都在卷上,扛过 `down`/`up`。注意:已部署沙箱里运行时
   `mise use` 落容器可写层,recreate 即丢(已知取舍——离线整目录搬迁是受支持
@@ -121,14 +124,16 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 | L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential、字体);**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
 | L2 Shell 便利 | `shell` | CLI 工具(fzf / rg / bat / fd) | 是 |
 | L3 语言工具链 | `lang` | mise(rust + go + uv + ruff + opencode 全家桶)/ c23 | 是 |
-| L4 应用 | `app` | CLI 应用 / AI agent(opencode、pi、pi-web) | 是 |
+| L4 应用 | `app` | CLI 应用 / AI agent(opencode;pi、pi-web 为 `always_on`) | 是(pi/pi-web:锁定必装) |
 | L5 外部服务 | `service` | _(未来,尚未实现)_ | — |
 
 L1 的**非版本化基础设施**(HTTPS apt 源、ca-certs 自举、build-essential)硬编码在
 `Dockerfile.base.head`,不进 TUI——它是所有 `FROM sandbox-base` 服务继承的地基。
 **版本化运行时** Node + Python 是 `always_on` 场景:始终烘进(code-server 和
 app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]` 用
-**左/右方向键**循环。L2–L4 是普通可勾选偏好。
+**左/右方向键**循环。**pi 栈**(`pi` + `pi-web`,L4)同为 `always_on`——
+锁定行、无版本下拉——因为 app 运行期依赖 pi 的数据格式。其余 L2–L4 是普通
+可勾选偏好。
 
 当前场景清单(一律装**系统路径**——`/opt`、`/usr/local`、`/etc/profile.d`——
 绝不装 `/root/*`,共享工作区卷会遮盖它):
@@ -142,8 +147,8 @@ app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]
 | `c23` | L3 `lang` | — | — | clang-22(apt.llvm.org,完整 C23)+ 复用 gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace;无版本后缀软链 → `/usr/local/bin` |
 | `mise` | L3 `lang` | — | — | mise(L3 工具链统一管理器)把 rust + go + uv + ruff + opencode 一并烘到 `/opt/mise`(五工具全家桶,~1.5GB);版本升级 = 改 fragment ARG 块;可见性 = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
 | `opencode` | L4 `app` | — | — | (由 `mise` 场景附带烘焙)opencode AI agent CLI,经 mise shims 提供。侧边栏按钮仅在烘进镜像时出现(命令存在探测)。 |
-| `pi` | L4 `app` | — | — | pi coding agent → `/usr/local/bin`;扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷) |
-| `pi-web` | L4 `app` | — | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径) |
+| `pi` | L4 `app` | ✓ | — | pi coding agent → `/usr/local/bin`;扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷)。`always_on`(issue #8):app 的模型配置页与用量统计在运行期读 pi 的配置/会话数据 |
+| `pi-web` | L4 `app` | ✓ | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径)。`always_on`(issue #8):面板是工作台核心界面之一 |
 
 **工作流。** `make config` 打开 TUI(ratatui):场景按层分组;**空格**勾选,
 **左/右方向键**循环 `always_on` 版本,`s` 保存到 `.aio/enabled.toml`。随后
@@ -223,7 +228,7 @@ make load                                  # 恢复镜像 + .env + 哈希 + 场�
 make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
-烘了 `pi` 场景的话,首次启动后在终端跑一次 `aio-pi-extensions`,把烘好的扩展
+`pi` 场景恒定烘入;首次启动后在终端跑一次 `aio-pi-extensions`,把烘好的扩展
 登记进 `~/.pi`。`aio-config` 镜像构建时也要从 crates.io 拉 crate,故同样
 联网构建、离线载入。
 
@@ -237,7 +242,7 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 发布到 GitHub Container Registry(GHCR)。基础派生镜像有两个变体,外加单份
 `sandbox-vnc`:
 
-- `minimal`——纯 always_on 基线(Node + Python),别无其他。
+- `minimal`——always_on 基线(Node + Python + pi/pi-web 工作台核心)。
 - `full`——全部场景片段都烘进去(mise [rust/go/uv/ruff/opencode] / c23 / pi / …)。
 
 ```sh

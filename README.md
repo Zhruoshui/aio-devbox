@@ -48,6 +48,9 @@ now, filled in progressively).
   Dockerfiles for toolchains.
 - **Versioned base runtimes.** Node and CPython are `always_on` scenarios with
   a version dropdown — pick a version, not whether to install.
+- **Pinned AI workbench core.** The pi stack (`pi` agent + `pi-web` UI) is
+  `always_on` too: the app's model-config page reads/writes pi's own config
+  and session data, so the workbench ships with its core agent in every image.
 - **Survives container recreate.** The workspace is a named Docker volume on
   `/root`; runtime user data (projects, configs, `~/.local/bin` tools) lives
   on the volume and survives `down`/`up`. Note: runtime `mise use` in a
@@ -155,7 +158,7 @@ build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
 | L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
 | L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd) | yes |
 | L3 Language toolchains | `lang` | mise (rust + go + uv + ruff + opencode, all-in-one) / c23 | yes |
-| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode, pi, pi-web) | yes |
+| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode; pi, pi-web are `always_on`) | yes (pi/pi-web: locked on) |
 | L5 External services | `service` | _(future, not yet implemented)_ | — |
 
 The L1 **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
@@ -163,8 +166,10 @@ build-essential) stays hardcoded in `Dockerfile.base.head` and never reaches
 the TUI — it's the foundation every `FROM sandbox-base` service inherits. The
 **versioned runtimes** Node + Python are `always_on` scenarios: always baked
 (code-server and the app web-builder depend on Node), shown in the TUI as
-locked rows `[*]` whose version `[label]` cycles with **Left/Right**. L2–L4
-are normal toggleable preferences.
+locked rows `[*]` whose version `[label]` cycles with **Left/Right**. The
+**pi stack** (`pi` + `pi-web`, L4) is `always_on` as well — locked rows with
+no version dropdown — because the app depends on pi's data formats at runtime.
+L2–L4 minus pi are normal toggleable preferences.
 
 Current scenarios (all install to **system paths** — `/opt`, `/usr/local`,
 `/etc/profile.d` — never `/root/*`, which the shared workspace volume would
@@ -179,8 +184,8 @@ mask):
 | `c23` | L3 `lang` | — | — | clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin` |
 | `mise` | L3 `lang` | — | — | mise (L3 toolchain manager) bakes rust + go + uv + ruff + opencode into `/opt/mise` (all five, all-or-nothing, ~1.5GB); versions via the fragment's ARG block; visibility = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
 | `opencode` | L4 `app` | — | — | (baked by the `mise` scenario) opencode AI-agent CLI via mise shims. Sidebar button only when baked (command-exists detection). |
-| `pi` | L4 `app` | — | — | pi coding agent → `/usr/local/bin`; extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal |
-| `pi-web` | L4 `app` | — | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath) |
+| `pi` | L4 `app` | ✓ | — | pi coding agent → `/usr/local/bin`; extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal. `always_on` (issue #8): the app's model-config page and usage stats read pi's config/session data at runtime. |
+| `pi-web` | L4 `app` | ✓ | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath). `always_on` (issue #8): the pane is a core workbench surface. |
 
 **Workflow.** `make config` opens the TUI (ratatui): scenarios grouped by
 layer; toggle with **Space**, cycle `always_on` versions with **Left/Right**,
@@ -268,10 +273,10 @@ make load                                  # restore images + .env + hash + sele
 make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
-If the `pi` scenario is baked, run `aio-pi-extensions` once in a terminal after
-first start to register the baked extensions into `~/.pi`. The `aio-config`
-image also fetches crates from crates.io at build time, so it is built online
-and loaded offline like the rest.
+The `pi` scenario is always baked; run `aio-pi-extensions` once in a terminal
+after first start to register the baked extensions into `~/.pi`. The
+`aio-config` image also fetches crates from crates.io at build time, so it is
+built online and loaded offline like the rest.
 
 For the full handbook — how to add arbitrary tools/packages to a running offline
 stack without rebuilding or networking (7 tested recipes: static binaries, npm
@@ -285,7 +290,7 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 (GHCR). Two variants of the base-derived images are available, plus a single
 `sandbox-vnc`:
 
-- `minimal` — the bare always-on baseline (Node + Python), nothing else.
+- `minimal` — the always-on baseline (Node + Python + the pi/pi-web workbench core).
 - `full` — every scenario fragment baked in (mise [rust/go/uv/ruff/opencode] / c23 / pi / …).
 
 ```sh

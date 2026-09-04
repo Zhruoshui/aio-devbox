@@ -64,8 +64,9 @@ docker compose up -d --force-recreate app code-server   # 让运行中的容器�
 **agent 按钮(opencode / pi)不出现?**
 
 按钮只在命令真实存在于 login shell PATH 时显示(`command_exists` 探测)。
-opencode 由 mise 场景附带烘焙——勾了 mise 场景但没 `make build` 重建镜像,
-按钮就不会出现。排查:`docker exec aio-app-1 bash -lc 'command -v opencode'`。
+pi 是 `always_on` 场景、恒定烘入,正常不会缺席;opencode 由 mise 场景附带
+烘焙——勾了 mise 场景但没 `make build` 重建镜像,按钮就不会出现。排查:
+`docker exec aio-app-1 bash -lc 'command -v opencode'`。
 
 **pi Web 面板不出现 / 502?**
 

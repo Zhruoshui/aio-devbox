@@ -2,3 +2,6 @@ id = "pi-web"
 name = "pi Web UI"
 description = "pi 的本地浏览器 UI(@agegr/pi-web,npm 全局装 /usr/local/bin;需 node>=22.19;app entrypoint 自启 30141,面板按钮 iframe 内嵌,app 直接发布端口)"
 category = "app"
+# always_on:pi-web 由 app entrypoint 无条件探测拉起(0.0.0.0:30141),面板 iframe
+# 常驻,产品语义上已是工作台主界面之一——与 pi 同进必装基线(issue #8)。
+always_on = true

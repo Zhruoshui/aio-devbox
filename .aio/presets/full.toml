@@ -1,6 +1,7 @@
 # Full preset: every discovered selectable scenario, auto-including any new
 # scenarios/<id>/ added later (gen expands the "*" wildcard to all non-always_on
-# scenario ids; always_on node/python are baked unconditionally regardless).
+# scenario ids; always_on scenarios — node/python + pi/pi-web — are baked
+# unconditionally regardless).
 # CI copies this to .aio/enabled.toml to build the full variant.
 scenarios = ["*"]
 
