@@ -12,7 +12,7 @@ the order `aio-config gen` assembles fragments into `Dockerfile.base`.
 | L1 OS / 基础环境 | `os` | foundational infra + versioned runtimes that everything depends on | node, python are | apt, ca-certs, build-essential (in head); Node, CPython (scenarios) |
 | L2 Shell 便利 | `shell` | CLI convenience tools, pure binaries, no aliases | no | fzf, ripgrep, bat, fd |
 | L3 语言开发链路 | `lang` | language toolchains + language version/package managers | no | mise (rust+go+uv+ruff+opencode 五工具联合体) |
-| L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | no | (opencode 已由 mise 场景附带收编) |
+| L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | pi, pi-web are | pi, pi-web; (opencode 已由 mise 场景附带收编) |
 | L5 外部服务 | `service` | containerized web services with their own port + pane | reserved/future | code-server, vnc (wired today as compose profiles, not scenarios) |
 
 The canonical order is `["os", "shell", "lang", "app", "service"]` (see
@@ -62,6 +62,10 @@ selection manifest. The TUI shows them as locked `[*]` rows with a version
 install. They are always_on because `app` (web-builder stage + runtime pty) and
 `code-server` depend on node; removing node breaks those builds.
 
+The L4 **pi stack** (`scenarios/pi/`, `scenarios/pi-web/`) is also
+`always_on = true` (issue #8) - locked rows WITHOUT a version dropdown (both
+are ARG-pinned, no `[[versions]]`).
+
 ## Why node/python are always_on (don't undo this)
 
 - `app/Dockerfile` has a `web-builder` stage `FROM sandbox-base` that runs
@@ -73,6 +77,24 @@ install. They are always_on because `app` (web-builder stage + runtime pty) and
 So node must be in base. If someone asks "can we make node optional to slim the
 image?" - no, not without breaking app/code-server. (A future "headless base
 without web-builder" is out of scope for this skill.)
+
+## Why pi/pi-web are always_on (don't undo this either)
+
+The system is positioned as an **AI workbench** and pi is its core agent
+(issue #8):
+
+- The app's model-config page reads/writes pi's own data at runtime:
+  `~/.pi/agent/models.json` (`GET /api/models`, `POST /api/models/import/pi`),
+  usage stats scan `~/.pi/agent/sessions/**/*.jsonl`, default provider/model
+  come from `~/.pi/agent/settings.json`. Without pi baked in, those three
+  features are half-broken.
+- pi-web is probed and started unconditionally by the app entrypoint
+  (0.0.0.0:30141, crash-restarted); its pane iframe is a primary workbench
+  surface, on par with code-server.
+- Same test as node/python's: always_on = "the app depends on it", not "it's
+  OS infra". That's why pi stays `category = "app"` (L4) - category (TUI
+  grouping + fragment sort) and always_on (selection semantics) are orthogonal
+  axes. Accepted cost: ~+1.15GB on every variant, minimal included.
 
 ## Where each layer installs tools
 

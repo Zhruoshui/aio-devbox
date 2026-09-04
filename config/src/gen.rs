@@ -54,8 +54,9 @@ pub fn run(repo: &Path) -> Result<()> {
     let selected = enabled.expand(&known)?;
 
     // Deterministic order: by profile LAYER (category_rank) then id, then dedup.
-    // Always-on scenarios (L1 "os": node, python) are baked UNCONDITIONALLY -
-    // their version selection lives in manifest.versions, not .scenarios - so
+    // Always-on scenarios (L1 node/python + the L4 pi/pi-web workbench stack)
+    // are baked UNCONDITIONALLY - their version selection (if any) lives in
+    // manifest.versions, not .scenarios - so
     // they are added here regardless of the selection. Layer order
     // (L1 os -> L2 shell -> L3 lang -> L4 app; L5 service future) makes the
     // assembled Dockerfile.base read head -> L1 -> L2 -> L3 -> L4 -> tail and

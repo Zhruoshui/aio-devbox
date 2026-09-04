@@ -2,3 +2,7 @@ id = "pi"
 name = "pi AI agent"
 description = "pi coding agent(earendil-works,npm @earendil-works/pi-coding-agent),装 /usr/local/bin;扩展烘 /opt/pi-extensions(pi-packages 清单),aio-pi-extensions 零网络登记到 ~/.pi(卷)"
 category = "app"
+# always_on:app 运行期深度依赖 pi 的数据格式与配置(模型配置页读写 ~/.pi/agent/
+# models.json、usage 扫 sessions、默认 provider 读 settings.json),不烘则这三大功能
+# 半残——AI 工作台定位下 pi 与 node/python 同属必装基线(issue #8)。
+always_on = true

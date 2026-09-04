@@ -55,7 +55,9 @@ Fields:
   default to `lang` for back-compat - but always set it explicitly on new files.
 - `always_on` (default false): if true, `gen` bakes it unconditionally; the TUI
   shows it as a locked `[*]` row (Space is a no-op). Only its version selection
-  (if any) lives in `enabled.toml`, never the id itself.
+  (if any) lives in `enabled.toml`, never the id itself. Reserve it for pieces
+  the app itself depends on — today: node/python (build/runtime) and the pi/
+  pi-web workbench stack (see layers.md §"Why … are always_on").
 - `versions` (default empty): a list of `[[versions]]` tables. Each has a
   `label` (the TUI dropdown display) plus any extra fields flattened into a
   `vars` map that `gen` substitutes into the fragment's `{{key}}` placeholders.

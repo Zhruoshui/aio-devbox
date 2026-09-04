@@ -42,9 +42,10 @@ make pull VARIANT=full    # 或 minimal;默认 full,拉取后 retag 为本地名
 make up NOBUILD=1
 ```
 
-两个变体:`minimal` = 仅 always_on 基线(node + python);`full` =
-`scenarios = ["*"]` 全部场景(mise [rust/go/uv/ruff/opencode] / c23 / pi /
-pi-web / shell-utils / fonts…)。镜像有 `:latest` + `:<ref>` 双标签。
+两个变体:`minimal` = 仅 always_on 基线(node + python + pi/pi-web 工作台核心);
+`full` = `scenarios = ["*"]` 全部场景(mise [rust/go/uv/ruff/opencode] / c23 /
+shell-utils / fonts…,pi / pi-web 为 always_on 基线已含)。镜像有
+`:latest` + `:<ref>` 双标签。
 
 ## 离线补装工具(不动镜像)
 
@@ -66,8 +67,8 @@ pi-web / shell-utils / fonts…)。镜像有 `:latest` + `:<ref>` 双标签。
 
 ## pi 场景的首次启动登记
 
-`pi` 场景把 agent 二进制和扩展烘进镜像(`/opt/pi-extensions`),但登记数据在
-卷上的 `~/.pi`。**离线首次使用**在终端跑一次:
+`pi` 场景(always_on,任何变体都烘)把 agent 二进制和扩展烘进镜像
+(`/opt/pi-extensions`),但登记数据在卷上的 `~/.pi`。**离线首次使用**在终端跑一次:
 
 ```sh
 aio-pi-extensions         # 把烘好的扩展离线登记进 ~/.pi(卷),之后扛重建
