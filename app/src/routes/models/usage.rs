@@ -38,7 +38,7 @@ use tokio::sync::Mutex;
 
 use crate::state::AppState;
 use super::render::home_dir;
-use super::store::{read_config, CanonicalConfig, CostEntry};
+use aio_models::store::{read_config, CanonicalConfig, CostEntry};
 
 /// Cache TTL (design §6: 30s).
 const CACHE_TTL: Duration = Duration::from_secs(30);
@@ -949,7 +949,7 @@ fn as_u64(v: Option<&Value>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::store;
+    use aio_models::store;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn temp_dir() -> PathBuf {
@@ -1473,7 +1473,7 @@ mod tests {
 
     // --- cost backfill (task 08-27-usage-correctness, design §2) ---
 
-    use super::super::store::{CostEntry, ModelEntry, ProviderEntry};
+    use aio_models::store::{CostEntry, ModelEntry, ProviderEntry};
 
     fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9

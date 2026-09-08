@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
-use super::store::{read_config, StoreError};
+use aio_models::store::{read_config, StoreError};
 
 /// Timeout per candidate request (design §5: 20s).
 const PER_CANDIDATE_TIMEOUT: Duration = Duration::from_secs(20);

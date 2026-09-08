@@ -1,0 +1,11 @@
+[package]
+name = "aio-mgr"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox-mgr control plane: multi-sandbox lifecycle manager (sandbox-mgr task)"
+
+# Placeholder for Phase 1 of the sandbox-mgr task: the mgr-api axum server
+# (lifecycle + compose generation + SQLite state). Phase 0 only needs the
+# crate to exist so the root workspace resolves.
+
+[dependencies]

@@ -21,7 +21,7 @@ use axum::Json;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::store::CostEntry;
+use aio_models::store::CostEntry;
 use crate::state::AppState;
 
 const CATALOG_URL: &str = "https://models.dev/api.json";

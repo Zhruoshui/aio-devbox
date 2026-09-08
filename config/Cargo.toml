@@ -7,6 +7,14 @@ description = "AIO sandbox scenario configurator: TUI selection + Dockerfile.bas
 # Build/host-side tool, not part of the running stack. Built into the
 # `aio-config` image (see config/Dockerfile) and run via `docker run` from the
 # Makefile (`make config` / `make build-base`). Independent of the `app` crate.
+# Library target: `gen` (Dockerfile.base assembly) + scenario/manifest
+# discovery are reusable by other crates (the sandbox-mgr control plane
+# reuses them for per-sandbox env assembly); the `tui` subcommand stays
+# bin-only (terminal UI, no library consumer).
+[lib]
+name = "aio_config"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aio-config"
 path = "src/main.rs"

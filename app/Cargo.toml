@@ -9,6 +9,10 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.7", features = ["ws"] }
+# Canonical model-config store: schema + read/write + mask/merge/validate,
+# shared with the mgr control plane (single owner of the models.json
+# contract). render/usage/discover/test handlers stay in this crate.
+aio-models = { path = "../aio-models" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
@@ -34,5 +38,5 @@ json5 = "0.4"
 # (connect_async); TLS stacks stay off - the upstream is always 127.0.0.1.
 tokio-tungstenite = { version = "0.23", default-features = false, features = ["connect"] }
 
-[profile.release]
-opt-level = 2
+# [profile.release] moved to the ROOT Cargo.toml: cargo only honors profile
+# settings from the workspace root (sandbox-mgr Phase 0 workspace).

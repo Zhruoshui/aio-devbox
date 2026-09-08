@@ -17,7 +17,7 @@ use toml::Value as TomlValue;
 use crate::routes::models::render::common::{
     atomic_write, backup_file, read_json_object, ApplyResult, ReadError,
 };
-use crate::routes::models::store::{CanonicalConfig, CodexPreset, ProviderEntry};
+use aio_models::store::{CanonicalConfig, CodexPreset, ProviderEntry};
 
 /// Apply the current codex preset to ~/.codex/. When there is no current
 /// preset (codex block absent, `current` unset, or dangling), push an error
@@ -267,7 +267,7 @@ pub fn wire_api_for(wire_api: &str, provider_api: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes::models::store::{
+    use aio_models::store::{
         CanonicalConfig, CodexPreset, CodexPresets, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};

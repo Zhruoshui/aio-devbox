@@ -33,11 +33,12 @@ Thumbs.db
 .env
 gateway/secrets/
 
-# --- Rust build output (app/) ---
-# NOTE: app/Cargo.lock IS committed (this is a binary crate, not a library).
+# --- Rust build output ---
+# Repo-root cargo workspace (sandbox-mgr Phase 0): one shared target/ at the
+# root and ONE root Cargo.lock, which IS committed (the workspace ships binary
+# crates: aio-app, aio-config). Member Cargo.locks no longer exist.
+target/
 app/target/
-
-# --- Rust build output (config/, the aio-config build/host-side tool) ---
 config/target/
 
 # --- Generated static assets ---

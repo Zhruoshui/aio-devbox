@@ -23,9 +23,15 @@
 pub mod catalog;
 pub mod discover;
 pub mod render;
-pub mod store;
 pub mod test;
 pub mod usage;
+
+// Canonical store (schema + read/write + mask/merge/validate) lives in the
+// aio-models crate (shared with the mgr control plane, sandbox-mgr Phase 0).
+use aio_models::store::{
+    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
+    CanonicalConfig, ImportResponse, PutResponse, StoreError,
+};
 
 use std::path::{Path, PathBuf};
 
@@ -38,10 +44,6 @@ use serde_json::{json, Value};
 use crate::config::{command_exists, resolve_path_dirs};
 use crate::state::AppState;
 use render::{home_dir, ApplyResult, Agent, ProviderPatch};
-use store::{
-    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
-    CanonicalConfig, ImportResponse, PutResponse, StoreError,
-};
 
 /// GET /api/models/config — return the full canonical config with masked keys.
 pub async fn get_config(State(state): State<AppState>) -> Json<CanonicalConfig> {
@@ -131,7 +133,7 @@ pub async fn import_pi(
         }
     };
 
-    let result = store::import_from_pi(&pi_path, &config).map_err(|e| match e {
+    let result = aio_models::store::import_from_pi(&pi_path, &config).map_err(|e| match e {
         StoreError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             (StatusCode::NOT_FOUND, "pi models.json not found".to_string())
         }
@@ -366,16 +368,16 @@ pub async fn sync_live_provider(
         Agent::Pi => {
             let p = pi_models_path();
             let r = match &req.id {
-                Some(id) => store::import_pi_provider(&p, &config, id),
-                None => store::import_from_pi(&p, &config),
+                Some(id) => aio_models::store::import_pi_provider(&p, &config, id),
+                None => aio_models::store::import_from_pi(&p, &config),
             };
             (p, r)
         }
         Agent::Opencode => {
             let p = opencode_jsonc_path();
             let r = match &req.id {
-                Some(id) => store::import_opencode_provider(&p, &config, id),
-                None => store::import_from_opencode(&p, &config),
+                Some(id) => aio_models::store::import_opencode_provider(&p, &config, id),
+                None => aio_models::store::import_from_opencode(&p, &config),
             };
             (p, r)
         }

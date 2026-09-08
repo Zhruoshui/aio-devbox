@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use crate::state::AppState;
 use super::discover::build_headers;
-use super::store::{read_config, StoreError};
+use aio_models::store::{read_config, StoreError};
 
 /// Timeout for the minimal completion request (design §5: 20s).
 const TEST_TIMEOUT: Duration = Duration::from_secs(20);
