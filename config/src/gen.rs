@@ -20,9 +20,6 @@ use crate::scenario;
 /// Paths gen reads/writes, all under the repo root.
 struct Paths {
     manifest: PathBuf,
-    scenarios: PathBuf,
-    head: PathBuf,
-    tail: PathBuf,
     out: PathBuf,
 }
 
@@ -30,9 +27,6 @@ impl Paths {
     fn new(repo: &Path) -> Paths {
         Paths {
             manifest: repo.join(".aio/enabled.toml"),
-            scenarios: repo.join("scenarios"),
-            head: repo.join("Dockerfile.base.head"),
-            tail: repo.join("Dockerfile.base.tail"),
             out: repo.join("Dockerfile.base"),
         }
     }
@@ -41,7 +35,29 @@ impl Paths {
 pub fn run(repo: &Path) -> Result<()> {
     let p = Paths::new(repo);
     let enabled = manifest::load(&p.manifest)?;
-    let known = scenario::scan(&p.scenarios)?;
+    let (out, display) = assemble_for(repo, &enabled)?;
+    fs::write(&p.out, &out).with_context(|| format!("write {}", p.out.display()))?;
+    println!(
+        "wrote {} (scenarios: {})",
+        p.out.display(),
+        if display.is_empty() {
+            "none".to_string()
+        } else {
+            display.join(", ")
+        }
+    );
+    Ok(())
+}
+
+/// Assemble the Dockerfile.base CONTENT for an explicit selection, without
+/// touching the repo's shared `.aio/enabled.toml` or root `Dockerfile.base`.
+/// Library entry for sandbox-mgr (mgr builds one image per sandbox env): mgr
+/// keeps a per-sandbox selection and calls this to get the exact bytes that
+/// selection assembles to, so hashing those bytes (env_hash) pins the whole
+/// build input - selection, versions, fragment contents, head and tail.
+/// Returns (dockerfile content, per-scenario display list "id" / "id@ver").
+pub fn assemble_for(repo: &Path, enabled: &manifest::Enabled) -> Result<(String, Vec<String>)> {
+    let known = scenario::scan(&repo.join("scenarios"))?;
     let by_id: HashMap<&str, &scenario::Scenario> = known
         .iter()
         .map(|s| (s.meta.id.as_str(), s))
@@ -80,10 +96,10 @@ pub fn run(repo: &Path) -> Result<()> {
     let mut ids: Vec<String> = keyed.into_iter().map(|(id, _)| id).collect();
     ids.dedup();
 
-    let head = fs::read_to_string(&p.head)
-        .with_context(|| format!("read {}", p.head.display()))?;
-    let tail = fs::read_to_string(&p.tail)
-        .with_context(|| format!("read {}", p.tail.display()))?;
+    let head = fs::read_to_string(repo.join("Dockerfile.base.head"))
+        .with_context(|| format!("read {}", repo.join("Dockerfile.base.head").display()))?;
+    let tail = fs::read_to_string(repo.join("Dockerfile.base.tail"))
+        .with_context(|| format!("read {}", repo.join("Dockerfile.base.tail").display()))?;
 
     // Resolve + validate each id to its fragment. Always-on ids are always in
     // `known`; unknown selectable ids (stale manifest pointing at a removed
@@ -98,7 +114,7 @@ pub fn run(repo: &Path) -> Result<()> {
             None => bail!(
                 "enabled scenario {:?} not found in {} (run `make config` to reselect)",
                 id,
-                p.scenarios.display()
+                repo.join("scenarios").display()
             ),
         };
         let raw = fs::read_to_string(&s.fragment)
@@ -113,17 +129,7 @@ pub fn run(repo: &Path) -> Result<()> {
     }
 
     let out = assemble(&head, &tail, &fragments);
-    fs::write(&p.out, &out).with_context(|| format!("write {}", p.out.display()))?;
-    println!(
-        "wrote {} (scenarios: {})",
-        p.out.display(),
-        if display.is_empty() {
-            "none".to_string()
-        } else {
-            display.join(", ")
-        }
-    );
-    Ok(())
+    Ok((out, display))
 }
 
 /// Sort (id, category) pairs by profile layer (`category_rank`) then id, for

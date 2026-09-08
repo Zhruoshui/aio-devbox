@@ -226,18 +226,6 @@ pub fn read_back_verify_json(path: &Path) -> Result<(), String> {
     }
 }
 
-/// Read back a TOML file and verify it parses. Used by the codex renderer
-/// after writing config.toml (design §4).
-pub fn read_back_verify_toml(path: &Path) -> Result<(), String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => text
-            .parse::<toml::Value>()
-            .map(|_| ())
-            .map_err(|e| format!("verify: parse failed: {e}")),
-        Err(e) => Err(format!("verify: read failed: {e}")),
-    }
-}
-
 /// Restore a file from its backup (or remove it when no backup existed -
 /// i.e. the file was newly created). Used when read-back verification
 /// fails so the target is returned to its pre-apply state (design §4).
@@ -265,22 +253,6 @@ pub fn backup_write_verify_json(
     let backup =
         backup_and_atomic_write(path, bytes, mode).map_err(|e| format!("write: {e}"))?;
     if let Err(msg) = read_back_verify_json(path) {
-        restore_backup_or_remove(path, backup.as_deref());
-        return Err(format!("verify failed, restored: {msg}"));
-    }
-    Ok(backup)
-}
-
-/// Backup + atomic write + TOML read-back verify. Same semantics as
-/// `backup_write_verify_json` but for TOML (codex config.toml).
-pub fn backup_write_verify_toml(
-    path: &Path,
-    bytes: &[u8],
-    mode: u32,
-) -> Result<Option<String>, String> {
-    let backup =
-        backup_and_atomic_write(path, bytes, mode).map_err(|e| format!("write: {e}"))?;
-    if let Err(msg) = read_back_verify_toml(path) {
         restore_backup_or_remove(path, backup.as_deref());
         return Err(format!("verify failed, restored: {msg}"));
     }

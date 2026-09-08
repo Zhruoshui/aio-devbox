@@ -64,3 +64,6 @@ aio-offline-bundle/
 # Dockerfile.base is assembled by `aio-config gen` from .aio/enabled.toml
 # (per-machine, gitignored). Canonical path: `make build-base` runs gen first.
 Dockerfile.base
+
+# sandbox-mgr runtime state (state.db, generated per-sandbox compose/)
+mgr-data/
