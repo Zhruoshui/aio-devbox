@@ -1,6 +1,6 @@
 # --- AI agent / editor state (local tooling, not project code) ---
+# (.claude/ is NOT here — see the exceptions block below.)
 .agents/
-.claude/
 .codex/
 .opencode/
 .idea/
@@ -9,24 +9,12 @@
 *~
 
 # --- Exceptions: project-level agent config IS repo code ---
-# Two things inside .claude/ ship with the repo:
-#   1. aio-env-config skill — documents the repo's own layered scenario system.
-#   2. Trellis platform hooks + settings.json — SessionStart context injection,
-#      workflow-state and subagent-context hooks. Tracked so worktree
-#      checkouts (multi-dev git workflow) get the same hook wiring as the
-#      main checkout. Everything else in .claude/ stays local.
-# git can't re-include a path whose parent dir is excluded, so the negation
-# is step-by-step: re-open .claude/, ignore its contents, then re-include
-# each exception individually.
-!.claude/
-.claude/*
-!.claude/settings.json
-!.claude/hooks/
-.claude/hooks/*
-!.claude/hooks/*.py
-!.claude/skills/
-.claude/skills/*
-!.claude/skills/aio-env-config/
+# .claude/ ships with the repo in full (agents, commands, hooks, skills,
+# settings.json) so worktree checkouts (multi-dev git workflow) get the
+# complete hook + agent wiring, not just a subset. Only local state stays
+# out: plans/ (per-session scratch) and settings.local.json.
+.claude/plans/
+.claude/settings.local.json
 
 # --- OS ---
 .DS_Store
