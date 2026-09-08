@@ -55,9 +55,17 @@ pub async fn ensure_network(name: &str) -> Result<()> {
     }
 }
 
+/// Profile flags every mgr compose lifecycle command carries: the generated
+/// sandbox compose gates code-server / vnc behind profiles (same shape as the
+/// repo compose, design §3.5), but mgr sandboxes build ALL images and are
+/// managed as a unit - the workbench without its panes is half a product, so
+/// up starts them all (A3) and down must see them to tear them down.
+const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
+
 /// `docker compose -p <project> -f <file> up -d`. Modest -d output.
 pub async fn compose_up(project: &str, compose_file: &Path, force_recreate: bool) -> Result<String> {
     let mut args = compose_prefix(project, compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
     args.push("up");
     args.push("-d");
     if force_recreate {
@@ -68,6 +76,7 @@ pub async fn compose_up(project: &str, compose_file: &Path, force_recreate: bool
 
 pub async fn compose_down(project: &str, compose_file: &Path, volumes: bool) -> Result<String> {
     let mut args = compose_prefix(project, compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
     args.push("down");
     if volumes {
         args.push("-v");
@@ -77,14 +86,27 @@ pub async fn compose_down(project: &str, compose_file: &Path, volumes: bool) -> 
 
 pub async fn compose_restart(project: &str, compose_file: &Path) -> Result<String> {
     let mut args = compose_prefix(project, compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
     args.push("restart");
     run_capture("docker", &args).await
 }
 
 pub async fn compose_stop(project: &str, compose_file: &Path) -> Result<String> {
     let mut args = compose_prefix(project, compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
     args.push("stop");
     run_capture("docker", &args).await
+}
+
+/// `docker exec <container> caddy reload --config <path>` - the containerized
+/// mgr stack's reload channel (caddy.rs Phase 2). Goes through the same
+/// captured-run path as everything else so errors surface with stderr tails.
+pub async fn caddy_reload_in_container(container: &str, config_path: &str) -> Result<String> {
+    run_capture(
+        "docker",
+        &["exec", container, "caddy", "reload", "--config", config_path],
+    )
+    .await
 }
 
 fn compose_prefix<'a>(project: &'a str, compose_file: &'a Path) -> Vec<&'a str> {

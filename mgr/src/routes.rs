@@ -199,8 +199,11 @@ async fn sandbox_json(state: &Arc<AppState>, row: &db::SandboxRow) -> serde_json
         "mem_mb": row.mem_mb,
         "env": serde_json::from_str::<serde_json::Value>(&row.env_json).unwrap_or(json!({})),
         "image": format!("sandbox-app-{short_hash}"),
-        "entry_url": format!("http://{}.mgr.localhost/", row.name),
-        "piweb_url": format!("http://{}-piweb.mgr.localhost/", row.name),
+        // The sbx- prefix must mirror the total-gateway site blocks exactly
+        // (caddy.rs render) - the sandbox-net alias is also sbx-<name>/
+        // sbx-<name>-piweb (composegen), so the prefix is the shared identity.
+        "entry_url": format!("http://sbx-{}.mgr.localhost/", row.name),
+        "piweb_url": format!("http://sbx-{}-piweb.mgr.localhost/", row.name),
         "services": ps.iter().map(|e| json!({
             "service": e.service, "name": e.name, "state": e.state, "status": e.status,
         })).collect::<Vec<_>>(),
@@ -331,9 +334,10 @@ async fn entry_url(
             return Err(ApiError::bad(format!("sandbox {name:?} not found")));
         }
     }
+    // sbx- prefix: mirrors the total-gateway site blocks (caddy.rs render).
     Ok(Json(json!({
-        "entry": format!("http://{name}.mgr.localhost/"),
-        "piweb": format!("http://{name}-piweb.mgr.localhost/"),
+        "entry": format!("http://sbx-{name}.mgr.localhost/"),
+        "piweb": format!("http://sbx-{name}-piweb.mgr.localhost/"),
     })))
 }
 

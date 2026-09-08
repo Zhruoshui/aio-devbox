@@ -12,6 +12,7 @@
 //   MGR_REPO  AIO repo root       (default cwd)
 //   MGR_DATA  runtime data root   (default <repo>/mgr-data)
 
+mod caddy;
 mod composegen;
 mod db;
 mod docker;
@@ -56,6 +57,13 @@ async fn main() -> Result<()> {
     docker::ensure_network("aio-mgr-net")
         .await
         .context("ensure aio-mgr-net")?;
+
+    // Converge the total-gateway Caddyfile at boot: sandboxes deleted while
+    // mgr was down leave stale site blocks; regenerating heals the drift.
+    // Reload failures are already reported inside (kv + log), not fatal.
+    if let Err(e) = caddy::regenerate(&state).await {
+        tracing::warn!("startup Caddyfile convergence: {e:#}");
+    }
 
     let app = routes::router().with_state(state.clone());
     let listener = tokio::net::TcpListener::bind(bind).await?;

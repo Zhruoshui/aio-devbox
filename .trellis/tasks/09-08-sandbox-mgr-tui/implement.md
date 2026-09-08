@@ -36,15 +36,18 @@
 
 ## Phase 2: 总网关子域名路由
 
-- [ ] mgr 生成 mgr-data/caddy/Caddyfile（每沙箱两站点块，design §2）；
+- [x] mgr 生成 mgr-data/caddy/Caddyfile（每沙箱两站点块，design §2）；
       reload 通道（容器 exec / 本地进程）；失败保留 .bak 并上报状态。
-- [ ] mgr 栈自身 compose（mgr-gateway + mgr-api + mgr-web 静态）+ `make
+- [x] mgr 栈自身 compose（mgr-gateway + mgr-api + mgr-web 静态）+ `make
       mgr-up` / `make mgr-down`。
-- [ ] app 侧两处小改：config.rs 支持 PI_WEB_URL 覆盖 piWeb url；
+- [x] app 侧两处小改：config.rs 支持 PI_WEB_URL 覆盖 piWeb url；
       entrypoint.sh PI_WEB_ALLOWED_HOSTS 默认值化（§2.1）。
-- [ ] 验证：`http://sbx-x.mgr.localhost/` 打开工作台，terminal/code-server/
+- [x] 验证：`http://sbx-x.mgr.localhost/` 打开工作台，terminal/code-server/
       vnc/pi-web 面板全可用、无密码框（A3）；`http://sbx-x-piweb.mgr.localhost/`
       打开 pi-web（A4）；删沙箱后两域名不可达（A7 部分）。
+      （09-08 容器内 curl 等价验证全过：工作台/code-server/vnc 200 +
+      manifest 全 enabled + pi-web 200 含 /_next 资源 + PI_WEB_URL 覆盖
+      生效 + 删除后域名 000/容器清/卷清；浏览器验收留宿主机）
 - [ ] 回滚点：commit 3。
 
 ## Phase 3: mgr-web 管理界面

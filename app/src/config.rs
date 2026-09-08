@@ -239,6 +239,19 @@ pub(crate) fn expand_placeholders(s: &str) -> String {
     out
 }
 
+/// PI_WEB_URL override for the piWeb pane url (sandbox-mgr Phase 2, design
+/// §2.1). Under sandbox-mgr, a sandbox publishes NO host ports - pi-web is
+/// reached through the total-gateway subdomain instead, and the mgr-generated
+/// sandbox compose sets PI_WEB_URL to that URL. When set (non-empty), the
+/// value is used VERBATIM: it is a complete literal URL, so neither the
+/// `{env:PI_WEB_HOST_PORT:30141}` startup expansion nor the client-side
+/// `{host}` substitution applies (IframePane's `replace("{host}", ...)` is a
+/// no-op on a `{host}`-free string). Unset/empty => None => the caller keeps
+/// the default placeholder path - stock stacks are byte-for-byte unchanged.
+pub(crate) fn piweb_url_override() -> Option<String> {
+    std::env::var("PI_WEB_URL").ok().filter(|v| !v.is_empty())
+}
+
 /// Expand a single `{...}` candidate: `{env:VAR:default}` on match, otherwise
 /// the braced original (e.g. piWeb's `{host}`, handled client-side).
 fn expand_one(candidate: &str) -> String {
@@ -574,26 +587,48 @@ cmd = "htop"
     #[test]
     fn expand_placeholders_env_overrides_default() {
         // `{host}` (client-side) passes through untouched; the env placeholder
-        // resolves from the process env.
+        // resolves from the process env. remove_var first: a developer shell
+        // with PI_WEB_HOST_PORT set would otherwise break this assertion.
+        std::env::remove_var("PI_WEB_HOST_PORT");
         let s = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/";
         assert_eq!(expand_placeholders(s), "http://{host}:30141/");
     }
 
     #[test]
+    fn piweb_url_override_set_and_unset() {
+        // Set/unset/remove_var (never assume the outer env's state); this is
+        // the ONLY test touching PI_WEB_URL so there is no parallel race.
+        std::env::set_var("PI_WEB_URL", "http://sbx-x-piweb.mgr.localhost/");
+        assert_eq!(
+            piweb_url_override().as_deref(),
+            Some("http://sbx-x-piweb.mgr.localhost/")
+        );
+        // Empty string = unset (filter), so a compose `PI_WEB_URL=` keeps
+        // the stock published-port URL.
+        std::env::set_var("PI_WEB_URL", "");
+        assert_eq!(piweb_url_override(), None);
+        std::env::remove_var("PI_WEB_URL");
+        assert_eq!(piweb_url_override(), None);
+    }
+
+    // NB: every env-touching test below uses a VAR NAME UNIQUE TO THAT TEST.
+    // cargo runs tests in parallel threads sharing one process env, so a
+    // shared name is a cross-test race (observed: `set_env_uses_value`'s
+    // "30142" leaking into the other two assertions). `remove_var` first so
+    // the outer env can't affect the check either.
+    #[test]
     fn expand_placeholders_missing_env_uses_default() {
-        // Both VARS are namespaced to this test and very unlikely to be set;
-        // `remove_var` first so the check can't be affected by outer env.
-        std::env::remove_var("AIO_TEST_EXPAND_PORT");
-        let s = "http://host:{env:AIO_TEST_EXPAND_PORT:8080}/";
+        std::env::remove_var("AIO_TEST_EXPAND_UNSET");
+        let s = "http://host:{env:AIO_TEST_EXPAND_UNSET:8080}/";
         assert_eq!(expand_placeholders(s), "http://host:8080/");
     }
 
     #[test]
     fn expand_placeholders_set_env_uses_value() {
-        std::env::set_var("AIO_TEST_EXPAND_PORT", "30142");
-        let s = "http://host:{env:AIO_TEST_EXPAND_PORT:8080}/";
+        std::env::set_var("AIO_TEST_EXPAND_SET", "30142");
+        let s = "http://host:{env:AIO_TEST_EXPAND_SET:8080}/";
         assert_eq!(expand_placeholders(s), "http://host:30142/");
-        std::env::remove_var("AIO_TEST_EXPAND_PORT");
+        std::env::remove_var("AIO_TEST_EXPAND_SET");
     }
 
     #[test]
@@ -601,10 +636,10 @@ cmd = "htop"
         // An explicitly-empty env var is treated as unset: compose projects
         // often interpolate `PI_WEB_HOST_PORT=` from a half-edited .env, and
         // an empty port would yield "http://host:/".
-        std::env::set_var("AIO_TEST_EXPAND_PORT", "");
-        let s = "{env:AIO_TEST_EXPAND_PORT:30141}";
+        std::env::set_var("AIO_TEST_EXPAND_EMPTY", "");
+        let s = "{env:AIO_TEST_EXPAND_EMPTY:30141}";
         assert_eq!(expand_placeholders(s), "30141");
-        std::env::remove_var("AIO_TEST_EXPAND_PORT");
+        std::env::remove_var("AIO_TEST_EXPAND_EMPTY");
     }
 
     #[test]

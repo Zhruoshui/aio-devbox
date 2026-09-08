@@ -15,6 +15,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tokio::sync::Mutex as TokioMutex;
 
+use crate::caddy;
 use crate::composegen;
 use crate::db;
 use crate::docker;
@@ -170,8 +171,13 @@ async fn run_create(
         }
     }
 
-    // 7. TODO(Phase 2): regenerate mgr-data/caddy/Caddyfile (total gateway
-    //    sites for this sandbox) + reload the mgr gateway container.
+    // 7. Total gateway: regenerate the Caddyfile with this sandbox's site
+    //    pair + reload (Phase 2). Reported into the job log on both paths;
+    //    a reload failure keeps the .bak and does not fail the job.
+    match caddy::regenerate(&state).await {
+        Ok(line) => append_log(&log, &format!("{line}\n")).await,
+        Err(e) => append_log(&log, &format!("gateway regenerate FAILED: {e:#}\n")).await,
+    }
 
     append_log(&log, "sandbox running\n").await;
     Ok(())
@@ -221,7 +227,10 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
                         .with_context(|| format!("remove {}", dir.display()))?;
                 }
             }
-            // TODO(Phase 2): regenerate total-gateway Caddyfile + reload.
+            // Total gateway: drop this sandbox's site pair + reload (Phase 2).
+            // After the row removal, so the regeneration no longer sees it.
+            let line = caddy::regenerate(&st).await?;
+            append_log(&shared, &format!("{line}\n")).await;
             Ok::<_, anyhow::Error>(())
         }
         .await;

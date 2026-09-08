@@ -216,6 +216,21 @@ pub fn fail_orphan_jobs(conn: &Connection) -> Result<usize> {
     Ok(n)
 }
 
+// ── kv ─────────────────────────────────────────────────────────────
+
+/// Set a kv row (upsert). Currently: `gateway_reload` = outcome of the last
+/// total-gateway regeneration ("ok" or the reload error text, caddy.rs
+/// Phase 2; Phase 4 adds models_config). Keyed by literal call sites - no
+/// generic registry needed at this scale.
+pub fn kv_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO kv (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
 /// Seconds since epoch. (mgr has no chrono dep; std::time is enough.)
 fn chrono_now_secs() -> i64 {
     std::time::SystemTime::now()

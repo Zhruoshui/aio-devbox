@@ -74,12 +74,23 @@ async fn main() {
     );
     let models_file =
         PathBuf::from(std::env::var("AIO_MODELS_FILE").unwrap_or_else(|_| MODELS_FILE.to_string()));
-    // Expand {env:VAR:default} placeholders (piWeb url's host publish port)
-    // once at startup - env doesn't change during the process lifetime.
+    // Resolve service urls once at startup - env doesn't change during the
+    // process lifetime:
+    //   - {env:VAR:default} placeholder expansion (piWeb url's host publish
+    //     port, issue #3);
+    //   - piWeb's PI_WEB_URL override (sandbox-mgr Phase 2, design §2.1): a
+    //     set value replaces the url verbatim, skipping expansion entirely.
     let services: Vec<_> = config::load_services()
         .into_iter()
         .map(|mut s| {
-            s.url = s.url.map(|u| config::expand_placeholders(&u));
+            s.url = if s.id == "piWeb" {
+                match config::piweb_url_override() {
+                    Some(u) => Some(u),
+                    None => s.url.map(|u| config::expand_placeholders(&u)),
+                }
+            } else {
+                s.url.map(|u| config::expand_placeholders(&u))
+            };
             s
         })
         .collect();

@@ -79,7 +79,9 @@ services:
     image: sandbox-app-{short}
     restart: unless-stopped
     environment:
-      # Phase 2 wires the app side of these; harmless no-ops until then.
+      # Phase 2 (app side wired): PI_WEB_URL replaces the piWeb pane url
+      # verbatim at app startup (config.rs piweb_url_override); ALLOWED_HOSTS
+      # extends the entrypoint's default "app" (design §2.1).
       PI_WEB_URL: http://sbx-{name}-piweb.mgr.localhost/
       PI_WEB_ALLOWED_HOSTS: app,sbx-{name}-piweb.mgr.localhost
     volumes:

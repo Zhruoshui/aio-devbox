@@ -43,9 +43,11 @@ http://sbx-<name>.mgr.localhost {
     reverse_proxy sbx-<name>:8080      # 该沙箱自己的 gateway（caddy）
 }
 http://sbx-<name>-piweb.mgr.localhost {
-    # Host 重写为上游 alias，绕过 pi-web 的 request-security 白名单
+    # Host 重写为 PUBLIC 子域名（09-08 实测修正：重写为上游 alias
+    # `sbx-<name>-piweb:30141` 会被 pi-web request-security 拒 403——白名单
+    # 只接受 *.localhost 后缀与 PI_WEB_ALLOWED_HOSTS 条目，见 mgr/src/caddy.rs）
     reverse_proxy http://sbx-<name>-piweb:30141 {
-        header_up Host sbx-<name>-piweb:30141
+        header_up Host sbx-<name>-piweb.mgr.localhost
     }
 }
 ```

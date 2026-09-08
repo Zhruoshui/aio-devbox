@@ -38,7 +38,7 @@ AIO_CONFIG_IMAGE := aio-config
 UID := $(shell id -u)
 GID := $(shell id -g)
 
-.PHONY: build-base build build-config config gen up down restart logs hash ensure-hash save load pull clean
+.PHONY: build-base build build-config config gen up down restart logs hash ensure-hash save load pull clean mgr-up mgr-down
 
 # Build & tag the aio-config configurator image (online: fetches crates).
 build-config:
@@ -100,6 +100,43 @@ restart:
 
 logs:
 	$(COMPOSE) $(PROFILE_FLAGS) logs -f
+
+# --- sandbox-mgr control-plane stack (Phase 2+) ------------------------------
+# The mgr stack is an INDEPENDENT compose project (`aio-mgr`) living in
+# mgr/compose.yml: total gateway (caddy, *.mgr.localhost routing) + mgr-api
+# (lifecycle API, SQLite state in gitignored mgr-data/). It runs alongside
+# the regular sandbox stack - `make up`/`make down` never touch it.
+#
+# Dual form (prd D3): this is the CONTAINERIZED form. Bare-metal alternative:
+#   MGR_REPO=. MGR_DATA=mgr-data cargo run -p aio-mgr
+# (uses a host caddy for gateway reloads; see mgr/src/caddy.rs).
+#
+# Pre-create the shared external network so the gateway service doesn't race
+# mgr-api's idempotent ensure_network on a first start (compose errors on a
+# missing external network before the API ever boots).
+#
+# MGR_COMPOSE pins PWD to $(CURDIR): mgr/compose.yml interpolates ${PWD:?}
+# for its path-identity mounts, and under `make -C <repo> mgr-up` the
+# inherited PWD stays at the CALLER's cwd, silently mounting the wrong
+# directory - make's own working directory is the repo root by construction.
+MGR_COMPOSE := PWD=$(CURDIR) $(COMPOSE) -p aio-mgr -f mgr/compose.yml
+
+mgr-up:
+	docker network create aio-mgr-net 2>/dev/null || true
+	# Seed the gateway Caddyfile bind source: docker creates a DIRECTORY for
+	# a missing file-mount target, which then blocks mgr-api's real generated
+	# file from ever mounting - seed an empty file first (mgr-api regenerates
+	# the real content from state.db at boot, mgr/src/caddy.rs).
+	mkdir -p mgr-data/caddy
+	@test -f mgr-data/caddy/Caddyfile || \
+	  printf '# seeded by make mgr-up; mgr-api regenerates this\n' \
+	  > mgr-data/caddy/Caddyfile
+	$(MGR_COMPOSE) up -d --build
+
+mgr-down:
+	$(MGR_COMPOSE) down
+	# The shared network stays: sandbox containers may still be attached
+	# (`docker network rm aio-mgr-net` once they are all gone).
 
 # Destructive: stop, remove the workspace volume, and drop built images.
 clean:
