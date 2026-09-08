@@ -48,7 +48,7 @@
       （09-08 容器内 curl 等价验证全过：工作台/code-server/vnc 200 +
       manifest 全 enabled + pi-web 200 含 /_next 资源 + PI_WEB_URL 覆盖
       生效 + 删除后域名 000/容器清/卷清；浏览器验收留宿主机）
-- [ ] 回滚点：commit 3。
+- [x] 回滚点：commit 3（d528c76）。
 
 ## Phase 3: mgr-web 管理界面
 
