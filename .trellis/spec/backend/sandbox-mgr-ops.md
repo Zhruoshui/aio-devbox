@@ -120,9 +120,9 @@ const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "v
 - 运行时 CLI 从 `docker:cli` 镜像 COPY(bookworm 的 docker.io 太老且无
   compose/buildx 插件,mgr 第一个 `docker compose ps` 就会死),插件路径
   `/usr/local/libexec/docker/cli-plugins/`。
-- mgr 依赖 aio-config **lib**(scenario/gen),但**不依赖** aio-models
-  (Phase 4 才需要)——Dockerfile 的 dep-cache 层与真实源层都不要拷
-  aio-models/src,Phase 4 接入时同步加。
+- mgr 依赖 aio-config **lib**(scenario/gen),Phase 4 起也依赖 aio-models
+  **lib**(canonical schema/mask/merge/validate 单一 owner)——dep-cache 层
+  与真实源层都必须拷 aio-models/src,touch 清单含其 `lib.rs`。
 - 依赖路径 crate 的 lib 时,真实源层的 touch 清单必须包含其 `lib.rs`
   (BuildKit COPY-mtime 陷阱见
   [CI Image Conventions 约定 7](../guides/ci-image-conventions.md));
@@ -161,3 +161,50 @@ Dockerfile 烘 `/app/static`(见契约 5)。`/api` seam 三路由(app 同构)
 **验证点**: `curl -s -H 'Host: mgr.localhost' http://localhost/` 返回
 index.html;`/api/sandboxes` 返回 JSON 而非 HTML;未知 `/api/*` 404 JSON。
 render() 单测 `render_has_static_mgr_site_first` 锚定站点块存在且在最前。
+
+---
+
+## 契约 7: 模型配置上收——同步链与写降级(Phase 4)
+
+**Trigger**: 任何动 `mgr/src/models.rs`、`app/src/mgr_sync.rs`、
+`app/src/routes/models/mod.rs` 写接口、或 composegen MGR_URL 注入的人。
+
+mgr 是模型配置唯一真相源(D6),三段式同步链,任何一段的字段名/语义
+漂移都会让拉取静默失效(拉不到≠报错,是 60s 空转):
+
+1. **真相源**: kv 表 `models_config` 键,值 `{"version": <u64>, "config":
+   <CanonicalConfig>}`,PUT 成功才 bump version。kv 只可能写入通过
+   validate 的 JSON,因此 mgr 侧无 app 的 corrupt-move-aside 分支
+   (app models.json 是文件、mgr 是 kv——损坏语义不同是**有意的**)。
+2. **拉取端点**: `GET /api/models/sync` 返回**未 mask** canonical(明文
+   key)。这是 D6/D9 已接受的边界: mgr-api 不发布宿主端口、aio-mgr-net
+   不出宿主、总网关站点块只按 Host 路由沙箱域名。**不要**在 mgr-web 里
+   调它(要明文没意义),浏览器走 masked 的 `GET /api/models/config`。
+   消费端 `app/src/mgr_sync.rs` 的解析结构体与 mgr 的响应形状有处理器
+   级测试双向锁定(`sync_handler_shape_*` / `sync_payload_decodes_*`)。
+3. **沙箱侧**: composegen 给 app 注入 `MGR_URL=http://mgr-api:8089`;
+   启动拉一次 + 60s 周期;深比较(serde_json 全量等值)不同才
+   `write_config` + `apply_all_agents`(与 apply/:agent handler 共用
+   `render_agent`,单一渲染路径);拉取失败 warn 一次静默用本地缓存。
+   `MGR_URL` 未设置 = 存量栈,零行为变化(guard 恒通、不 spawn)。
+
+**写降级矩阵**: MGR_URL 设置时 app 侧 6 个写接口统一 403 body
+`managed-by-mgr`(PUT config、import/pi、apply/:agent、provider PUT/
+DELETE、sync);前端 `GET /api/models/managed` 探测只读态 + 403 兜底。
+GET 类(config/agents/usage/catalog/managed)与 discover/test 探测**不降级**。
+
+**usage 扇出**: `GET /api/usage?window=` 按需并发拉各 running 沙箱
+`http://sbx-<name>-piweb:8088/api/models/usage`(注意别名是
+**sbx-<name>-piweb**——composegen 给 app 的 aio-mgr-net 别名;design §3.7
+原文的 `sbx-<name>:8088` 是笔误,`sbx-<name>` 是 gateway 的 :80 别名)。
+单沙箱 5s 超时、错误隔离进 `error` 字段、30s TTL 缓存(含错误条目,
+避免错误沙箱被高频重试)。design 原文的"60s 常驻轮询"实现为按需扇出
++TTL——等价满足汇总语义,少一份常驻状态。
+
+**验证点**: 改 mgr 配置后沙箱 canonical(明文)与 pi native render 在
+≤60s 内更新;沙箱 PUT 返回 403 `managed-by-mgr`;`/api/usage` 含各
+running 沙箱条目且单沙箱挂掉不整体失败。
+
+**mgr 不提供的端点**(沙箱本地文件操作,mgr 语义不成立,mgr-web 移植
+时裁掉): `/api/models/agents`、`apply/:agent`、`agents/:agent/provider/
+:id`、`agents/:agent/sync`、单沙箱 `/api/models/usage`。
