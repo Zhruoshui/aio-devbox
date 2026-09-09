@@ -24,14 +24,23 @@ aio-config = { path = "../config" }
 # the models.json contract, shared with the sandbox app - same guide).
 aio-models = { path = "../aio-models" }
 # Model discover/test/catalog probes + the /api/usage sandbox fan-out
-# (Phase 4). Same feature family as app/Cargo.toml minus `stream` (mgr
-# proxies no response bodies): rustls-tls keeps it env-proxy aware without
-# openssl; json for request bodies. Shares the workspace lock entry.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# (Phase 4), and the /api/sbx/:name proxy's response bodies (sandbox-mgr
+# unified Phase 1: `stream` enables bytes_stream() -> Body::from_stream
+# passthrough). Same feature family as app/Cargo.toml now: rustls-tls keeps
+# it env-proxy aware without openssl; json for request bodies. Shares the
+# workspace lock entry.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # join_all for the /api/usage per-sandbox fan-out (same crate/feature set
 # as app, which uses it for the preview proxy's split WebSocket sink).
 futures-util = "0.3"
-axum = "0.7"
+# +ws: the /api/sbx/:name/* proxy upgrades WebSockets (terminal pty etc.)
+# - the app/src/routes/preview.rs pattern.
+axum = { version = "0.7", features = ["ws"] }
+# /api/sbx/:name/* proxy: forward WebSocket upgrades to the sandbox app
+# (sbx-<name>-piweb:8088, plaintext aio-mgr-net - never TLS). `connect`
+# enables the client handshake (connect_async); same version/features as
+# app/Cargo.toml (axum's own ws feature uses its separate 0.24 lock entry).
+tokio-tungstenite = { version = "0.23", default-features = false, features = ["connect"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }

@@ -63,6 +63,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-tungstenite 0.23.1",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",

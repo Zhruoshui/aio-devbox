@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/contracts-quote.md", "reason": "被改契约的改前原文——check 时对照改写是否丢失既有验证点/锚点"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "检查实现是否守住不变量契约 2/3/8/9（Caddyfile 原地写、Host 改写、别名三方一致、无认证边界）"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "检查新路由是否注册在 /api seam 之前、错误形状 {\"error\":...} 一致"}
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "检查 XtermPane 平移后 lineHeight/resize 帧/重连语义未被破坏"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "检查 mgr-web 新增代码遵循 types.ts 单一 owner / api.ts typed fetch 边界 / 构建门"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/model-sync-chain.md", "reason": "检查 D8 的 25 项触点是否全部落地（尤其双向 wire-shape 测试对更新）"}

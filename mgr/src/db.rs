@@ -21,8 +21,17 @@ pub fn open(db_path: &Path) -> Result<Connection> {
     }
     let conn = Connection::open(db_path)
         .with_context(|| format!("open {}", db_path.display()))?;
-    conn.execute_batch(SCHEMA)?;
+    init_schema(&conn)?;
     Ok(conn)
+}
+
+/// Apply SCHEMA to an existing connection. `open`'s init step, split out for
+/// the in-memory test constructor (state.rs new_for_test) so tests see the
+/// full migration-free schema, not just the kv table - proxy.rs route tests
+/// read the sandboxes table through it.
+pub fn init_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA)?;
+    Ok(())
 }
 
 const SCHEMA: &str = "

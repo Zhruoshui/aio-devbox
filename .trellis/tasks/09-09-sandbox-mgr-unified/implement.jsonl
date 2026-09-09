@@ -1,0 +1,12 @@
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/mgr-backend.md", "reason": "mgr 路由表/docker 生命周期/代理路由落点/Cargo 依赖清单——§1 代理与 §3 code-server 按需的实现锚点"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/workbench-frontend.md", "reason": "golden-layout 注册/布局持久化/popout 机制与 origin 耦合清单——§2 工作区移植的搬运面"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/model-sync-chain.md", "reason": "模型同步链全触点 25 项清单——§4 多 profile 改造的完整落点"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/app-static-and-manifest.md", "reason": "app 静态烘焙/manifest 探测/buttons API——§5 web/ 退役与 D7 按钮代理的改动面"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/mgrweb-frontend.md", "reason": "mgr-web 结构/约定/EditPage 插槽——§2/§4.4 前端落点与 golden-layout 增量清单"}
+{"file": ".trellis/tasks/09-09-sandbox-mgr-unified/research/contracts-quote.md", "reason": "契约 3/4/7/9 与 api-contracts/frontend 规格原文——实现时须遵守的现状契约与 Phase 3.3 改写底稿"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "现行契约 1-9 全文；契约 2/3/8/9 是本设计的不变量，契约 4/7 是改写对象"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "mgr 控制面 API 节 + app API 契约（manifest/buttons/term WS 形状）"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "mgr-web 约定（types.ts 单一 owner、无路由库、构建门）——移植 panes/ 时须延续"}
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "XtermPane 契约：lineHeight=1.25、5 字节 resize 帧、主题 token——组件平移后契约不变"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "命令式库生命周期模式（golden-layout/xterm 平移须遵循）"}
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "模型配置 schema 指南——D8 包装层改造的现行描述"}

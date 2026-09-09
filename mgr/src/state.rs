@@ -104,16 +104,29 @@ impl AppState {
         self.data.join("instances").join(format!("sbx-{name}"))
     }
 
-    /// Test constructor (usage.rs): an empty in-memory db + fresh caches,
-    /// no filesystem side effects. The reqwest client is real but never
-    /// dials in tests (unresolvable hosts fail fast).
+    /// Test constructor (usage.rs / models.rs / proxy.rs): an in-memory db
+    /// with the FULL schema + fresh caches, no filesystem side effects. The
+    /// reqwest client is real but built with proxying DISABLED: tests dial
+    /// hostnames that must not resolve (an unreachable upstream is itself
+    /// an assertion target, proxy.rs), and a dev machine's proxy env would
+    /// otherwise answer single-label aliases on the proxy's own terms.
+    /// Production mgr keeps the env-aware client (contract: rustls-tls keeps
+    /// reqwest env-proxy aware) - this is a test-only deviation.
     #[cfg(test)]
     pub fn new_for_test() -> Self {
         let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .expect("init kv schema");
-        AppState::new(PathBuf::from("/tmp"), PathBuf::from("/tmp"), conn)
+        crate::db::init_schema(&conn).expect("init test schema");
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("no-proxy reqwest client build");
+        AppState {
+            repo: PathBuf::from("/tmp"),
+            data: PathBuf::from("/tmp"),
+            db: Arc::new(Mutex::new(conn)),
+            jobs: Arc::new(Mutex::new(HashMap::new())),
+            http,
+            usage_cache: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }

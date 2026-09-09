@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
@@ -42,18 +42,44 @@ pub fn router() -> Router<Arc<AppState>> {
         // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
         // Each module owns its sub-router; merge keeps them ahead of the
         // /api seam below (static segments win either way - merge is the
-        // registration-order form of that rule).
+        // registration-order form of that rule). The sandbox proxy
+        // (proxy.rs, sandbox-mgr unified Phase 1) merges the same way - it
+        // registers no top-level API routes of its own, just the
+        // /api/sbx/:name/*path catch-all.
         .merge(crate::models::router())
         .merge(crate::usage::router())
+        .merge(crate::proxy::router())
         // Unmatched /api path: 404 JSON in the ApiError shape, never the SPA
-        // fallback (main.rs fallback_service would otherwise serve index.html
-        // on a reserved seam path, and mgr-web's apiError would die on HTML
-        // instead of showing the message). Same three-route discipline as
-        // app/src/main.rs: matchit 0.7.3's *rest needs the bare /api and
-        // /api/ forms listed explicitly, and static segments above always win.
+        // (mgr-web's apiError would die on HTML instead of showing the
+        // message). Same three-route discipline as app/src/main.rs: matchit
+        // 0.7.3's *rest needs the bare /api and /api/ forms listed
+        // explicitly, and static segments above always win.
         .route("/api", any(api_not_found))
         .route("/api/", any(api_not_found))
         .route("/api/*rest", any(api_not_found))
+        // Belt-and-braces for the seam above: matchit 0.7.3 does not backtrack
+        // from a partially-walked subtree to a sibling catch-all, so a
+        // trailing-slash form of a routed prefix (e.g. /api/sbx/<name>/ or
+        // /api/sandboxes/) matches NO route and lands on the router default
+        // fallback. Without this guard, axum's bare 404 would answer there in
+        // the API-only test router and the SPA would answer 200 HTML in
+        // production - exactly the seam violation api-contracts.md forbids.
+        // The SPA must therefore be mounted via explicit routes in main.rs
+        // (never fallback_service) so it cannot shadow this guard.
+        .fallback(unmatched_fallback)
+}
+
+/// Router-level default: an unrouted path is a 404 JSON in the ApiError
+/// shape. For /api/* paths this is the trailing-slash gap above (real seam
+/// discipline lives in the three explicit routes); for non-/api paths it is
+/// what keeps the API-only test router (proxy.rs serve()) HTML-free. main.rs
+/// overrides the non-/api half by mounting the SPA on explicit routes.
+async fn unmatched_fallback(uri: Uri) -> Response {
+    if uri.path().starts_with("/api/") || uri.path() == "/api" {
+        api_not_found().await.into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
 }
 
 /// Handler for the /api seam routes above (any method).
@@ -77,6 +103,15 @@ pub struct ApiError {
 impl ApiError {
     fn bad(msg: impl Into<String>) -> Self {
         ApiError { status: StatusCode::BAD_REQUEST, message: msg.into() }
+    }
+
+    /// A non-400 status in the same JSON shape. The lifecycle handlers only
+    /// ever need 400/500 (bad / anyhow), but the sandbox proxy (proxy.rs)
+    /// is a router: an unknown :name is a genuine 404 and an unreachable
+    /// sandbox a genuine 502, all in the one {"error": ...} shape mgr-web
+    /// decodes.
+    pub fn with_status(status: StatusCode, message: String) -> Self {
+        ApiError { status, message }
     }
 }
 
@@ -132,7 +167,11 @@ struct SandboxBody {
     mem_mb: Option<i64>,
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
+/// The name-slug contract shared by create/adopt and the sandbox proxy
+/// (proxy.rs: the proxy checks the RAW route segment here before any
+/// upstream URL is built - the slug alphabet never needs percent-decoding,
+/// so this check is exactly as strict on encoded input).
+pub fn validate_name(name: &str) -> Result<(), String> {
     let ok = !name.is_empty()
         && name.len() <= 32
         && name.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())

@@ -28,6 +28,7 @@ mod docker;
 mod envhash;
 mod jobs;
 mod models;
+mod proxy;
 mod routes;
 mod state;
 mod usage;
@@ -91,16 +92,20 @@ async fn main() -> Result<()> {
         tracing::warn!("startup Caddyfile convergence: {e:#}");
     }
 
-    // Static mgr-web tree (Phase 3): `/` serves index.html (dir index) and
-    // unknown paths fall back to index.html (hard-load robustness) - the
-    // app/src/main.rs pattern. API routes above the fallback_service always
-    // win, and unmatched /api/* paths hit routes.rs' 404 seam instead of the
-    // SPA, so /api/* and the SPA coexist on one port.
+    // Static mgr-web tree (Phase 3): mounted on EXPLICIT routes (`/` plus the
+    // `/*path` catch-all - matchit cannot hang a catch-all on the bare root,
+    // same reason the /api seam lists /api and /api/ explicitly), NOT via
+    // fallback_service: routes.rs' default fallback is what keeps the
+    // trailing-slash forms of /api paths (matchit 0.7.3 gap, e.g.
+    // /api/sbx/<name>/) off the SPA, and a fallback_service here would
+    // override it back to serving HTML. ServeDir's own index.html fallback
+    // keeps the hard-load robustness: any non-file path still serves the SPA.
     let serve_dir =
         ServeDir::new(&web_dir).fallback(ServeFile::new(web_dir.join("index.html")));
 
     let app = routes::router()
-        .fallback_service(serve_dir)
+        .route("/", axum::routing::any_service(serve_dir.clone()))
+        .route("/*path", axum::routing::any_service(serve_dir))
         .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(

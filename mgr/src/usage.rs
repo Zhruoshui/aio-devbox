@@ -56,7 +56,9 @@ const PER_SANDBOX_TIMEOUT: Duration = Duration::from_secs(5);
 /// Cache TTL per (sandbox, window) — see module comment.
 const CACHE_TTL: Duration = Duration::from_secs(30);
 /// The app's axum port on aio-mgr-net (composegen alias `sbx-<name>-piweb`).
-const APP_PORT: u16 = 8088;
+/// Shared with the sandbox proxy (proxy.rs) so the alias:port pairing has a
+/// single owner.
+pub const APP_PORT: u16 = 8088;
 
 #[derive(Debug, serde::Deserialize)]
 struct UsageQuery {
