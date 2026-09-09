@@ -662,3 +662,71 @@ CI 侧孪生（同款冒烟）已在 minimal job 内通过。待办：本地 mak
 ### Next Steps
 
 - None - task complete
+
+## Session 4: sandbox-mgr Phase 5——存量纳管 + 全栈去认证 + 收尾
+
+**Date**: 2026-09-09
+**Task**: 09-08-sandbox-mgr-tui (Phase 5/5)
+**Branch**: `feat/sandbox-mgr`
+
+### Summary
+
+Phase 5 全部完成: 导入向导(adopt 流程后端+mgr-web 页)、存量栈去认证(D9)、
+README/wiki 双语安全边界与多沙箱使用文档、A9/A7 全量容器级验证、PR #14。
+两轨并行 trellis-implement(文件集不相交): 轨 A 导入向导、轨 B 去认证+文档;
+trellis-check PASS 含 6 处自修(关键: usage.rs 原跳过 adopted 沙箱,但 adopt
+恰好把 app 容器以 sbx-<name>-piweb 别名接入了 aio-mgr-net——与 fetch_one
+URL 完全一致,移除过滤,adopted 沙箱进入 usage 汇总)。
+
+### Main Changes
+
+- mgr/src/routes.rs: POST /api/sandboxes/adopt(路径解析/运行检查/容器发现/
+  别名双连/登记/regenerate) + sandbox_json/start/stop/restart 的 adopted
+  分支(start 后 fresh ps 重连别名——外部栈 down/up 丢网络成员身份) +
+  unadopt 同步去登记(不删容器,best-effort 断连)
+- mgr/src/docker.rs: network_connect_alias(already-exists → disconnect+
+  reconnect 幂等)/network_disconnect/compose_*_file 无 -p 外部栈变体
+  (project 由文件目录推导)+parse_ps_output 抽取
+- mgr-web: AdoptPage 向导 + 列表导入按钮 + adopted 删除文案(无卷
+  checkbox)+ 18 i18n 键
+- 去认证: gateway/Caddyfile 删 basicauth、删 entrypoint.sh/secrets、
+  Makefile hash/ensure-hash/save/load、CI 冒烟 -u admin:admin、
+  .env.example/.gitignore
+- spec: sandbox-mgr-ops.md 契约 8(别名三方一致+外部 compose 无 -p+
+  注销空 200 语义)、契约 9(全栈无认证安全边界+残留清理清单)
+
+### Key Findings
+
+- Docker 29.6.1: 已连网络的容器重复 connect 报 already exists(设计内的
+  disconnect+reconnect 路径),但**已停止容器**静默 exit 0 且丢弃新别名
+  ——adopted start 在 up 后连接,不受影响
+- 注销后子域名返回**空 200**(caddy 无 catch-all 时未知 Host 默认行为),
+  不是 404——判定域名失效用响应体字节数
+- 外部 compose 不带 -p 时 project 由文件目录推导,容器内重命名挂载下
+  (如 /repo)会推导错——mgr 容器化形态安全(compose.yml PATH IDENTITY
+  挂载自身宿主路径)
+- 本沙箱 shell 在外层沙箱(非栈容器内),curl 经代理层拦截——验证一律
+  --noproxy '*' 或 docker exec 进容器
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98ac764` | docs(spec): 契约 8/9 + 勾选 Phase 5 回滚点 |
+| (前一提交) | feat(mgr): 存量纳管导入向导 + 全栈去认证 + README/wiki (Phase 5) |
+
+### Testing
+
+- [OK] cargo test --workspace: 326 绿(app 214/config 23/aio-mgr 50/
+  aio-models 39,较 Phase 4 +10)
+- [OK] A9: tmp-a9 临时外部栈 adopt→别名双连→列表→子域名 200→启停重启→
+  PUT 拒改→unadopt 容器存活/别名清/Caddyfile 清/域名 0 字节
+- [OK] A7 全量: a7full 创建→子域名 200→stop/start/restart→DELETE volumes=1
+  →容器/卷/instance 目录/路由/域名/列表全清
+- [OK] make up 回归: 四容器健康、无认证 200、code-server/vnc 子路径通
+- [OK] mgr-web build(tsc+vite)、README 双语锚点核对、CI 冒烟自洽
+
+### Status
+
+[OK] Phase 5 完成,PR #14 已开。留宿主机: 浏览器 A1/A2/A9 人工目视验收
+(mgr-web 导入向导交互、adopted 卡片徽标、删除确认交互)。
