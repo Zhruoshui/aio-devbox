@@ -7,20 +7,23 @@
 // views are a discriminated union in local state (state-management spec:
 // state is local, flows down).
 //
-//   page "sandboxes": list | create (wizard) | edit:<name> | job:<id>
+//   page "sandboxes": list | create (wizard) | adopt (wizard) | edit:<name>
+//                    | job:<id>
 //   page "images":    the image registry table
 //   page "models":    model config (port of web/src/panes/models, Phase 4c)
 //   page "usage":     multi-sandbox usage over GET /api/usage
 //
 // Long operations (create/edit/delete) return a job id; the view then
 // switches to <JobView> which polls GET /api/jobs/:id and returns to the
-// list when the job settles.
+// list when the job settles. Adopt is synchronous - it returns to the list
+// directly.
 
 import { useEffect, useState } from "react";
 
 import { t, type Lang } from "./i18n";
 import { Icon, IconSprite } from "./icons";
 import { SandboxListPage } from "./pages/SandboxListPage";
+import { AdoptPage } from "./pages/AdoptPage";
 import { CreatePage } from "./pages/CreatePage";
 import { EditPage } from "./pages/EditPage";
 import { ImagesPage } from "./pages/ImagesPage";
@@ -38,6 +41,7 @@ type Page = "sandboxes" | "images" | "models" | "usage";
 export type SbxView =
   | { view: "list" }
   | { view: "create" }
+  | { view: "adopt" }
   | { view: "edit"; name: string }
   | { view: "job"; jobId: number; flow: "create" | "recreate" | "delete" };
 
@@ -185,6 +189,7 @@ function SandboxesPage({
         <SandboxListPage
           lang={lang}
           onCreate={() => onView({ view: "create" })}
+          onAdopt={() => onView({ view: "adopt" })}
           onEdit={(name) => onView({ view: "edit", name })}
           onJob={(jobId, flow) => onView({ view: "job", jobId, flow })}
         />
@@ -197,6 +202,14 @@ function SandboxesPage({
           onScenarios={onScenarios}
           onCancel={() => onView({ view: "list" })}
           onSubmitted={(jobId) => onView({ view: "job", jobId, flow: "create" })}
+        />
+      );
+    case "adopt":
+      return (
+        <AdoptPage
+          lang={lang}
+          onCancel={() => onView({ view: "list" })}
+          onAdopted={() => onView({ view: "list" })}
         />
       );
     case "edit":

@@ -6,7 +6,10 @@
 
 import {
   apiError,
+  type AdoptBody,
+  type AdoptReply,
   type CreateBody,
+  type DeleteReply,
   type ImageList,
   type Job,
   type JobReply,
@@ -66,11 +69,19 @@ export function createSandbox(body: CreateBody): Promise<JobReply> {
   return send("/api/sandboxes", "POST", body);
 }
 
+/** Adopt is synchronous on the backend (ps + two network alias connects +
+ * Caddyfile regen); no job to poll. */
+export function adoptSandbox(body: AdoptBody): Promise<AdoptReply> {
+  return send("/api/sandboxes/adopt", "POST", body);
+}
+
 export function putSandbox(name: string, body: PutBody): Promise<JobReply> {
   return send(`/api/sandboxes/${enc(name)}`, "PUT", body);
 }
 
-export function deleteSandbox(name: string, volumes: boolean): Promise<JobReply> {
+/** Reply is shape-polymorphic (types.ts DeleteReply): native rows -> {job};
+ * adopted rows unregister synchronously -> {ok}. */
+export function deleteSandbox(name: string, volumes: boolean): Promise<DeleteReply> {
   return send(`/api/sandboxes/${enc(name)}?volumes=${volumes ? "1" : "0"}`, "DELETE");
 }
 

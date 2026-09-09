@@ -313,18 +313,17 @@ jobs:
           push_one sandbox-code-server code-server/Dockerfile  "sandbox-code-server-${VARIANT}"
           echo "published $(gen_tags sandbox-base | wc -l) tags per image"
 
-      - name: （仅 minimal）栈冒烟——compose up + 网关 basic-auth 200
+      - name: （仅 minimal）栈冒烟——compose up + 网关就绪 200
         if: matrix.variant == 'minimal'
         run: |
           set -euo pipefail
           # 镜像已带本地名（上方 buildx --load / docker build 打 tag）；gateway 用官方 caddy:2
           cp .env.example .env
-          make hash   # 生成 gateway/secrets/hash（默认口令 admin，公开示例口令）
           docker compose up -d --no-build   # 无 profile：仅 gateway + app（base 在 build profile 下不启动）
           ok=0
           for _ in $(seq 1 30); do
-            if curl -fsS -u admin:admin http://localhost:8080/ >/dev/null 2>&1; then
-              echo "gateway basic-auth OK"
+            if curl -fsS http://localhost:8080/ >/dev/null 2>&1; then
+              echo "gateway ready OK"
               ok=1
               break
             fi

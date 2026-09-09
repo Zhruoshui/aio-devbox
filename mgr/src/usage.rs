@@ -22,9 +22,12 @@
 //   - one shared reqwest client (AppState.http), 5s per-sandbox timeout;
 //   - a sandbox that fails (down, restarting, slow) does NOT fail the
 //     response: its entry carries `error` and the rest still return;
-//   - adopted sandboxes are skipped: their apps are not on aio-mgr-net
-//     (Phase 5 may network-connect them; until then a probe would only
-//     time out).
+//   - adopted sandboxes are INCLUDED (Phase 5 adopt network-connects the
+//     stack's app container onto aio-mgr-net under the same
+//     `sbx-<name>-piweb` alias - routes.rs adopt_sandbox): the standard
+//     repo stack answers /api/models/usage like any mgr sandbox, and a
+//     foreign stack whose app lacks the endpoint degrades to an isolated
+//     error entry, never a failed response.
 //
 // CACHING — deliberate deviation from design §3.7's "mgr polls every 60s":
 // instead of a resident poller feeding /api/usage, requests fan out on
@@ -82,7 +85,8 @@ async fn usage(
         _ => "today".to_string(),
     };
 
-    // Candidate sandboxes: DB status running AND not adopted. The status is
+    // Candidate sandboxes: DB status running, native AND adopted alike (the
+    // adopt handler maintains the same status lifecycle). The status is
     // intent (a sandbox someone `docker compose down`ed behind mgr's back
     // still says running) — the per-sandbox probe turning that into an
     // `error` entry is exactly the honest reporting we want.
@@ -91,7 +95,7 @@ async fn usage(
         match db::list_sandboxes(&conn) {
             Ok(rows) => rows
                 .into_iter()
-                .filter(|r| !r.adopted && r.status == "running")
+                .filter(|r| r.status == "running")
                 .map(|r| r.name)
                 .collect(),
             Err(e) => {

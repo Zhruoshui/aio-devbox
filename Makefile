@@ -19,8 +19,6 @@
 # machines that `docker load` pre-built images instead of building. E.g.
 # `make up NOBUILD=1`.
 
-SANDBOX_PASS ?= admin
-HASH_FILE := gateway/secrets/hash
 COMPOSE := docker compose
 PROFILES ?=
 # Accept BOTH "code-server vnc" (space-separated) and "code-server,vnc"
@@ -38,7 +36,7 @@ AIO_CONFIG_IMAGE := aio-config
 UID := $(shell id -u)
 GID := $(shell id -g)
 
-.PHONY: build-base build build-config config gen up down restart logs hash ensure-hash save load pull clean mgr-up mgr-down
+.PHONY: build-base build build-config config gen up down restart logs save load pull clean mgr-up mgr-down
 
 # Build & tag the aio-config configurator image (online: fetches crates).
 build-config:
@@ -67,25 +65,14 @@ build-base: gen
 build: build-base
 	$(COMPOSE) $(PROFILE_FLAGS) build
 
-# Generate/overwrite the bcrypt hash file for gateway basic-auth.
-# Customize the password with PASS=... (default: admin).
-hash:
-	@mkdir -p gateway/secrets
-	docker run --rm caddy:2 caddy hash-password --plaintext "$(SANDBOX_PASS)" > $(HASH_FILE)
-	@echo "wrote $(HASH_FILE) (password: $(SANDBOX_PASS))"
-
-# Internal: ensure the hash file exists before the gateway mounts it.
-ensure-hash:
-	@if [ ! -f $(HASH_FILE) ]; then $(MAKE) hash; fi
-
 # Build + start the stack (detached). Default: build-base (gen + docker build)
 # -> compose up --build. NOBUILD=1: skip building entirely (offline: images
 # already `docker load`ed).
 ifdef NOBUILD
-up: ensure-hash
+up:
 	$(COMPOSE) $(PROFILE_FLAGS) up -d
 else
-up: build-base ensure-hash
+up: build-base
 	$(COMPOSE) $(PROFILE_FLAGS) up -d --build
 endif
 
@@ -144,14 +131,13 @@ clean:
 	docker rmi sandbox-app sandbox-base sandbox-code-server sandbox-vnc $(AIO_CONFIG_IMAGE) 2>/dev/null || true
 
 # --- Offline whole-stack transfer -------------------------------------------
-# `docker save`/`load` only carries IMAGES. The stack additionally needs two
-# gitignored HOST files to start: .env (compose env_file - a hard requirement;
-# compose refuses to up without it) and gateway/secrets/hash (basicauth bcrypt;
-# auto-regenerated with the DEFAULT password if missing). `make save` bundles
-# the runtime image set (docker save dedupes shared layers across images in one
-# tar, so including sandbox-base adds ~nothing beyond app/code-server) plus
-# those files + the scenario selection; `make load` restores everything on the
-# offline machine. Then start with: make up NOBUILD=1 PROFILES="code-server vnc"
+# `docker save`/`load` only carries IMAGES. The stack additionally needs one
+# gitignored HOST file to start: .env (compose env_file - a hard requirement;
+# compose refuses to up without it). `make save` bundles the runtime image set
+# (docker save dedupes shared layers across images in one tar, so including
+# sandbox-base adds ~nothing beyond app/code-server) plus that file + the
+# scenario selection; `make load` restores everything on the offline machine.
+# Then start with: make up NOBUILD=1 PROFILES="code-server vnc"
 #
 # NOT included (by design): the workspace volume aio_workspace (user data -
 # pi sessions/auth, code-server settings, chromium profile). Migrate user data
@@ -164,25 +150,22 @@ SAVE_IMAGES ?= sandbox-base sandbox-app sandbox-code-server sandbox-vnc caddy:2
 # disk at peak); transfer it whole (tar cf bundle.tar aio-offline-bundle / scp -r).
 save:
 	@test -f .env || { echo "save: .env missing (compose requires it; see .env.example)" >&2; exit 1; }
-	@test -f $(HASH_FILE) || { echo "save: $(HASH_FILE) missing (run: make hash)" >&2; exit 1; }
 	rm -rf $(OFFLINE_BUNDLE)
 	mkdir -p $(OFFLINE_BUNDLE)
 	docker save $(SAVE_IMAGES) -o $(OFFLINE_BUNDLE)/images.tar
 	cp .env $(OFFLINE_BUNDLE)/env
-	cp $(HASH_FILE) $(OFFLINE_BUNDLE)/hash
 	cp .aio/enabled.toml $(OFFLINE_BUNDLE)/enabled.toml
 	@du -sh $(OFFLINE_BUNDLE)
-	@echo "wrote $(OFFLINE_BUNDLE)/: images.tar ($(SAVE_IMAGES)) + env + hash + enabled.toml"
+	@echo "wrote $(OFFLINE_BUNDLE)/: images.tar ($(SAVE_IMAGES)) + env + enabled.toml"
 
-# Restore a bundle produced by `make save` (images + .env + gateway hash +
-# scenario selection) on the offline machine.
+# Restore a bundle produced by `make save` (images + .env + scenario
+# selection) on the offline machine.
 load:
 	@test -f $(OFFLINE_BUNDLE)/images.tar || { echo "load: $(OFFLINE_BUNDLE)/images.tar not found (produce it with: make save)" >&2; exit 1; }
 	docker load -i $(OFFLINE_BUNDLE)/images.tar
 	cp $(OFFLINE_BUNDLE)/env .env
-	mkdir -p gateway/secrets && cp $(OFFLINE_BUNDLE)/hash $(HASH_FILE)
 	mkdir -p .aio && cp $(OFFLINE_BUNDLE)/enabled.toml .aio/enabled.toml
-	@echo "restored images + .env + gateway hash + scenario selection. Start with: make up NOBUILD=1 PROFILES=\"code-server vnc\" (then run aio-pi-extensions once in a terminal)"
+	@echo "restored images + .env + scenario selection. Start with: make up NOBUILD=1 PROFILES=\"code-server vnc\" (then run aio-pi-extensions once in a terminal)"
 
 # --- Prebuilt image install (GHCR) ------------------------------------------
 # `make save`/`load` ship the images as a local bundle; this is the ONLINE
@@ -191,19 +174,17 @@ load:
 # The 3 base-derived images (base/app/code-server) come per VARIANT - minimal
 # (bare always_on baseline) or full (all scenario fragments); sandbox-vnc is
 # variant-independent (FROM debian:bookworm-slim) so it always pulls :latest.
-# Also prepares the two gitignored HOST files the stack needs to start: .env
-# (compose env_file - a hard requirement; copied from the example if missing)
-# and gateway/secrets/hash (basicauth bcrypt; regenerated with the DEFAULT
-# password if missing via ensure-hash). Does NOT touch .aio/enabled.toml - a
-# pure consumer doesn't care about the scenario selection, and `make up
-# NOBUILD=1` skips gen. Then start with:
+# Also prepares the gitignored HOST file the stack needs to start: .env
+# (compose env_file - a hard requirement; copied from the example if missing).
+# Does NOT touch .aio/enabled.toml - a pure consumer doesn't care about the
+# scenario selection, and `make up NOBUILD=1` skips gen. Then start with:
 #   make up NOBUILD=1 PROFILES="code-server vnc"
 VARIANT ?= full
 # GHCR namespace this repo's pipeline publishes to (owner lowercased - GHCR
 # requires it). Override to pull from a fork: REGISTRY_PREFIX=ghcr.io/<owner>.
 REGISTRY_PREFIX ?= ghcr.io/zhruoshui
 
-pull: ensure-hash
+pull:
 	@test -f .env || cp .env.example .env
 	for img in sandbox-base sandbox-app sandbox-code-server; do \
 	  docker pull $(REGISTRY_PREFIX)/$$img:$(VARIANT) && \

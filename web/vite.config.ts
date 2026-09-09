@@ -6,8 +6,8 @@ import react from "@vitejs/plugin-react";
 // into the image at /app/static by app/Dockerfile's web-builder stage.
 //
 // Dev mode (`npm run dev`) is best-effort: the dev server proxies /api,
-// /code-server and /vnc to the running stack on :8080, but that endpoint sits
-// behind caddy basicauth, so unauthenticated proxied requests will 401. Dev is
+// /code-server and /vnc to the running stack on :8080 (the gateway is
+// unauthenticated - D9 - so no credentials are needed). Dev is
 // not the primary validation path; production validation is the Docker build.
 export default defineConfig({
   plugins: [react()],

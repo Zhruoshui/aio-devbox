@@ -55,11 +55,63 @@ pub async fn ensure_network(name: &str) -> Result<()> {
     }
 }
 
+/// Connect a container to a network carrying a mgr alias (Phase 5 adopt,
+/// design §3.8). docker has NO "add an alias to an existing membership"
+/// operation: when the container is already on the network (daemon replies
+/// "... already exists in network ..."), it must be disconnected and
+/// reconnected - which also makes re-adopting the same stack idempotent. A
+/// failing disconnect is a hard error (the reconnect below would just hit
+/// "already exists" again, hiding the real problem).
+///
+/// Empirical (docker 29.6.1): the "already exists" error fires for RUNNING
+/// containers only - a STOPPED container's second connect exits 0 and
+/// silently DROPS the new alias. That corner is benign here: aliases (like
+/// the membership) persist on the container across stop/start and are only
+/// lost on recreate, and every caller connects after `compose up`, when the
+/// containers are running.
+pub async fn network_connect_alias(network: &str, container: &str, alias: &str) -> Result<String> {
+    let out = run_capture(
+        "docker",
+        &["network", "connect", "--alias", alias, network, container],
+    )
+    .await;
+    match out {
+        Ok(o) => Ok(o),
+        Err(e) => {
+            if !format!("{e:#}").contains("already exists") {
+                return Err(e);
+            }
+            run_capture("docker", &["network", "disconnect", network, container])
+                .await
+                .with_context(|| format!("disconnect {container} from {network} before aliasing it as {alias}"))?;
+            run_capture(
+                "docker",
+                &["network", "connect", "--alias", alias, network, container],
+            )
+            .await
+        }
+    }
+}
+
+/// Best-effort `docker network disconnect` - alias cleanup when un-registering
+/// an adopted stack. Failures are swallowed with a warning INSIDE this
+/// function on purpose: the caller (delete path) must never block on a stale
+/// alias, and a leftover alias is self-healing - network_connect_alias's
+/// disconnect-reconnect repairs it when the name is registered again.
+pub async fn network_disconnect(network: &str, container: &str) {
+    if let Err(e) = run_capture("docker", &["network", "disconnect", network, container]).await {
+        tracing::warn!(network = network, container = container, error = %format!("{e:#}"), "network disconnect failed (ignored)");
+    }
+}
+
 /// Profile flags every mgr compose lifecycle command carries: the generated
 /// sandbox compose gates code-server / vnc behind profiles (same shape as the
 /// repo compose, design §3.5), but mgr sandboxes build ALL images and are
 /// managed as a unit - the workbench without its panes is half a product, so
-/// up starts them all (A3) and down must see them to tear them down.
+/// up starts them all (A3) and down must see them to tear them down. The
+/// external-stack variants below carry them too: the repo stack has the same
+/// profile-gated sidecars, and a start/stop that dropped them would maim an
+/// adopted workbench.
 const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
 
 /// `docker compose -p <project> -f <file> up -d`. Modest -d output.
@@ -95,6 +147,58 @@ pub async fn compose_stop(project: &str, compose_file: &Path) -> Result<String> 
     let mut args = compose_prefix(project, compose_file);
     args.extend_from_slice(&SANDBOX_PROFILES);
     args.push("stop");
+    run_capture("docker", &args).await
+}
+
+// ── external-stack compose lifecycle (Phase 5 adopt, design §3.8) ────
+//
+// Adopted stacks are NOT ours, and their compose project name is whatever
+// compose derives from the compose FILE's directory (a repo stack started
+// via `make up` derives "aio"). Passing mgr's sbx-<name> project would
+// target the WRONG project, so these variants carry NO `-p`: the file is
+// the identity, and compose derives the project itself.
+//
+// Sharp edge (verified live): that derivation uses the directory NAME as
+// mgr sees it, so the repo must not be re-mounted under a different last
+// path segment (a /repo mount makes compose look for project "repo" and
+// adopt fails with "no running services"). mgr's own containerized form is
+// safe by construction - mgr/compose.yml mounts the repo at its own host
+// absolute path (its PATH IDENTITY note) - and bare-metal mgr runs where
+// the file really lives.
+
+/// Prefix for external-stack commands (no `-p`, see section comment).
+fn compose_file_prefix<'a>(compose_file: &'a Path) -> Vec<&'a str> {
+    vec!["compose", "-f", compose_file.to_str().unwrap_or_default()]
+}
+
+/// `docker compose -f <file> ps --all --format json` for an external stack.
+pub async fn compose_ps_file(compose_file: &Path) -> Result<Vec<ComposePsEntry>> {
+    let mut args = compose_file_prefix(compose_file);
+    args.extend_from_slice(&["ps", "--all", "--format", "json"]);
+    let out = run_capture("docker", &args).await?;
+    parse_ps_output(&out)
+}
+
+/// `up -d` for an external stack (start of an adopted row). No
+/// force-recreate: recreating someone else's stack is not mgr's call.
+pub async fn compose_up_file(compose_file: &Path) -> Result<String> {
+    let mut args = compose_file_prefix(compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
+    args.extend_from_slice(&["up", "-d"]);
+    run_capture("docker", &args).await
+}
+
+pub async fn compose_stop_file(compose_file: &Path) -> Result<String> {
+    let mut args = compose_file_prefix(compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
+    args.extend_from_slice(&["stop"]);
+    run_capture("docker", &args).await
+}
+
+pub async fn compose_restart_file(compose_file: &Path) -> Result<String> {
+    let mut args = compose_file_prefix(compose_file);
+    args.extend_from_slice(&SANDBOX_PROFILES);
+    args.extend_from_slice(&["restart"]);
     run_capture("docker", &args).await
 }
 
@@ -150,6 +254,12 @@ pub async fn compose_ps(project: &str, compose_file: &Path) -> Result<Vec<Compos
     args.push("--format");
     args.push("json");
     let out = run_capture("docker", &args).await?;
+    parse_ps_output(&out)
+}
+
+/// Parse `docker compose ps --all --format json` stdout (the shared body of
+/// compose_ps / compose_ps_file - see their comments for the shape contract).
+fn parse_ps_output(out: &str) -> Result<Vec<ComposePsEntry>> {
     let trimmed = out.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -230,5 +340,53 @@ fn tail_str(s: &str, max: usize) -> String {
 
 fn head(s: &str) -> String {
     s.chars().take(120).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ps_array_shape() {
+        // compose v2 early: one JSON array.
+        let out = r#"[{"name":"a-gateway-1","service":"gateway","state":"running","status":"Up"}]"#;
+        let ps = parse_ps_output(out).unwrap();
+        assert_eq!(ps.len(), 1);
+        assert_eq!(ps[0].service, "gateway");
+        assert_eq!(ps[0].state, "running");
+    }
+
+    #[test]
+    fn parse_ps_jsonl_shape() {
+        // compose v2.2x / 5.x: one object per line. Blank lines tolerated.
+        let out = "{\"Name\":\"a-gateway-1\",\"Service\":\"gateway\",\"State\":\"running\"}\n\
+                   {\"name\":\"a-app-1\",\"service\":\"app\",\"state\":\"exited\"}\n\n";
+        let ps = parse_ps_output(out).unwrap();
+        assert_eq!(ps.len(), 2);
+        // PascalCase aliases resolve to the same fields.
+        assert_eq!(ps[0].name, "a-gateway-1");
+        assert_eq!(ps[1].service, "app");
+        assert_eq!(ps[1].state, "exited");
+    }
+
+    #[test]
+    fn parse_ps_single_object_shape() {
+        let ps = parse_ps_output(r#"{"name":"a-app-1","service":"app","state":"running"}"#).unwrap();
+        assert_eq!(ps.len(), 1);
+        assert_eq!(ps[0].name, "a-app-1");
+    }
+
+    #[test]
+    fn parse_ps_blank_output_is_empty() {
+        // No services at all (fresh project, everything down + pruned).
+        assert!(parse_ps_output("  \n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_ps_garbage_is_error_not_empty() {
+        // design §7: a parse failure must surface, never read as "gone".
+        assert!(parse_ps_output("not json at all").is_err());
+        assert!(parse_ps_output("[{\"name\": oops}]").is_err());
+    }
 }
 

@@ -20,8 +20,8 @@ now, filled in progressively).
 
 ## Features
 
-- **One command to a browser IDE.** `make up` → open `http://localhost:8080`
-  (HTTP basic auth). A collapsible left sidebar lists your buttons; every click
+- **One command to a browser IDE.** `make up` → open `http://localhost:8080`.
+  A collapsible left sidebar lists your buttons; every click
   launches a NEW instance as a tab (terminal opens by default), and tabs can be
   dragged into split/tiled layouts (golden-layout) or closed via their ✕.
 - **Pluggable buttons, auto-detected — three types.**
@@ -65,10 +65,9 @@ now, filled in progressively).
 ## Quick start
 
 ```sh
-make hash                              # gateway password (default: admin)
 make config                            # (optional) TUI: pick scenarios + Node/Python versions
 make up PROFILES="code-server vnc"     # start with web buttons (terminal always on)
-# → open http://localhost:8080   (admin / admin)
+# → open http://localhost:8080
 ```
 
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so
@@ -87,7 +86,7 @@ make clean                             # stop, drop the volume, remove built ima
 ```
                          ┌──────────────────────────────────────────────┐
    browser :8080 ───────► │  gateway   (caddy:2)                          │
-   admin:admin            │  basicauth + reverse_proxy                    │
+                         │  reverse_proxy (no auth)                       │
                          └──────┬───────────────┬───────────────┬────────┘
                                 │ /             │ /code-server/  │ /vnc/
                                 ▼               ▼                ▼
@@ -113,7 +112,7 @@ make clean                             # stop, drop the volume, remove built ima
 
 | Container | Image | Role |
 |---|---|---|
-| `gateway` | `caddy:2` | HTTP basic auth + reverse proxy to `app`, `code-server`, `vnc`. Serves the WS upgrades too. |
+| `gateway` | `caddy:2` | Reverse proxy to `app`, `code-server`, `vnc` (no auth — see [Security boundary](#security-boundary-no-auth)). Serves the WS upgrades too. |
 | `app` | `sandbox-app` (built) | Axum server: React SPA, `GET /api/manifest` (live buttons), `/api/term/ws` pty WebSocket bridge, `POST/DELETE /api/buttons` (user buttons), `/api/models/*` (model-config page), `/api/stats`, and the `/preview/<port>/` dev-server reverse proxy. Autostarts pi-web on `:30141` when baked. `FROM sandbox-base`. |
 | `code-server` | `sandbox-code-server` (built) | VSCode in the browser. Profile-gated, auto-detected by TCP probe to `app:8200`. `FROM sandbox-base`. |
 | `vnc` | `sandbox-vnc` (built) | Xvnc + Chromium + noVNC web client. Profile-gated, auto-detected by TCP probe to `app:6080`. `FROM debian:bookworm-slim` (decoupled from `sandbox-base`). `shm_size 2gb` for Chromium. |
@@ -233,43 +232,39 @@ offline path is unchanged).
 | `make build-base` | `gen` + `docker build -t sandbox-base -f Dockerfile.base .` |
 | `make build` | `build-base` + `docker compose build` |
 | `make up [PROFILES=…]` | `build-base` (or skip with `NOBUILD=1`) + `compose up -d --build` |
-| `make hash [PASS=…]` | Generate the gateway bcrypt hash for password `PASS` (default `admin`). |
 | `make down [PROFILES=…]` | Stop the stack (keeps images and the workspace volume). |
 | `make restart` / `make logs` | Restart / tail logs. |
-| `make save` / `make load` | Offline bundle: `save` packs images + `.env` + gateway hash + selection into `aio-offline-bundle/`; `load` restores them on the offline machine. |
+| `make save` / `make load` | Offline bundle: `save` packs images + `.env` + selection into `aio-offline-bundle/`; `load` restores them on the offline machine. |
 | `make clean` | Destructive: `down -v` + remove built images. |
 | `make pull [VARIANT=…]` | Pull prebuilt images from GHCR + retag to local compose names (see below). |
+| `make mgr-up` / `make mgr-down` | Start / stop the sandbox-mgr control-plane stack (see [Multi-sandbox management](#multi-sandbox-management-sandbox-mgr)). |
 
-Internal helpers: `build-config` (builds the `aio-config` image), `ensure-hash`
-(writes the default-password hash if missing; run by `up` / `pull`).
+Internal helper: `build-config` (builds the `aio-config` image).
 
 Pass optional services as space-separated profiles: `make up PROFILES="code-server vnc"`.
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start.
 `NOBUILD=1` skips `build-base` / `gen` / `--build` — for offline machines that
 `docker load` pre-built images instead of building.
 
-### Auth
+### Security boundary (no auth)
 
-The gateway uses Caddy `basicauth` (user `admin`, password `admin` by default;
-set the user with `SANDBOX_USER` in `.env`). The bcrypt hash contains `$`
-characters, which docker-compose corrupts when passed through `env_file` /
-`environment` (it interpolates `$VAR` patterns inside env values). The hash is
-therefore generated to `gateway/secrets/hash` (gitignored) and delivered to Caddy
-via `gateway/entrypoint.sh`, which exports it before exec'ing Caddy. The
-Caddyfile still uses the `{$SANDBOX_PASSWORD_HASH}` placeholder as designed.
+**This system is unauthenticated by design** (decision D9 of the sandbox-mgr
+design). It targets a single user on a trusted machine or LAN — the trust
+boundary is the host itself. Neither this stack's gateway nor the sandbox-mgr
+total gateway (`*.mgr.localhost`) performs any authentication (the former
+HTTP basic-auth layer was removed along with its password-hash machinery).
 
-```sh
-make hash              # generate hash for password "admin" (default)
-make hash PASS=secret  # custom password
-```
+- Do **not** expose the gateway or the mgr stack to public/untrusted networks.
+- For remote access, put your own protection in front (VPN, or an
+  authenticating reverse proxy such as a Caddy/nginx layer with auth).
 
 ## Offline install
 
 ```sh
 # online machine
-make save                                  # → aio-offline-bundle/: images.tar + env + hash + enabled.toml
+make save                                  # → aio-offline-bundle/: images.tar + env + enabled.toml
 # offline machine (ship the bundle over)
-make load                                  # restore images + .env + hash + selection
+make load                                  # restore images + .env + selection
 make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
@@ -296,20 +291,50 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)
 make up NOBUILD=1 PROFILES="code-server vnc"   # start without building
-# → open http://localhost:8080   (admin / admin)
+# → open http://localhost:8080
 ```
 
 `make pull` fetches `sandbox-base` / `sandbox-app` / `sandbox-code-server` at
 `:minimal` or `:full`, plus `sandbox-vnc:latest`, retags them to the local
-compose names, and prepares the two gitignored host files the stack needs
-(`.env` from the example, and the gateway password hash for the default password
-`admin`). It never touches `.aio/enabled.toml` — a pure consumer doesn't care
+compose names, and prepares the gitignored host file the stack needs
+(`.env`, copied from the example if missing). It never touches
+`.aio/enabled.toml` — a pure consumer doesn't care
 about the scenario selection, and `make up NOBUILD=1` skips `gen`.
 
 Point the pull at your registry with `REGISTRY_PREFIX` (defaults to this
 repo's GHCR namespace, `ghcr.io/zhruoshui`; override it to pull from a fork)
 and pick a leaner set with `VARIANT=minimal`. If your machine has no registry
 access at all, use the offline path above (`make save` / `make load`).
+
+## Multi-sandbox management (sandbox-mgr)
+
+This stack manages **one** sandbox. To run and manage **several** side by side,
+an independent control-plane stack (`aio-mgr`) lives in `mgr/` + `mgr-web/`:
+
+```sh
+make mgr-up      # mgr stack: total gateway (*.mgr.localhost routing) + mgr-api + mgr-web
+make mgr-down    # stop it (sandbox containers may keep running)
+```
+
+- **Admin UI**: open `http://mgr.localhost/` — sandbox list, creation wizard
+  (scenarios + versions + CPU/memory), env editing, model config, usage, images.
+- **Per-sandbox entry**: each sandbox gets its own subdomain,
+  `http://sbx-<name>.mgr.localhost/` (workbench SPA) and
+  `http://sbx-<name>-piweb.mgr.localhost/` (pi-web), routed by the mgr total
+  gateway over a shared Docker network — no published host ports per sandbox.
+- **Dual form** (D3): containerized (the compose form above, mounts
+  `/var/run/docker.sock`) or bare on the host:
+  `MGR_REPO=. MGR_DATA=mgr-data cargo run -p aio-mgr`.
+- **Take over by hand** (D2): every sandbox is its own compose project; the
+  generated file is `mgr-data/instances/sbx-<name>/compose.yml`, so
+  `docker compose -f mgr-data/instances/sbx-<name>/compose.yml <cmd>` works
+  directly on the host.
+- **Adopting this stack**: the existing single sandbox can be registered into
+  mgr via the "import existing stack" wizard in mgr-web (read-only-style
+  management: status + start/stop; no env/resource edits).
+
+Like the rest of the system, the mgr stack runs **without authentication** —
+see the [security boundary](#security-boundary-no-auth) above.
 
 ## Project layout
 
@@ -322,12 +347,13 @@ config/                  aio-config crate (Rust): TUI picker + Dockerfile.base g
 app/                     axum app (Cargo.toml, src/, Dockerfile, services.toml)
   └ services.toml        built-in workspace buttons (id/type/target/url/label/cmd)
 web/                     React SPA (Vite + TS + sidebar/tab-stack + xterm.js), baked into the app image
-gateway/                 Caddyfile + entrypoint.sh (+ secrets/hash, generated)
+gateway/                 Caddyfile (reverse proxy; no auth)
+mgr/ + mgr-web/          sandbox-mgr control plane (axum API + admin SPA; state in mgr-data/, gitignored)
 vnc/                     Xvnc + Chromium + noVNC (FROM debian:bookworm-slim)
 code-server/             VSCode-in-browser image (FROM sandbox-base)
 docker-compose.yml       gateway + app + code-server + vnc + base (build profile)
-Makefile                 config / gen / build-base / up / hash / save / load / pull / clean
-.env / .env.example      SANDBOX_USER (hash is generated, not env-delivered)
+Makefile                 config / gen / build-base / up / save / load / pull / mgr-up / clean
+.env / .env.example      PI_WEB_HOST_PORT (optional host-side pi-web port)
 docs/                    offline-install-guide.md (+ offline-tool-install.md test log)
 .aio/enabled.toml        scenario selection (written by `make config`, read by `gen`)
 .aio/presets/            minimal.toml / full.toml — CI presets (`["*"]` wildcard = all)
@@ -340,7 +366,9 @@ Built phase by phase. The MVP is complete: gateway + app (axum + React SPA) +
 code-server + vnc, the scenario-preset system with four layers and versioned L1
 runtimes, offline support, the sidebar-button workspace (auto-detected
 web/agent/page buttons, user-registered agent and web buttons with dev-server
-port preview, unified model config), and the pi / pi-web agent stack. Not yet
+port preview, unified model config), the pi / pi-web agent stack, and the
+sandbox-mgr multi-sandbox control plane (see
+[Multi-sandbox management](#multi-sandbox-management-sandbox-mgr)). Not yet
 done: L5 external services beyond on-demand TUI buttons, and multi-instance
 terminals.
 

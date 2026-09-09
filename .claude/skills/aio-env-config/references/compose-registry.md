@@ -100,7 +100,6 @@ container on app's shared netns (reached as `app:<port>`):
 
 ```caddyfile
 :8080 {
-    basicauth { {$SANDBOX_USER} {$SANDBOX_PASSWORD_HASH} }
     handle_path /my-service/* {
         reverse_proxy my-service:<port>
     }
@@ -115,7 +114,7 @@ URLs (the browser resolves them against `/my-service/` and caddy strips the
 prefix on the way back). If the app emits **absolute** URLs that assume `/`, it
 won't work behind a subpath and you need the app's own base-path config (like
 code-server lacks, hence the strip workaround) or a dedicated root (harder here
-since caddy's basicauth wraps everything under `:8080`).
+since everything shares the single `:8080` origin).
 
 ### 3. app/services.toml
 
@@ -145,7 +144,7 @@ docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}" http://loca
 
 The button should now show in the WebUI (manifest `enabled=true` because the
 container is reachable on app's shared netns). The gateway serves it at
-`http://<host>:8080/my-service/` behind the basicauth.
+`http://<host>:8080/my-service/`.
 
 ## Compose profiles
 

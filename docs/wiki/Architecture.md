@@ -11,7 +11,7 @@
 
 | 容器 | 镜像 | 职责 | 启动条件 |
 |---|---|---|---|
-| `gateway` | `caddy:2` | HTTP basic auth + 反向代理,唯一对外端口 `8080` | 总是 |
+| `gateway` | `caddy:2` | 反向代理(无认证),唯一对外端口 `8080` | 总是 |
 | `app` | `sandbox-app`(Rust axum + React SPA) | 工作区后端:按钮清单 manifest、pty 桥、`/preview/<port>` 反代、pi-web 自启 | 总是 |
 | `code-server` | `sandbox-code-server` | 浏览器版 VSCode,监听 8200 | profile `code-server` |
 | `vnc` | `sandbox-vnc`(Debian slim + Chromium + noVNC) | 浏览器内 Chromium,监听 6080 | profile `vnc` |
@@ -67,9 +67,9 @@ sandbox-vnc                                            (FROM debian:bookworm-sli
 - 容器**可写层**的运行时改动(不在卷上的)recreate 即丢——运行时试装工具
   只当试用,要留就进场景或 `~/.local/bin`。
 
-## 网关鉴权与反向代理路径
+## 网关与反向代理路径
 
-Caddy(Caddyfile 挂载进 gateway)在 basic auth 之后按序匹配:
+Caddy(Caddyfile 挂载进 gateway)**无认证**(安全边界见 FAQ),按序匹配:
 
 | 路径 | 后端 | 说明 |
 |---|---|---|
@@ -77,7 +77,6 @@ Caddy(Caddyfile 挂载进 gateway)在 basic auth 之后按序匹配:
 | `/vnc/*` | `app:6080` | `handle_path` 剥前缀;noVNC 的 WebSocket 路径需 `path=vnc/websockify` 特判 |
 | 其余(catch-all) | `app:8088` | React 工作区 SPA + axum API |
 
-密码由 `make hash` 生成(Caddyfile 内嵌哈希,`make up` 前置校验 `ensure-hash`)。
 pi-web 因 Next.js 根绝对资源路径走不了子路径,不进网关,由 compose 把
 `30141` 直接发布到宿主(可用 `PI_WEB_HOST_PORT` 换端口)。
 

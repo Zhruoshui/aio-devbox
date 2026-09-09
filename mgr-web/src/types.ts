@@ -9,6 +9,11 @@
 //   GET  /api/sandboxes/:n   same shape as the list item
 //   PUT  /api/sandboxes/:n   jobs.rs (async) -> {job, name}
 //   POST /api/sandboxes      same -> {job, name}
+//   POST /api/sandboxes/adopt  routes.rs adopt_sandbox (sync) -> {name,
+//                            entry_url, piweb_url}
+//   DELETE /api/sandboxes/:n jobs.rs (async) -> {job, ...} for native rows,
+//                            routes.rs unadopt_sandbox (sync) -> {ok} for
+//                            adopted rows (DeleteReply below)
 //   GET  /api/images         routes.rs list_images    (db images table)
 //   GET  /api/jobs/:id       routes.rs get_job        (state::JobShared)
 
@@ -95,6 +100,38 @@ export interface PutBody {
 export interface JobReply {
   job: number;
   name: string;
+}
+
+// ── POST /api/sandboxes/adopt (Phase 5: register an external stack) ─
+
+/** Adopt body: register an existing RUNNING compose stack under mgr
+ * (design §3.8). Service names default to the repo stack's gateway / app
+ * (backend routes.rs DEFAULT_*_SERVICE). */
+export interface AdoptBody {
+  name: string;
+  /** Compose file of the external stack; relative paths resolve against
+   * the mgr repo root (routes.rs resolve_compose_path). */
+  compose_path: string;
+  gateway_service?: string;
+  app_service?: string;
+}
+
+/** Synchronous adopt reply - no job: aliasing two containers and regenerating
+ * the gateway Caddyfile is seconds at most. */
+export interface AdoptReply {
+  name: string;
+  entry_url: string;
+  piweb_url: string;
+}
+
+/** DELETE /api/sandboxes/:name reply is shape-polymorphic: native rows run a
+ * job (compose down -v can take a while on big volumes); adopted rows
+ * un-register synchronously (nothing of theirs is torn down) and reply {ok}.
+ * Branch with isJobReply - the UI stays on the list for the adopted case. */
+export type DeleteReply = JobReply | { ok: boolean; name: string };
+
+export function isJobReply(r: DeleteReply): r is JobReply {
+  return typeof (r as JobReply).job === "number";
 }
 
 // ── GET /api/images ────────────────────────────────────────────────

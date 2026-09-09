@@ -7,6 +7,11 @@
 // POSTs), edit config (parent switches to the env editor) and delete (confirm
 // dialog with the volumes checkbox - volumes=1 runs compose down -v, A7).
 //
+// Adopted (external) stacks: same card minus the edit button; their delete is
+// a synchronous UN-REGISTRATION (dialog says so, no volumes checkbox, no
+// JobView - types.ts DeleteReply branches on {ok} vs {job}). The page header
+// carries the adopt-wizard entry next to "new sandbox".
+//
 // The list auto-refreshes every 4s while mounted: `live` merges compose ps
 // state at read time, and a sandbox created via the job view should appear
 // (or transition running) without a manual reload (useStats-style polling in
@@ -17,18 +22,19 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteSandbox, listSandboxes, sandboxAction } from "../api";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
-import type { Sandbox } from "../types";
+import { isJobReply, type Sandbox } from "../types";
 
 const POLL_MS = 4000;
 
 interface Props {
   lang: Lang;
   onCreate: () => void;
+  onAdopt: () => void;
   onEdit: (name: string) => void;
   onJob: (jobId: number, flow: "create" | "recreate" | "delete") => void;
 }
 
-export function SandboxListPage({ lang, onCreate, onEdit, onJob }: Props): JSX.Element {
+export function SandboxListPage({ lang, onCreate, onAdopt, onEdit, onJob }: Props): JSX.Element {
   const [sandboxes, setSandboxes] = useState<Sandbox[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(""); // sandbox name with an action in flight
@@ -72,8 +78,17 @@ export function SandboxListPage({ lang, onCreate, onEdit, onJob }: Props): JSX.E
     setConfirm(null);
     try {
       const r = await deleteSandbox(target.name, confirmVolumes);
-      onJob(r.job, "delete");
+      if (isJobReply(r)) {
+        // Native row: teardown runs as a job -> progress view.
+        onJob(r.job, "delete");
+      } else {
+        // Adopted row: synchronous un-registration - stay here and refresh.
+        setBusy(target.name);
+        await fetchList();
+        setBusy("");
+      }
     } catch (e) {
+      setBusy("");
       setActionErr(e instanceof Error ? e.message : String(e));
     }
   };
@@ -90,6 +105,10 @@ export function SandboxListPage({ lang, onCreate, onEdit, onJob }: Props): JSX.E
             title={t(lang, "refresh")}
           >
             <Icon name="refresh" />
+          </button>
+          <button className="btn btn-ghost" onClick={onAdopt}>
+            <Icon name="box" />
+            {t(lang, "adoptExisting")}
           </button>
           <button className="btn btn-primary" onClick={onCreate}>
             <Icon name="plus" />
@@ -125,38 +144,45 @@ export function SandboxListPage({ lang, onCreate, onEdit, onJob }: Props): JSX.E
         </div>
       )}
 
-      {/* Delete confirmation (A7: explicit confirm + volumes checkbox). */}
+      {/* Delete confirmation (A7: explicit confirm + volumes checkbox).
+       * Adopted rows swap the copy: nothing of theirs is torn down, so no
+       * volumes checkbox and an "unregister" action instead. */}
       {confirm && (
         <div className="overlay" role="presentation" onClick={() => setConfirm(null)}>
           <div
             className="dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={t(lang, "confirmDeleteTitle")}
+            aria-label={confirm.adopted ? t(lang, "confirmUnadoptTitle") : t(lang, "confirmDeleteTitle")}
             onClick={(e) => e.stopPropagation()}
           >
             <h2>
-              {t(lang, "confirmDeleteTitle")} — <code>{confirm.name}</code>
+              {confirm.adopted ? t(lang, "confirmUnadoptTitle") : t(lang, "confirmDeleteTitle")} —{" "}
+              <code>{confirm.name}</code>
             </h2>
-            <p className="sub">{t(lang, "confirmDeleteSub")}</p>
-            <label className="scn-row" style={{ border: 0, padding: 0, marginBottom: "var(--space-4)" }}>
-              <input
-                className="check"
-                type="checkbox"
-                checked={confirmVolumes}
-                onChange={(e) => setConfirmVolumes(e.target.checked)}
-              />
-              <span style={{ fontSize: "var(--text-sm)", color: "var(--danger)" }}>
-                {t(lang, "deleteVolumes")}
-              </span>
-            </label>
+            <p className="sub">
+              {confirm.adopted ? t(lang, "confirmUnadoptSub") : t(lang, "confirmDeleteSub")}
+            </p>
+            {!confirm.adopted && (
+              <label className="scn-row" style={{ border: 0, padding: 0, marginBottom: "var(--space-4)" }}>
+                <input
+                  className="check"
+                  type="checkbox"
+                  checked={confirmVolumes}
+                  onChange={(e) => setConfirmVolumes(e.target.checked)}
+                />
+                <span style={{ fontSize: "var(--text-sm)", color: "var(--danger)" }}>
+                  {t(lang, "deleteVolumes")}
+                </span>
+              </label>
+            )}
             <div className="dialog-actions">
               <button className="btn btn-secondary" onClick={() => setConfirm(null)}>
                 {t(lang, "cancel")}
               </button>
               <button className="btn btn-danger" onClick={() => void doDelete()}>
                 <Icon name="trash" />
-                {t(lang, "confirmDelete")}
+                {confirm.adopted ? t(lang, "confirmUnadopt") : t(lang, "confirmDelete")}
               </button>
             </div>
           </div>

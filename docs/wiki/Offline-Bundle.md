@@ -9,23 +9,21 @@
 
 ```sh
 make build        # 先构建最新镜像(场景变更要重烘)
-make hash         # 若还没有网关哈希
 make save         # 产出 aio-offline-bundle/
 ```
 
-产物 `aio-offline-bundle/` 四件套:
+产物 `aio-offline-bundle/` 三件套:
 
 | 文件 | 内容 |
 |---|---|
 | `images.tar` | `docker save` 的全部业务镜像(sandbox-base 及派生) |
-| `env` | `.env` 副本(网关凭据等) |
-| `hash` | 网关 Caddyfile 哈希(离线机校验一致) |
+| `env` | `.env` 副本(PI_WEB_HOST_PORT 等宿主侧配置) |
 | `enabled.toml` | 场景选择,离线机可按需改选后重建 |
 
 ## `make load` + `make up NOBUILD=1`:离线机恢复
 
 ```sh
-make load                 # docker load images.tar,装回 env / hash / enabled.toml
+make load                 # docker load images.tar,装回 env / enabled.toml
 make up NOBUILD=1         # 跳过一切构建,纯用本地镜像起栈
 ```
 

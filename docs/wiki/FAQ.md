@@ -7,11 +7,10 @@
 
 ## 安装与启动
 
-**首次启动报 hash / .env 缺失?**
+**首次启动报 .env 缺失?**
 
 ```sh
-cp .env.example .env      # 网关凭据等
-make hash                 # 生成网关密码(默认用户 admin)
+cp .env.example .env      # PI_WEB_HOST_PORT 等宿主侧配置
 make up
 ```
 
@@ -84,13 +83,25 @@ pi-web 由 app entrypoint 自启在 `:30141`(TCP 探活决定按钮)。看日志
 - VNC 里的 Chromium 直接开 `http://localhost:<port>`(loopback 豁免
   HTTPS-first,不会强制跳 https)。
 
-## 网关鉴权
+## 安全边界(无认证)
 
-**改密码?** `make hash` 重新生成(默认用户 `admin`),然后
-`docker compose up -d --force-recreate gateway`。
+**系统有没有登录/密码?怎么加?** 按 sandbox-mgr 设计决策 D9,本系统**全面无认证**:
+栈网关与 mgr 总网关(`*.mgr.localhost`)均不做任何认证(原 HTTP 基本认证层与
+密码哈希机制已移除)。它面向单用户本机/受信内网,信任边界在宿主机本身。
 
-**`make up` 报 hash 校验失败?** Caddyfile 哈希与容器内不一致,重跑
-`make hash` 即可(`ensure-hash` 会兜,但离线 bundle 场景先 `make load`)。
+- **不要**把网关或 mgr 栈暴露到公网/不受信网络;
+- 需要远程访问时,自行在前方加防护层:VPN,或带认证的反向代理
+  (如宿主机上再加一层 Caddy/nginx `basic_auth`)。
+
+## 多沙箱管理(sandbox-mgr)
+
+**想同时跑多个沙箱?** 用 mgr 控制面:`make mgr-up` 启动(容器化形态,挂
+docker.sock;裸跑为 `MGR_REPO=. MGR_DATA=mgr-data cargo run -p aio-mgr`),
+浏览器打开 `http://mgr.localhost/`——创建向导、启停、模型配置、用量汇总都在
+管理界面里;每个沙箱独立 compose project,生成物
+`mgr-data/instances/sbx-<name>/compose.yml` 可在宿主机直接
+`docker compose -f ... <cmd>` 手工接管。现有单沙箱栈经「导入现有栈」向导纳管
+(只读式管理)。`make mgr-down` 停止 mgr 栈。
 
 ## 已知坑速查
 

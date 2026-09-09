@@ -108,7 +108,8 @@ RUN set -e; \
     rm -rf /tmp/cs-build
 
 EXPOSE 8200
-# `--auth none` because caddy enforces basicauth at the gateway (design §6/§10).
+# `--auth none`: the gateway is unauthenticated (D9) and the sandbox network is
+# unreachable from outside the host - the trust boundary is the host itself.
 # --user-data-dir is inside the shared workspace volume so settings persist
 # across restarts (R6 / AC3). --extensions-dir points at the image-baked
 # /opt/cs-extensions (outside the volume) so pre-installed extensions survive

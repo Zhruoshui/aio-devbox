@@ -17,7 +17,9 @@ import { t, type Lang } from "../i18n";
 import type { SandboxEnv, Scenario } from "../types";
 import { defaultEnv, EnvPicker } from "./EnvPicker";
 
-const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** Sandbox-name slug contract, mirroring routes.rs validate_name. Exported
+ * for AdoptPage (the adopt wizard registers a row under the same rules). */
+export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 interface Props {
   lang: Lang;
