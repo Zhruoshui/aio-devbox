@@ -1,14 +1,9 @@
-// ProviderGrid — cc-switch style card grid for the 供应商库 tab.
-//
-// Each card is a Kumo LayerCard (white surface, ring + small shadow, 8px
-// radius): protocol badge + name, hover-reveal edit/delete actions, mono
-// baseUrl, model count + masked key, and chips for the agents that bind this
-// provider (clicking a chip jumps to that agent tab). Clicking the card body
-// opens the editor drawer (ModelsPane owns the open state).
-//
-// `readOnly` (sandbox-mgr managed mode, Phase 4b): the card body still opens
-// the drawer (view + discover/test), but the per-card delete action and the
-// empty-state add/import actions are hidden — they only ever write.
+// ProviderGrid — cc-switch style card grid for the providers tab.
+// Ported from web/src/panes/models/ProviderGrid.tsx (Phase 4c): protocol
+// badge + name, hover-reveal edit/delete actions, mono baseUrl, model count +
+// masked key, and chips for the agents that bind this provider (clicking a
+// chip jumps to that agent tab — the tabs still exist here, just without the
+// sandbox-local live management the workbench has).
 
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
@@ -28,7 +23,6 @@ const AGENT_LABEL: Record<AgentTab, string> = {
 
 export function ProviderGrid({
   config,
-  readOnly,
   onSelect,
   onAdd,
   onImport,
@@ -37,8 +31,6 @@ export function ProviderGrid({
   lang,
 }: {
   config: CanonicalConfig;
-  /** Managed mode: hide every write action (card delete, empty-state add/import). */
-  readOnly: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onImport: () => void;
@@ -52,17 +44,15 @@ export function ProviderGrid({
     return (
       <div className="ml-empty">
         <p>{t(lang, "mcNoProviders")}</p>
-        {!readOnly && (
-          <div className="ml-empty-actions">
-            <button className="btn btn-primary" onClick={onAdd}>
-              <Icon name="plus" />
-              {t(lang, "mcAddProvider")}
-            </button>
-            <button className="btn btn-secondary" onClick={onImport}>
-              {t(lang, "mcImportPi")}
-            </button>
-          </div>
-        )}
+        <div className="ml-empty-actions">
+          <button className="btn btn-primary" onClick={onAdd}>
+            <Icon name="plus" />
+            {t(lang, "mcAddProvider")}
+          </button>
+          <button className="btn btn-secondary" onClick={onImport}>
+            {t(lang, "mcImportPi")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -106,19 +96,17 @@ export function ProviderGrid({
                 >
                   <Icon name="edit" />
                 </button>
-                {!readOnly && (
-                  <button
-                    className="icon-btn ml-card-del"
-                    aria-label={t(lang, "mcDeleteProvider")}
-                    title={t(lang, "mcDeleteProvider")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(id);
-                    }}
-                  >
-                    <Icon name="trash" />
-                  </button>
-                )}
+                <button
+                  className="icon-btn ml-card-del"
+                  aria-label={t(lang, "mcDeleteProvider")}
+                  title={t(lang, "mcDeleteProvider")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(id);
+                  }}
+                >
+                  <Icon name="trash" />
+                </button>
               </span>
             </div>
 

@@ -1,14 +1,13 @@
 // PresetList — cc-switch-style preset cards for the switch-style agents
-// (claude/codex): N named presets derived from the shared provider library,
-// exactly one `current` takes effect. Switch = setCurrent + save + apply in
-// one click; add/edit/duplicate/delete edit local canonical state and save
-// through the shared save bar (same PUT /api/models/config channel — no new
-// backend routes). A preset never copies the provider's key/headers blob:
-// credentials stay in the provider library (SSOT, design §5).
+// (claude/codex), ported from web/src/panes/models/PresetList.tsx with the
+// sandbox-local parts trimmed (Phase 4c). Preset CRUD (add/edit/duplicate/
+// delete/set-current) edits the canonical config and commits through the
+// shared save bar (PUT /api/models/config) exactly like the workbench.
 //
-// `readOnly` (sandbox-mgr managed mode, Phase 4b): every preset write action
-// (new/switch/edit/duplicate/delete + the save bar) is disabled; the cards
-// stay visible as a read-only view of what mgr manages.
+// Trimmed vs the workbench: the install-status badge, the live-vs-current
+// match badge, the Apply button + apply-result panel — those act on files
+// inside one sandbox. "设为当前" (switch) is setCurrent + save in one click;
+// the sandbox-side render happens when the sandbox pulls the config.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -18,15 +17,13 @@ import {
   emptyCodexPreset,
   incompatibleReason,
   protocolLabel,
-  type AgentStatus,
-  type AgentsResponse,
   type AnyPreset,
-  type ApplyResponse,
   type CanonicalConfig,
   type ClaudePreset,
   type CodexPreset,
   type PresetAgent,
 } from "./types";
+import { MgrNotice, type SandboxLink } from "./MgrNotice";
 
 /** Editing target: null = closed, "" = new-preset form, else a preset id. */
 type EditTarget = string | null;
@@ -34,13 +31,10 @@ type EditTarget = string | null;
 export function PresetList({
   agent,
   config,
-  agentsStatus,
   agentDirty,
   saving,
-  applying,
-  applyResult,
   agentSaveMsg,
-  readOnly,
+  sandboxLinks,
   onAddPreset,
   onUpdatePreset,
   onDeletePreset,
@@ -51,19 +45,15 @@ export function PresetList({
 }: {
   agent: PresetAgent;
   config: CanonicalConfig;
-  agentsStatus: AgentsResponse | null;
   agentDirty: Set<string>;
   saving: boolean;
-  applying: boolean;
-  applyResult: ApplyResponse | null;
   agentSaveMsg: { ok: boolean; text: string } | null;
-  /** Managed mode: preset CRUD + switch + save/apply all disabled. */
-  readOnly: boolean;
+  sandboxLinks: SandboxLink[];
   onAddPreset: (agent: PresetAgent, preset: AnyPreset) => void;
   onUpdatePreset: (agent: PresetAgent, id: string, preset: AnyPreset) => void;
   onDeletePreset: (agent: PresetAgent, id: string) => void;
   onDuplicatePreset: (agent: PresetAgent, id: string) => void;
-  /** Switch = setCurrent + save + apply, one click (design §4). */
+  /** Switch = setCurrent + save, one click (the render happens sandbox-side). */
   onSwitchPreset: (agent: PresetAgent, id: string) => void;
   onSaveAssignment: (agent: PresetAgent) => void;
   lang: Lang;
@@ -73,56 +63,23 @@ export function PresetList({
   const block = agent === "claude" ? config.agents.claude : config.agents.codex;
   const presets: AnyPreset[] = block?.presets ?? [];
   const currentId = block?.current ?? null;
-  const currentPreset = presets.find((p) => p.id === currentId);
-  const status: AgentStatus | undefined = agentsStatus?.[agent];
   const isDirty = agentDirty.has(agent);
-
-  // Does the live (native-file) config match the current preset? PRD: "与
-  // current preset 对照,显示「当前生效与 current preset 是否一致」". A mismatch
-  // means: switched current but not applied yet, or the file was edited
-  // externally. Undefined when there is no live config or no current preset.
-  let liveMatch: boolean | null = null;
-  if (status?.live && currentPreset) {
-    const provider = config.providers[currentPreset.provider];
-    if (agent === "claude") {
-      liveMatch =
-        status.live.model === currentPreset.model &&
-        (!provider || !status.live.baseUrl || status.live.baseUrl === provider.baseUrl);
-    } else {
-      liveMatch = status.live.model === currentPreset.model;
-    }
-  }
 
   return (
     <div className="ml-agent ml-preset-list">
-      {/* agent-head: 2xl name + install + consistency badges */}
+      {/* agent-head: 2xl name (install/live badges live in the sandbox UI) */}
       <div className="ml-agent-head">
         <span className="ml-agent-name">
           {agent === "claude" ? "Claude" : "Codex"}
         </span>
-        <span
-          className={`ml-badge ${status?.installed ? "ml-badge-ok" : "ml-badge-warn"}`}
-          title={status?.bin ?? undefined}
-        >
-          <span className="dot" />
-          {status?.installed ? t(lang, "mcInstalled") : t(lang, "mcNotInstalled")}
-        </span>
-        {liveMatch !== null && (
-          <span
-            className={`ml-badge ${liveMatch ? "ml-badge-ok" : "ml-badge-warn"}`}
-            title={t(lang, liveMatch ? "maLiveMatchTip" : "maLiveMismatchTip")}
-          >
-            <span className="dot" />
-            {t(lang, liveMatch ? "maLiveMatch" : "maLiveMismatch")}
-          </span>
-        )}
       </div>
 
       {/* paradigm strip */}
       <div className="ml-paradigm-strip">
-        <Icon name="cube" />
         <span>{t(lang, "maParadigmSwitcher")}</span>
       </div>
+
+      <MgrNotice links={sandboxLinks} lang={lang} />
 
       {/* sec-head: preset count + new-preset entry */}
       <div className="ml-sec-head">
@@ -132,7 +89,7 @@ export function PresetList({
         <div className="ml-sec-actions">
           <button
             className="btn btn-primary"
-            disabled={readOnly || editing !== null || isDirty || saving}
+            disabled={editing !== null || isDirty || saving}
             onClick={() => setEditing("")}
           >
             <Icon name="plus" />
@@ -191,7 +148,7 @@ export function PresetList({
                 {!isCurrent && (
                   <button
                     className="btn btn-primary btn-sm"
-                    disabled={readOnly || isDirty || saving || applying}
+                    disabled={isDirty || saving}
                     onClick={() => onSwitchPreset(agent, preset.id)}
                   >
                     {t(lang, "maSetCurrent")}
@@ -199,7 +156,7 @@ export function PresetList({
                 )}
                 <button
                   className="icon-btn"
-                  disabled={readOnly || isDirty || saving}
+                  disabled={isDirty || saving}
                   aria-label={t(lang, "mcEdit")}
                   title={t(lang, "mcEdit")}
                   onClick={() => setEditing(editing === preset.id ? null : preset.id)}
@@ -208,7 +165,7 @@ export function PresetList({
                 </button>
                 <button
                   className="icon-btn"
-                  disabled={readOnly || isDirty || saving}
+                  disabled={isDirty || saving}
                   aria-label={t(lang, "maDuplicate")}
                   title={t(lang, "maDuplicate")}
                   onClick={() => onDuplicatePreset(agent, preset.id)}
@@ -217,7 +174,7 @@ export function PresetList({
                 </button>
                 <button
                   className="icon-btn ml-cell-del"
-                  disabled={readOnly || isDirty || saving}
+                  disabled={isDirty || saving}
                   aria-label={t(lang, "mcDeleteProvider")}
                   title={t(lang, "mcDeleteProvider")}
                   onClick={() => {
@@ -267,7 +224,7 @@ export function PresetList({
         </div>
       )}
 
-      {/* save + apply bar (shared with pi/opencode tabs) */}
+      {/* save bar (no Apply: rendering happens sandbox-side on pull) */}
       <div className="ml-savebar">
         {isDirty && (
           <span className="dirty">
@@ -282,55 +239,13 @@ export function PresetList({
         )}
         <span className="spacer" />
         <button
-          className="btn btn-secondary"
-          disabled={readOnly || !isDirty || saving}
+          className="btn btn-primary"
+          disabled={!isDirty || saving}
           onClick={() => onSaveAssignment(agent)}
         >
           {t(lang, "mcSave")}
         </button>
-        <button
-          className="btn btn-primary"
-          disabled={readOnly || isDirty || applying || !currentId}
-          title={!currentId ? t(lang, "maNoCurrentPreset") : undefined}
-          onClick={() => onSwitchPreset(agent, currentId ?? "")}
-        >
-          {applying ? <Icon name="refresh" /> : null}
-          {applying ? t(lang, "mcApplying") : t(lang, "mcApply")}
-        </button>
       </div>
-
-      {/* apply result panel */}
-      {applyResult && (
-        <div className="ml-apply-result">
-          {applyResult.ok && applyResult.errors.length === 0 && (
-            <div className="ml-msg ok">{t(lang, "mcApplyOk")}</div>
-          )}
-          {applyResult.written.length > 0 && (
-            <div className="ml-apply-written">
-              <div className="ml-apply-label">{t(lang, "mcWrittenFiles")}</div>
-              {applyResult.written.map((w) => (
-                <div key={w.path} className="ml-apply-file ok">
-                  <code>{w.path}</code>
-                  {w.backup && (
-                    <span className="ml-apply-backup">→ {w.backup}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {applyResult.errors.length > 0 && (
-            <div className="ml-apply-errors">
-              <div className="ml-apply-label err">{t(lang, "mcApplyErrors")}</div>
-              {applyResult.errors.map((e) => (
-                <div key={e.path} className="ml-apply-file err">
-                  <code>{e.path}</code>
-                  <span className="ml-apply-msg">{e.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -203,6 +203,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcHideKey: "隐藏 Key",
     mcBoundAgents: "被此供应商绑定的 Agent",
     mcNoBindings: "暂无绑定",
+    // sandbox-mgr managed mode (Phase 4b): the model config is owned by mgr
+    // and pulled here by a background task; every write action is read-only.
+    mcManagedBanner:
+      "模型配置已由 sandbox-mgr 统一管理，此处为只读视图（mgr 侧的变更约 60 秒内自动同步生效；如需修改请前往 mgr 管理界面）。",
   },
   en: {
     brand: "AIO sandbox",
@@ -397,6 +401,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcHideKey: "Hide key",
     mcBoundAgents: "Agents using this provider",
     mcNoBindings: "No agents bound",
+    // sandbox-mgr managed mode (Phase 4b): see the zh-CN comment above.
+    mcManagedBanner:
+      "Model config is managed by sandbox-mgr — this page is read-only (mgr-side changes sync here within ~60s; edit them in the mgr console instead).",
   },
 };
 

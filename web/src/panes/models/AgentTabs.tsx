@@ -14,6 +14,10 @@
 // models[] (no free-text); below the assignment sits the live list — every
 // provider in the agent's NATIVE config with sync/edit/delete actions
 // (LiveProviderList).
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): the assignment form,
+// save/apply bar, and the live list's write actions are disabled — the tab
+// degrades to live readback + install status (GET-only view).
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -43,6 +47,7 @@ export function AgentTabs({
   applyResult,
   agentSaveMsg,
   liveBusyId,
+  readOnly,
   onUpdateAssignment,
   onSaveAssignment,
   onApply,
@@ -61,6 +66,8 @@ export function AgentTabs({
   agentSaveMsg: { ok: boolean; text: string } | null;
   /** Row currently running a live sync/edit/delete (disables its buttons). */
   liveBusyId: string | null;
+  /** Managed mode: assignment/apply/live write actions disabled. */
+  readOnly: boolean;
   onUpdateAssignment: (agent: IncrementalAgent, patch: Record<string, unknown>) => void;
   onSaveAssignment: (agent: IncrementalAgent) => void;
   onApply: (agent: IncrementalAgent) => void;
@@ -129,6 +136,7 @@ export function AgentTabs({
             <label>{t(lang, "mcProvider")}</label>
             <select
               value={currentProviderId}
+              disabled={readOnly}
               onChange={(e) => {
                 onUpdateAssignment(agent, { provider: e.target.value });
                 setPickerOpen(false);
@@ -160,7 +168,7 @@ export function AgentTabs({
             <label>{t(lang, "mcModel")}</label>
             <button
               className="ml-model-trigger"
-              disabled={!currentProviderId}
+              disabled={readOnly || !currentProviderId}
               onClick={() => setPickerOpen(!pickerOpen)}
             >
               <code>
@@ -205,14 +213,14 @@ export function AgentTabs({
           <span className="spacer" />
           <button
             className="btn btn-secondary"
-            disabled={!isDirty || saving}
+            disabled={readOnly || !isDirty || saving}
             onClick={() => onSaveAssignment(agent)}
           >
             {t(lang, "mcSaveAssignment")}
           </button>
           <button
             className="btn btn-primary"
-            disabled={isDirty || applying || !currentProviderId || !currentModelId}
+            disabled={readOnly || isDirty || applying || !currentProviderId || !currentModelId}
             onClick={() => onApply(agent)}
           >
             {applying ? <Icon name="refresh" /> : null}
@@ -265,6 +273,7 @@ export function AgentTabs({
           agent={agent}
           live={status?.live ?? null}
           busyId={liveBusyId}
+          readOnly={readOnly}
           onSync={(id) => onSyncLive(agent, id)}
           onEdit={(id, patch) => onEditLive(agent, id, patch)}
           onDelete={(id) => onDeleteLive(agent, id)}

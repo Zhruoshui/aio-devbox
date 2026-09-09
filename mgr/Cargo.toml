@@ -20,6 +20,17 @@ path = "src/main.rs"
 # Reuses the scenario catalog + Dockerfile.base assembler (single owner of
 # the scenario/env contract - cross-layer-thinking-guide).
 aio-config = { path = "../config" }
+# Phase 4: the canonical model-config schema + store helpers (single owner of
+# the models.json contract, shared with the sandbox app - same guide).
+aio-models = { path = "../aio-models" }
+# Model discover/test/catalog probes + the /api/usage sandbox fan-out
+# (Phase 4). Same feature family as app/Cargo.toml minus `stream` (mgr
+# proxies no response bodies): rustls-tls keeps it env-proxy aware without
+# openssl; json for request bodies. Shares the workspace lock entry.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# join_all for the /api/usage per-sandbox fan-out (same crate/feature set
+# as app, which uses it for the preview proxy's split WebSocket sink).
+futures-util = "0.3"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

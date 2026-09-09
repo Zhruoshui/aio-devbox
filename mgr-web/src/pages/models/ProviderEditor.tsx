@@ -1,23 +1,13 @@
 // ProviderEditor — right-side drawer editing one provider.
-//
-// Kumo redesign (08-27-model-config-redesign): pane-scoped scrim + absolute
-// drawer sliding in from the pane's right edge (the design's full-page fixed
-// drawer adapted to the golden-layout pane context). Sections are dgroups:
-// basic info (name/baseUrl/protocol/apiKey with show-hide), a collapsed
-// advanced section (headers/compat JSON), the model library list with
-// discover/test, a binding overview (agents that use this provider, click to
-// jump), and a save bar (danger-text delete · cancel · save). Escape / scrim
-// click / cancel all close. The discover modal renders here from the
-// `discover` state that ModelsPane owns.
+// Ported from web/src/panes/models/ProviderEditor.tsx (Phase 4c). Same
+// structure (basic info / collapsed advanced JSON / model library with
+// discover+test / binding overview / save bar), with two mgr-web adaptations:
+// the scrim + drawer are viewport-fixed (the page scrolls as a whole, unlike
+// the workbench's pane-scoped drawer) and the discover modal reuses mgr-web's
+// always-visible .overlay class.
 //
 // `open` starts false and flips on a rAF after mount so the drawer + scrim
 // animate in; closing unmounts immediately (no exit animation).
-//
-// `readOnly` (sandbox-mgr managed mode, Phase 4b): every mutating control is
-// disabled (fields, add/delete model, save, delete provider, add-selected);
-// the GET-type probes — fetch models (discover), per-model test, models.dev
-// fill lookup — stay enabled so the drawer remains a working read + probe
-// view of a managed config.
 
 import { useEffect, useState } from "react";
 import { Icon } from "../../icons";
@@ -49,7 +39,6 @@ export function ProviderEditor({
   dirty,
   saving,
   saveMsg,
-  readOnly,
   headersText,
   compatText,
   showAdvanced,
@@ -82,8 +71,6 @@ export function ProviderEditor({
   dirty: boolean;
   saving: boolean;
   saveMsg: { ok: boolean; text: string } | null;
-  /** Managed mode: disable every write control; probes stay usable. */
-  readOnly: boolean;
   headersText: string;
   compatText: string;
   showAdvanced: boolean;
@@ -118,7 +105,7 @@ export function ProviderEditor({
     const raf = requestAnimationFrame(() => setOpen(true));
     return () => cancelAnimationFrame(raf);
   }, []);
-  // Escape closes the drawer (design §drawer).
+  // Escape closes the drawer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape") onClose();
@@ -131,7 +118,7 @@ export function ProviderEditor({
 
   return (
     <>
-      {/* pane-scoped scrim: only covers .pane-models, not sibling panes */}
+      {/* viewport-fixed scrim (the page itself scrolls) */}
       <div
         className={`ml-scrim${open ? " open" : ""}`}
         onClick={onClose}
@@ -143,7 +130,6 @@ export function ProviderEditor({
         role="dialog"
         aria-modal="true"
         aria-label={provider.name || t(lang, "mcNewProvider")}
-        data-od-id="provider-editor"
       >
         {/* header */}
         <div className="ml-drawer-head">
@@ -168,7 +154,6 @@ export function ProviderEditor({
               <label>{t(lang, "mcName")}</label>
               <input
                 value={provider.name}
-                disabled={readOnly}
                 onChange={(e) => onPatchProvider({ name: e.target.value })}
               />
             </div>
@@ -176,7 +161,6 @@ export function ProviderEditor({
               <label>{t(lang, "mcBaseUrl")}</label>
               <input
                 value={provider.baseUrl}
-                disabled={readOnly}
                 onChange={(e) => onPatchProvider({ baseUrl: e.target.value })}
                 placeholder="https://api.example.com/v1"
               />
@@ -186,7 +170,6 @@ export function ProviderEditor({
                 <label>{t(lang, "mcApi")}</label>
                 <select
                   value={provider.api}
-                  disabled={readOnly}
                   onChange={(e) => onPatchProvider({ api: e.target.value })}
                 >
                   {API_PROTOCOLS.map((p) => (
@@ -203,7 +186,6 @@ export function ProviderEditor({
                     type={showKey ? "text" : "password"}
                     value={provider.apiKey ?? ""}
                     placeholder={t(lang, "mcApiKeyPh")}
-                    disabled={readOnly}
                     onChange={(e) => onPatchProvider({ apiKey: e.target.value })}
                   />
                   <button
@@ -238,7 +220,6 @@ export function ProviderEditor({
                   <textarea
                     className="ml-json-area"
                     value={headersText}
-                    disabled={readOnly}
                     onChange={(e) => onHeadersChange(e.target.value)}
                     rows={4}
                     spellCheck={false}
@@ -249,7 +230,6 @@ export function ProviderEditor({
                   <textarea
                     className="ml-json-area"
                     value={compatText}
-                    disabled={readOnly}
                     onChange={(e) => onCompatChange(e.target.value)}
                     rows={4}
                     spellCheck={false}
@@ -274,11 +254,7 @@ export function ProviderEditor({
                   <Icon name="download" />
                   {t(lang, "mcFetchModels")}
                 </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  disabled={readOnly}
-                  onClick={onAddModel}
-                >
+                <button className="btn btn-secondary btn-sm" onClick={onAddModel}>
                   <Icon name="plus" />
                   {t(lang, "mcAddModel")}
                 </button>
@@ -296,7 +272,6 @@ export function ProviderEditor({
                     idx={idx}
                     testState={testState}
                     catalogFillState={catalogFillState[`${providerId}:${m.id}`]}
-                    readOnly={readOnly}
                     onPatchModel={onPatchModel}
                     onDeleteModel={onDeleteModel}
                     onUpdateCost={onUpdateCost}
@@ -336,17 +311,15 @@ export function ProviderEditor({
 
         {/* save bar */}
         <div className="ml-drawer-savebar">
-          {!readOnly && (
-            <button
-              className="btn btn-danger-text"
-              aria-label={t(lang, "mcDeleteProvider")}
-              title={t(lang, "mcDeleteProvider")}
-              onClick={onDeleteProvider}
-            >
-              <Icon name="trash" />
-              {t(lang, "mcDeleteProvider")}
-            </button>
-          )}
+          <button
+            className="btn btn-danger-text"
+            aria-label={t(lang, "mcDeleteProvider")}
+            title={t(lang, "mcDeleteProvider")}
+            onClick={onDeleteProvider}
+          >
+            <Icon name="trash" />
+            {t(lang, "mcDeleteProvider")}
+          </button>
           <span className="spacer" />
           {dirty && <span className="ml-dirty">{t(lang, "mcDirty")}</span>}
           {saveMsg && (
@@ -359,7 +332,7 @@ export function ProviderEditor({
           </button>
           <button
             className="btn btn-primary"
-            disabled={readOnly || !dirty || saving}
+            disabled={!dirty || saving}
             onClick={onSave}
           >
             {saving ? <Icon name="refresh" /> : null}
@@ -370,7 +343,7 @@ export function ProviderEditor({
 
       {/* ── discover modal ── */}
       {discover && (
-        <div className="overlay open" data-od-id="discover-modal">
+        <div className="overlay">
           <div className="dialog ml-discover">
             <div className="dialog-head">
               <div>
@@ -499,7 +472,7 @@ export function ProviderEditor({
                         </button>
                         <button
                           className="btn btn-primary btn-sm"
-                          disabled={readOnly || discover.selected.size === 0}
+                          disabled={discover.selected.size === 0}
                           onClick={() => {
                             onDiscoverAddSelected();
                             onDiscoverSet(null);

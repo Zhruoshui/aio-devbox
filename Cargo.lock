@@ -53,8 +53,11 @@ name = "aio-mgr"
 version = "0.1.0"
 dependencies = [
  "aio-config",
+ "aio-models",
  "anyhow",
  "axum",
+ "futures-util",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",

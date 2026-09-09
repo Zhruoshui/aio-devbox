@@ -15,6 +15,18 @@ import {
   type SandboxList,
   type ScenarioList,
 } from "./types";
+import {
+  decodeCatalog,
+  decodeConfig,
+  decodeUsageFanout,
+  type CanonicalConfig,
+  type CatalogResponse,
+  type DiscoverResponse,
+  type ImportResponse,
+  type PutResponse,
+  type TestResponse,
+  type UsageFanout,
+} from "./pages/models/types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -79,4 +91,44 @@ export function listImages(): Promise<ImageList> {
 
 export function getJob(id: number): Promise<Job> {
   return get(`/api/jobs/${id}`);
+}
+
+// ── models / usage (Phase 4c; mirrors mgr/src/models.rs + usage.rs) ─
+//
+// Error bodies here are mgr's {"error": "..."} JSON (models.rs ApiError) -
+// apiError() surfaces the message, so callers only ever handle exceptions.
+// Payloads whose shape the workbench also decoded (config / catalog / usage)
+// decode through pages/models/types.ts; the small literal replies (put /
+// import / discover / test) are typed casts, same as web's ModelsPane.
+
+export function getModelsConfig(): Promise<CanonicalConfig> {
+  return get<unknown>("/api/models/config").then(decodeConfig);
+}
+
+export function putModelsConfig(config: CanonicalConfig): Promise<PutResponse> {
+  return send("/api/models/config", "PUT", config);
+}
+
+export function importPiModels(): Promise<ImportResponse> {
+  return send("/api/models/import/pi", "POST");
+}
+
+/** Discover body: `{providerId}` resolves from the store; the literal form
+ * probes a provider being edited (with a freshly typed key) before saving. */
+export function discoverModels(
+  body: { providerId: string } | { baseUrl: string; api: string; apiKey?: string },
+): Promise<DiscoverResponse> {
+  return send("/api/models/discover", "POST", body);
+}
+
+export function testModel(providerId: string, modelId: string): Promise<TestResponse> {
+  return send("/api/models/test", "POST", { providerId, modelId });
+}
+
+export function getModelsCatalog(): Promise<CatalogResponse> {
+  return get<unknown>("/api/models/catalog").then(decodeCatalog);
+}
+
+export function getUsage(window: "today" | "7d" | "all"): Promise<UsageFanout> {
+  return get<unknown>(`/api/usage?window=${window}`).then(decodeUsageFanout);
 }

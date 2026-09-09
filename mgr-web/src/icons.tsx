@@ -38,6 +38,16 @@ const PATHS = {
     '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>',
   copy:
     '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  // Model-config page port (web/src/panes/models): sliders is the models
+  // pane's serviceIcon in the workbench, chart is the usage-page glyph.
+  sliders:
+    '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M7 16v2"/><path d="M12 10v8"/><path d="M17 6v12"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  "eye-off":
+    '<path d="M17.9 17.9A11 11 0 0 1 1 12s4-8 11-8 11 8 11 8a11 11 0 0 1-1.2 2.8"/><path d="M9.9 4.2A9 9 0 0 1 23 12a9 9 0 0 1-1.2 2.8"/><path d="M1 1l22 22"/><path d="M7.6 7.6a5 5 0 0 0 6.8 6.8"/>',
 } as const;
 
 /** Mount once (app root): the shared <symbol> sprite every <Icon> references. */

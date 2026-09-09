@@ -252,6 +252,19 @@ pub(crate) fn piweb_url_override() -> Option<String> {
     std::env::var("PI_WEB_URL").ok().filter(|v| !v.is_empty())
 }
 
+/// MGR_URL override (sandbox-mgr Phase 4, design §3.7): when this sandbox's
+/// model config is managed by sandbox-mgr, the mgr-generated sandbox compose
+/// sets MGR_URL to the mgr-api base URL (`http://mgr-api:8089`, mgr-api's
+/// alias on aio-mgr-net). A set value (1) spawns the background pull task
+/// (mgr_sync.rs: GET /api/models/sync every 60s, write + re-render) and
+/// (2) flips every /api/models write endpoint to 403 managed-by-mgr — mgr
+/// is the single source of truth (D6). Read once at startup and carried on
+/// AppState; env doesn't change during the process lifetime. Unset/empty =>
+/// None => stock stacks behave exactly as before (no task, no guard).
+pub(crate) fn mgr_url() -> Option<String> {
+    std::env::var("MGR_URL").ok().filter(|v| !v.is_empty())
+}
+
 /// Expand a single `{...}` candidate: `{env:VAR:default}` on match, otherwise
 /// the braced original (e.g. piWeb's `{host}`, handled client-side).
 fn expand_one(candidate: &str) -> String {
@@ -609,6 +622,23 @@ cmd = "htop"
         assert_eq!(piweb_url_override(), None);
         std::env::remove_var("PI_WEB_URL");
         assert_eq!(piweb_url_override(), None);
+    }
+
+    #[test]
+    fn mgr_url_set_and_unset() {
+        // Same pattern as piweb_url_override_set_and_unset: this is the ONLY
+        // test touching MGR_URL, remove_var first so an outer env (e.g. a
+        // sandbox run under mgr) can't affect the unset assertion.
+        std::env::remove_var("MGR_URL");
+        assert_eq!(mgr_url(), None);
+        std::env::set_var("MGR_URL", "http://mgr-api:8089");
+        assert_eq!(mgr_url().as_deref(), Some("http://mgr-api:8089"));
+        // Empty string = unset (filter): a compose `MGR_URL=` keeps the
+        // stock unmanaged behavior.
+        std::env::set_var("MGR_URL", "");
+        assert_eq!(mgr_url(), None);
+        std::env::remove_var("MGR_URL");
+        assert_eq!(mgr_url(), None);
     }
 
     // NB: every env-touching test below uses a VAR NAME UNIQUE TO THAT TEST.

@@ -1,71 +1,71 @@
-// ModelsPane — shell for the unified model config page (native "page" pane).
+// ModelsPage — the mgr model-config page, ported from the workbench's
+// ModelsPane (web/src/panes/models/ModelsPane.tsx, Phase 4c).
 //
-// Owns ALL state and /api/models/* handlers; renders the tab bar and delegates
-// each tab's render to a focused sub-component:
-//   providers → ProviderGrid (cc-switch card grid) + ProviderEditor drawer
-//   pi/opencode/claude/codex → AgentTabs
-//   usage → UsageTab
+// Owns ALL state and /api/models/* handlers for this page and delegates each
+// tab's render to a focused sub-component (same split as the workbench):
+//   providers → ProviderGrid (card grid) + ProviderEditor drawer
+//   pi/opencode → AgentTabs (assignment editor; live parts trimmed)
+//   claude/codex → PresetList (preset CRUD; apply trimmed)
+//
+// Differences vs the workbench pane (mgr has no sandbox-local agent APIs):
+//   - no usage tab (usage is its own page over GET /api/usage);
+//   - no GET /api/models/agents, no apply, no live provider management;
+//   - "switch preset" = setCurrent + save in one click — the agent render
+//     happens sandbox-side when the sandbox pulls the config;
+//   - lang arrives as a prop (App owns it) instead of localStorage.
 //
 // API contract: GET/PUT /api/models/config + POST /api/models/import/pi +
-// GET /api/models/agents + POST /api/models/apply/:agent + GET /api/models/usage.
-// Responses are decoded once here (types.ts) — all rendering uses the typed
-// CanonicalConfig / AgentsResponse / UsageResponse (cross-layer-thinking-guide).
+// POST /api/models/discover + POST /api/models/test + GET /api/models/catalog
+// (mgr/src/models.rs). Responses decode once in ./types (or arrive as typed
+// api.ts results); all rendering consumes the typed CanonicalConfig.
 
 import { useCallback, useEffect, useState } from "react";
-import type { ServiceEntry } from "../../types";
-import { Icon } from "../../icons";
+import {
+  discoverModels,
+  getModelsCatalog,
+  getModelsConfig,
+  importPiModels,
+  listSandboxes,
+  putModelsConfig,
+  testModel,
+} from "../../api";
 import { t, type Lang } from "../../i18n";
+import { Icon } from "../../icons";
 import { AgentTabs } from "./AgentTabs";
-import type { LiveEditPatch } from "./LiveProviderList";
+import type { SandboxLink } from "./MgrNotice";
 import { PresetList } from "./PresetList";
 import { ProviderEditor } from "./ProviderEditor";
 import { ProviderGrid } from "./ProviderGrid";
-import { UsageTab, type UsageWindow } from "./UsageTab";
 import type { CatalogFillState } from "./ModelRow";
 import {
   catalogRecommend,
-  decodeAgents,
-  decodeCatalog,
   decodeConfig,
-  decodeUsage,
   emptyProvider,
   genProviderId,
   deriveProviderIdFromName,
   rebindAgentProviders,
   safeStringify,
   type AgentTab,
-  type AgentsResponse,
   type AnyPreset,
-  type ApplyResponse,
   type CanonicalConfig,
   type CatalogResponse,
   type CostEntry,
   type DiscoverState,
-  type DiscoveredModel,
   type ModelEntry,
   type PresetAgent,
   type ProviderEntry,
+  type PutResponse,
   type TestStateMap,
-  type UsageRow,
 } from "./types";
 
-type TabKey = "providers" | "pi" | "opencode" | "claude" | "codex" | "usage";
+type TabKey = "providers" | "pi" | "opencode" | "claude" | "codex";
 
-const TAB_KEYS: TabKey[] = [
-  "providers",
-  "pi",
-  "opencode",
-  "claude",
-  "codex",
-  "usage",
-];
+const TAB_KEYS: TabKey[] = ["providers", "pi", "opencode", "claude", "codex"];
 
 function tabLabel(lang: Lang, key: TabKey): string {
   switch (key) {
     case "providers":
       return t(lang, "mcProviders");
-    case "usage":
-      return t(lang, "mcUsage");
     case "pi":
       return "pi";
     case "opencode":
@@ -77,21 +77,11 @@ function tabLabel(lang: Lang, key: TabKey): string {
   }
 }
 
-export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
-  const [lang] = useState<Lang>(
-    () => (localStorage.getItem("aio.lang") === "en" ? "en" : "zh-CN"),
-  );
+export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
   const [tab, setTab] = useState<TabKey>("providers");
   const [config, setConfig] = useState<CanonicalConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-
-  // Sandbox-mgr managed mode (Phase 4b): when the backend runs with MGR_URL,
-  // mgr owns the model config (a background task pulls it every 60s) and
-  // every write endpoint 403s with the `managed-by-mgr` marker. The pane
-  // then shows a banner + turns every write action read-only; GET-type
-  // probes (discover/test/catalog/usage) stay fully usable.
-  const [managed, setManaged] = useState(false);
 
   // Editor drawer state: `selectedId` non-null opens the drawer for that
   // provider. It also carries the provider whose headers/compat textareas are
@@ -104,47 +94,34 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   const [compatText, setCompatText] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // M2: per-(provider,model) test pills + discover modal.
+  // Per-(provider,model) test pills + discover modal state.
   const [testState, setTestState] = useState<TestStateMap>({});
   const [discover, setDiscover] = useState<DiscoverState | null>(null);
 
-  // R1: models.dev catalog (lazy-fetched once, kept in memory for the pane's
+  // models.dev catalog (lazy-fetched once, kept in memory for the page's
   // lifetime — the catalog changes rarely, no refresh button needed).
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [catalogFillState, setCatalogFillState] = useState<
     Record<string, CatalogFillState>
   >({});
 
-  // M3: agent tabs.
-  const [agentsStatus, setAgentsStatus] = useState<AgentsResponse | null>(null);
+  // Agent-tab shared state: which agent has unsaved canonical edits + the
+  // last save message (shown in that tab's save bar).
   const [agentDirty, setAgentDirty] = useState<Set<string>>(new Set());
-  const [applying, setApplying] = useState(false);
-  const [applyResult, setApplyResult] = useState<ApplyResponse | null>(null);
   const [agentSaveMsg, setAgentSaveMsg] = useState<{
     ok: boolean;
     text: string;
   } | null>(null);
 
-  // R2/R3: live provider management (pi/opencode native files) — which row
-  // currently has a sync/edit/delete in flight.
-  const [liveBusy, setLiveBusy] = useState<{ agent: string; id: string } | null>(
-    null,
-  );
-
-  // M4: usage tab.
-  const [usageRows, setUsageRows] = useState<UsageRow[] | null>(null);
-  const [usageGeneratedAt, setUsageGeneratedAt] = useState("");
-  const [usageWindow, setUsageWindow] = useState<UsageWindow>("today");
-  const [usageLoading, setUsageLoading] = useState(false);
-  const [usageError, setUsageError] = useState("");
+  // Sandbox workbench links for the agent tabs' MgrNotice (entry_url per
+  // running sandbox — that is where the live agent view lives).
+  const [sandboxLinks, setSandboxLinks] = useState<SandboxLink[] | null>(null);
 
   // ── config fetch / save ─────────────────────────────────────────
 
   const fetchConfig = useCallback(async (): Promise<void> => {
     try {
-      const r = await fetch("/api/models/config");
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const cfg = decodeConfig(await r.json());
+      const cfg = decodeConfig(await getModelsConfig());
       setConfig(cfg);
       setSelectedId((prev) =>
         prev && prev in cfg.providers ? prev : null,
@@ -161,40 +138,27 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     void fetchConfig();
   }, [fetchConfig]);
 
-  // Probe the managed marker once on mount (GET, no side effects). A probe
-  // failure keeps the editable view — the 403 fallback below still catches
-  // the managed case on the first write attempt.
+  // Sandbox links refresh whenever an agent tab is shown (cheap list call;
+  // running state changes as sandboxes start/stop).
   useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const r = await fetch("/api/models/managed");
-        if (!r.ok) return;
-        const j = (await r.json()) as { managed?: boolean };
-        if (alive && j.managed === true) setManaged(true);
-      } catch {
-        /* unreachable backend: keep the editable presentation */
-      }
-    })();
+    if (tab === "providers") return;
+    let cancelled = false;
+    listSandboxes()
+      .then((r) => {
+        if (cancelled) return;
+        setSandboxLinks(
+          r.sandboxes
+            .filter((s) => s.live === "running")
+            .map((s) => ({ name: s.name, entryUrl: s.entry_url })),
+        );
+      })
+      .catch(() => {
+        /* links are advisory — keep whatever we had */
+      });
     return () => {
-      alive = false;
+      cancelled = true;
     };
-  }, []);
-
-  /** Error text for a rejected WRITE response; flips the pane into its
-   * read-only presentation when the 403 managed-by-mgr marker is present
-   * (belt-and-braces behind the mount probe above). */
-  const writeErrorText = useCallback(
-    async (r: Response): Promise<string> => {
-      const text = await r.text();
-      if (r.status === 403 && text.includes("managed-by-mgr")) {
-        setManaged(true);
-        return t(lang, "mcManagedBanner");
-      }
-      return text;
-    },
-    [lang],
-  );
+  }, [tab]);
 
   // Sync the advanced JSON textareas when the selected provider changes.
   useEffect(() => {
@@ -206,7 +170,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   }, [selectedId, config]);
 
   // Reset all test pills for the selected provider when its identifying
-  // fields change (a stale pill would mislead — design §5).
+  // fields change (a stale pill would mislead).
   useEffect(() => {
     if (!selectedId) return;
     setTestState((prev) => {
@@ -369,7 +333,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   );
 
   const handleSave = useCallback(async (): Promise<void> => {
-    if (!config || !selectedId || managed) return;
+    if (!config || !selectedId) return;
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -399,16 +363,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         },
       };
 
-      const r = await fetch("/api/models/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        setSaveMsg({ ok: false, text: await writeErrorText(r) });
-        return;
-      }
-      const resp = (await r.json()) as { ok: boolean; warnings?: string[] };
+      const resp: PutResponse = await putModelsConfig(body);
       setSaveMsg({
         ok: true,
         text:
@@ -423,18 +378,12 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       setSaving(false);
       window.setTimeout(() => setSaveMsg(null), 3000);
     }
-  }, [config, selectedId, headersText, compatText, lang, fetchConfig, managed, writeErrorText]);
+  }, [config, selectedId, headersText, compatText, lang, fetchConfig]);
 
   const handleImport = useCallback(async (): Promise<void> => {
-    if (managed) return;
     if (!confirm(t(lang, "mcImportConfirm"))) return;
     try {
-      const r = await fetch("/api/models/import/pi", { method: "POST" });
-      if (!r.ok) {
-        setSaveMsg({ ok: false, text: await writeErrorText(r) });
-        return;
-      }
-      const resp = (await r.json()) as { imported: string[]; skipped: string[] };
+      const resp = await importPiModels();
       setSaveMsg({
         ok: true,
         text: t(lang, "mcImportResult")
@@ -447,43 +396,24 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     } finally {
       window.setTimeout(() => setSaveMsg(null), 5000);
     }
-  }, [lang, fetchConfig, managed, writeErrorText]);
+  }, [lang, fetchConfig]);
 
-  // ── M2: test + discover ─────────────────────────────────────────
+  // ── test + discover ─────────────────────────────────────────────
 
   const handleTest = useCallback(
     async (providerId: string, modelId: string): Promise<void> => {
       if (!modelId) return;
       const key = `${providerId}:${modelId}`;
       setTestState((prev) => ({ ...prev, [key]: { status: "testing" } }));
+      const t0 = performance.now();
       try {
-        const t0 = performance.now();
-        const r = await fetch("/api/models/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providerId, modelId }),
-        });
-        if (r.status === 400) {
-          setTestState((prev) => ({
-            ...prev,
-            [key]: { status: "fail", error: "bad request" },
-          }));
-          return;
-        }
-        const resp = (await r.json()) as {
-          ok: boolean;
-          latencyMs?: number;
-          status?: number;
-          error?: string;
-          responseText?: string;
-        };
+        const resp = await testModel(providerId, modelId);
         setTestState((prev) => ({
           ...prev,
           [key]: {
             status: resp.ok ? "ok" : "fail",
-            // app images older than the camelCase fix serialize `latency_ms`
-            // (dropped by this reader) — fall back to the client-measured
-            // round trip so the pill still shows a real number.
+            // Fall back to the client-measured round trip when the backend
+            // omits latencyMs so the pill still shows a real number.
             latencyMs: resp.latencyMs ?? Math.round(performance.now() - t0),
             statusHttp: resp.status,
             error: resp.error,
@@ -526,21 +456,11 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     if (!provider) return;
     setDiscover({ loading: true, error: "", endpoint: "", models: [], filter: "", selected: new Set() });
     try {
-      const dirtyKey = apiKeyDirty(provider);
-      const body: Record<string, unknown> = dirtyKey
-        ? { baseUrl: provider.baseUrl, api: provider.api, apiKey: provider.apiKey }
-        : { providerId: selectedId };
-      const r = await fetch("/api/models/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const text = await r.text();
-        setDiscover((d) => (d ? { ...d, loading: false, error: text } : d));
-        return;
-      }
-      const resp = (await r.json()) as { models: DiscoveredModel[]; endpoint: string };
+      const resp = await discoverModels(
+        apiKeyDirty(provider)
+          ? { baseUrl: provider.baseUrl, api: provider.api, apiKey: provider.apiKey }
+          : { providerId: selectedId },
+      );
       setDiscover({
         loading: false,
         error: "",
@@ -550,15 +470,8 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         selected: new Set(),
       });
     } catch (e) {
-      setDiscover((d) =>
-        d
-          ? {
-              ...d,
-              loading: false,
-              error: e instanceof Error ? e.message : String(e),
-            }
-          : d,
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      setDiscover((d) => (d ? { ...d, loading: false, error: msg } : d));
     }
   }, [selectedId, config, apiKeyDirty]);
 
@@ -588,13 +501,12 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   }, [selectedId, discover]);
 
   // Lazy-fetch the models.dev catalog once and cache it in state; subsequent
-  // fill clicks reuse it without another request.
+  // fill clicks reuse it without another request (same policy as the
+  // workbench: never fetched until a fill button is clicked).
   const fetchCatalogOnce = useCallback(async (): Promise<CatalogResponse | null> => {
     if (catalog) return catalog;
     try {
-      const r = await fetch("/api/models/catalog");
-      if (!r.ok) return null;
-      const c = decodeCatalog(await r.json());
+      const c = await getModelsCatalog();
       setCatalog(c);
       return c;
     } catch {
@@ -635,23 +547,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     [config, fetchCatalogOnce, updateModel],
   );
 
-  // ── M3: agents ──────────────────────────────────────────────────
-
-  const fetchAgents = useCallback(async (): Promise<void> => {
-    try {
-      const r = await fetch("/api/models/agents");
-      if (!r.ok) return;
-      setAgentsStatus(decodeAgents(await r.json()));
-    } catch {
-      /* leave previous state on fetch failure */
-    }
-  }, []);
-
-  useEffect(() => {
-    if (tab === "pi" || tab === "opencode" || tab === "claude" || tab === "codex") {
-      void fetchAgents();
-    }
-  }, [tab, fetchAgents]);
+  // ── agent assignments + presets (canonical edits only) ───────────
 
   const updateAgentAssignment = useCallback(
     (agent: "pi" | "opencode", patch: Record<string, unknown>): void => {
@@ -674,17 +570,9 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         return { ...prev, agents: { ...prev.agents, [agent]: next } };
       });
       setAgentDirty((prev) => new Set(prev).add(agent));
-      setApplyResult(null);
     },
     [],
   );
-
-  // ── claude/codex preset CRUD (design §4) ──────────────────────
-  //
-  // All five edit the local canonical state and mark the agent dirty; the
-  // user commits via the shared save bar (same PUT /api/models/config
-  // channel). Switch is the exception - it setCurrent + save + apply in one
-  // click so a preset takes effect immediately.
 
   /** Replace the preset list block for a switch-style agent. */
   const setPresets = useCallback(
@@ -710,7 +598,6 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         };
       });
       setAgentDirty((prev) => new Set(prev).add(agent));
-      setApplyResult(null);
     },
     [],
   );
@@ -720,7 +607,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       setPresets(agent, (block) => {
         const presets = [...(block?.presets ?? []), preset];
         // First preset auto-becomes current (sent as "" until the backend
-        // backfills the id - design §2). Otherwise leave current alone.
+        // backfills the id). Otherwise leave current alone.
         const current =
           (block?.presets?.length ?? 0) === 0 ? "" : block?.current ?? null;
         return { presets, current };
@@ -746,7 +633,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       setPresets(agent, (block) => {
         const presets = (block?.presets ?? []).filter((p) => p.id !== id);
         // Deleting the current preset: shift current to the first remaining
-        // (or null). Never dangle (PRD AC; design §2).
+        // (or null). Never dangle.
         let current = block?.current ?? null;
         if (current === id) {
           current = presets[0]?.id ?? null;
@@ -763,7 +650,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         const src = (block?.presets ?? []).find((p) => p.id === id);
         if (!src) return { presets: block?.presets ?? [], current: block?.current ?? null };
         // New id (backend backfills); name gets the copy suffix; insert right
-        // after the source so it appears adjacent (design §4).
+        // after the source so it appears adjacent.
         const copy: AnyPreset = {
           ...(src as object),
           id: "",
@@ -780,79 +667,47 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     [setPresets, lang],
   );
 
-  /** Switch = setCurrent + save + apply, one click (design §4). */
+  /** Switch = setCurrent + save, one click (the sandbox renders on pull). */
   const handleSwitchPreset = useCallback(
     async (agent: PresetAgent, id: string): Promise<void> => {
-      if (!config || id === "" || managed) return;
+      if (!config || id === "") return;
       const block = agent === "claude" ? config.agents.claude : config.agents.codex;
-      const next =
-        id === (block?.current ?? null)
-          ? config // already current -> just apply
-          : {
-              ...config,
-              agents: { ...config.agents, [agent]: { ...block, current: id } },
-            };
+      if (id === (block?.current ?? null)) return; // already current
+      const next = {
+        ...config,
+        agents: { ...config.agents, [agent]: { ...block, current: id } },
+      };
       setConfig(next);
       setSaving(true);
       setAgentSaveMsg(null);
-      setApplyResult(null);
       try {
-        const r = await fetch("/api/models/config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(next),
-        });
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
+        await putModelsConfig(next);
         await fetchConfig();
         setAgentDirty((prev) => {
           const n = new Set(prev);
           n.delete(agent);
           return n;
         });
-        // Apply the now-current preset to the agent's native files.
-        setApplying(true);
-        const ar = await fetch(`/api/models/apply/${agent}`, { method: "POST" });
-        if (!ar.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(ar) });
-          return;
-        }
-        setApplyResult((await ar.json()) as ApplyResponse);
-        await fetchAgents();
       } catch (e) {
-        setApplyResult({
+        setAgentSaveMsg({
           ok: false,
-          written: [],
-          errors: [
-            { path: agent, message: e instanceof Error ? e.message : String(e) },
-          ],
+          text: e instanceof Error ? e.message : String(e),
         });
       } finally {
         setSaving(false);
-        setApplying(false);
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, fetchConfig, fetchAgents, managed, writeErrorText],
+    [config, fetchConfig],
   );
 
   const handleSaveAssignment = useCallback(
     async (agent: AgentTab): Promise<void> => {
-      if (!config || managed) return;
+      if (!config) return;
       setSaving(true);
       setAgentSaveMsg(null);
       try {
-        const r = await fetch("/api/models/config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(config),
-        });
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
+        await putModelsConfig(config);
         setAgentDirty((prev) => {
           const n = new Set(prev);
           n.delete(agent);
@@ -870,186 +725,10 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, lang, fetchConfig, managed, writeErrorText],
+    [config, lang, fetchConfig],
   );
-
-  const handleApply = useCallback(
-    async (agent: AgentTab): Promise<void> => {
-      if (managed) return;
-      setApplying(true);
-      setApplyResult(null);
-      try {
-        const r = await fetch(`/api/models/apply/${agent}`, { method: "POST" });
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
-        setApplyResult((await r.json()) as ApplyResponse);
-        await fetchAgents();
-      } catch (e) {
-        setApplyResult({
-          ok: false,
-          written: [],
-          errors: [
-            { path: agent, message: e instanceof Error ? e.message : String(e) },
-          ],
-        });
-      } finally {
-        setApplying(false);
-      }
-    },
-    [fetchAgents, managed, writeErrorText],
-  );
-
-  // ── R2/R3: live provider management (pi/opencode native files) ────
-
-  /** Absorb one live provider from the agent's native config into the
-   * canonical library (idempotent — already-present ids come back skipped). */
-  const syncLiveProvider = useCallback(
-    async (agent: "pi" | "opencode", id: string): Promise<void> => {
-      if (managed) return;
-      setLiveBusy({ agent, id });
-      setAgentSaveMsg(null);
-      try {
-        const r = await fetch(`/api/models/agents/${agent}/sync`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
-        const j = (await r.json()) as { imported: string[]; skipped: string[] };
-        setAgentSaveMsg({
-          ok: true,
-          text: `${t(lang, "maSyncImported")} ${j.imported.length} · ${t(lang, "maSyncSkipped")} ${j.skipped.length}`,
-        });
-        await fetchConfig();
-        await fetchAgents();
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setLiveBusy(null);
-        window.setTimeout(() => setAgentSaveMsg(null), 4000);
-      }
-    },
-    [lang, fetchConfig, fetchAgents, managed, writeErrorText],
-  );
-
-  /** Field-level edit of one live provider node; outcome lands in the same
-   * apply-result panel the assignment flow uses. */
-  const editLiveProvider = useCallback(
-    async (agent: "pi" | "opencode", id: string, patch: LiveEditPatch): Promise<void> => {
-      if (managed) return;
-      setLiveBusy({ agent, id });
-      setApplyResult(null);
-      try {
-        const r = await fetch(
-          `/api/models/agents/${agent}/provider/${encodeURIComponent(id)}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(patch),
-          },
-        );
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
-        setApplyResult((await r.json()) as ApplyResponse);
-        await fetchAgents();
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setLiveBusy(null);
-      }
-    },
-    [fetchAgents, managed, writeErrorText],
-  );
-
-  /** Remove one live provider node (backend clears a dangling default). */
-  const deleteLiveProvider = useCallback(
-    async (agent: "pi" | "opencode", id: string): Promise<void> => {
-      if (managed) return;
-      setLiveBusy({ agent, id });
-      setApplyResult(null);
-      try {
-        const r = await fetch(
-          `/api/models/agents/${agent}/provider/${encodeURIComponent(id)}`,
-          { method: "DELETE" },
-        );
-        if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
-          return;
-        }
-        setApplyResult((await r.json()) as ApplyResponse);
-        await fetchAgents();
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setLiveBusy(null);
-      }
-    },
-    [fetchAgents, managed, writeErrorText],
-  );
-
-  // ── M4: usage ───────────────────────────────────────────────────
-
-  const fetchUsage = useCallback(
-    async (window: UsageWindow, bypassCache: boolean): Promise<void> => {
-      setUsageLoading(true);
-      setUsageError("");
-      try {
-        const url = `/api/models/usage?window=${window}${bypassCache ? "&refresh=1" : ""}`;
-        const r = await fetch(url);
-        if (!r.ok) {
-          setUsageError(`HTTP ${r.status}`);
-          return;
-        }
-        const resp = decodeUsage(await r.json());
-        setUsageRows(resp.rows);
-        setUsageGeneratedAt(resp.generatedAt);
-      } catch (e) {
-        setUsageError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setUsageLoading(false);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (tab === "usage") void fetchUsage(usageWindow, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, usageWindow, fetchUsage]);
 
   // ── render ──────────────────────────────────────────────────────
-
-  if (loading) {
-    return (
-      <div className="pane pane-models">
-        <div className="ml-loading">{t(lang, "mcLoading")}</div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="pane pane-models">
-        <div className="ml-error">{t(lang, "mcLoadFailed") + loadError}</div>
-      </div>
-    );
-  }
 
   const selected = config && selectedId ? config.providers[selectedId] : null;
 
@@ -1059,7 +738,12 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   };
 
   return (
-    <div className="pane pane-models" data-od-id="models-pane">
+    <div className="page models-page">
+      <div className="page-head">
+        <h1>{t(lang, "navModels")}</h1>
+        <p className="sub">{t(lang, "modelsSub")}</p>
+      </div>
+
       <div className="ml-tabs">
         {TAB_KEYS.map((k) => (
           <button
@@ -1072,104 +756,69 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         ))}
       </div>
 
-      {/* sandbox-mgr managed banner (Phase 4b): read-only presentation */}
-      {managed && (
-        <div className="ml-warn-strip" data-od-id="managed-banner">
-          <Icon name="alert" />
-          {t(lang, "mcManagedBanner")}
-        </div>
-      )}
-
-      <div className="ml-body">
-        {tab === "usage" ? (
-          <UsageTab
-            rows={usageRows}
-            generatedAt={usageGeneratedAt}
-            window={usageWindow}
-            loading={usageLoading}
-            error={usageError}
-            onWindowChange={setUsageWindow}
-            onRefresh={() => void fetchUsage(usageWindow, true)}
-            lang={lang}
-          />
-        ) : tab === "claude" || tab === "codex" ? (
-          <PresetList
-            agent={tab}
-            config={config ?? { version: 1, providers: {}, agents: {} }}
-            agentsStatus={agentsStatus}
-            agentDirty={agentDirty}
-            saving={saving}
-            applying={applying}
-            applyResult={applyResult}
-            agentSaveMsg={agentSaveMsg}
-            readOnly={managed}
-            onAddPreset={addPreset}
-            onUpdatePreset={updatePreset}
-            onDeletePreset={deletePreset}
-            onDuplicatePreset={duplicatePreset}
-            onSwitchPreset={(a, id) => void handleSwitchPreset(a, id)}
-            onSaveAssignment={(a) => void handleSaveAssignment(a)}
-            lang={lang}
-          />
-        ) : tab !== "providers" ? (
-          <AgentTabs
-            agent={tab as "pi" | "opencode"}
-            config={config ?? { version: 1, providers: {}, agents: {} }}
-            agentsStatus={agentsStatus}
-            agentDirty={agentDirty}
-            saving={saving}
-            applying={applying}
-            applyResult={applyResult}
-            agentSaveMsg={agentSaveMsg}
-            liveBusyId={liveBusy?.agent === tab ? liveBusy.id : null}
-            readOnly={managed}
-            onUpdateAssignment={updateAgentAssignment}
-            onSaveAssignment={(a) => void handleSaveAssignment(a)}
-            onApply={(a) => void handleApply(a)}
-            onSyncLive={(a, id) => void syncLiveProvider(a, id)}
-            onEditLive={(a, id, patch) => void editLiveProvider(a, id, patch)}
-            onDeleteLive={(a, id) => void deleteLiveProvider(a, id)}
-            lang={lang}
-          />
-        ) : config ? (
-          <>
-            <div className="ml-sec-head">
-              <div>
-                <h2>{t(lang, "mcProviders")}</h2>
-                <p>{t(lang, "mcProvidersSub")}</p>
-              </div>
-              {/* Add/import are library writes — hidden under mgr (D6). */}
-              {!managed && (
-                <div className="ml-sec-actions">
-                  <button className="btn btn-secondary" onClick={() => void handleImport()}>
-                    {t(lang, "mcImportPi")}
-                  </button>
-                  <button className="btn btn-primary" onClick={addProvider}>
-                    <Icon name="plus" />
-                    {t(lang, "mcAddProvider")}
-                  </button>
-                </div>
-              )}
+      {loading ? (
+        <div className="ml-loading">{t(lang, "mcLoading")}</div>
+      ) : loadError ? (
+        <div className="ml-error">{t(lang, "mcLoadFailed") + loadError}</div>
+      ) : tab === "claude" || tab === "codex" ? (
+        <PresetList
+          agent={tab}
+          config={config ?? { version: 1, providers: {}, agents: {} }}
+          agentDirty={agentDirty}
+          saving={saving}
+          agentSaveMsg={agentSaveMsg}
+          sandboxLinks={sandboxLinks ?? []}
+          onAddPreset={addPreset}
+          onUpdatePreset={updatePreset}
+          onDeletePreset={deletePreset}
+          onDuplicatePreset={duplicatePreset}
+          onSwitchPreset={(a, id) => void handleSwitchPreset(a, id)}
+          onSaveAssignment={(a) => void handleSaveAssignment(a)}
+          lang={lang}
+        />
+      ) : tab !== "providers" ? (
+        <AgentTabs
+          agent={tab as "pi" | "opencode"}
+          config={config ?? { version: 1, providers: {}, agents: {} }}
+          agentDirty={agentDirty}
+          saving={saving}
+          agentSaveMsg={agentSaveMsg}
+          sandboxLinks={sandboxLinks ?? []}
+          onUpdateAssignment={updateAgentAssignment}
+          onSaveAssignment={(a) => void handleSaveAssignment(a)}
+          lang={lang}
+        />
+      ) : config ? (
+        <>
+          <div className="ml-sec-head">
+            <div>
+              <h2>{t(lang, "mcProviders")}</h2>
+              <p>{t(lang, "mcProvidersSub")}</p>
             </div>
-            <ProviderGrid
-              config={config}
-              readOnly={managed}
-              onSelect={setSelectedId}
-              onAdd={addProvider}
-              onImport={() => void handleImport()}
-              onDelete={deleteProvider}
-              onJumpToAgent={jumpToAgent}
-              lang={lang}
-            />
-          </>
-        ) : null}
-      </div>
+            <div className="ml-sec-actions">
+              <button className="btn btn-secondary" onClick={() => void handleImport()}>
+                {t(lang, "mcImportPi")}
+              </button>
+              <button className="btn btn-primary" onClick={addProvider}>
+                <Icon name="plus" />
+                {t(lang, "mcAddProvider")}
+              </button>
+            </div>
+          </div>
+          <ProviderGrid
+            config={config}
+            onSelect={setSelectedId}
+            onAdd={addProvider}
+            onImport={() => void handleImport()}
+            onDelete={deleteProvider}
+            onJumpToAgent={jumpToAgent}
+            lang={lang}
+          />
+        </>
+      ) : null}
 
-      {/* Drawer anchors to .pane-models (position: relative), not .ml-body —
-       * a sibling of the scrollable body so its scrim/drawer cover the whole
-       * pane and never scroll away with the provider grid (design §drawer).
-       * Under mgr the drawer stays openable (view + discover/test probes)
-       * but every mutating control inside is disabled (readOnly). */}
+      {/* The drawer + scrim are viewport-fixed (see ProviderEditor); rendered
+       * as a sibling of the tab content so they cover the whole page. */}
       {tab === "providers" && config && selectedId && selected && (
         <ProviderEditor
           providerId={selectedId}
@@ -1178,7 +827,6 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           dirty={dirty}
           saving={saving}
           saveMsg={saveMsg}
-          readOnly={managed}
           headersText={headersText}
           compatText={compatText}
           showAdvanced={showAdvanced}

@@ -33,6 +33,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
         .route("/api/jobs/:id", get(get_job))
+        // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
+        // Each module owns its sub-router; merge keeps them ahead of the
+        // /api seam below (static segments win either way - merge is the
+        // registration-order form of that rule).
+        .merge(crate::models::router())
+        .merge(crate::usage::router())
         // Unmatched /api path: 404 JSON in the ApiError shape, never the SPA
         // fallback (main.rs fallback_service would otherwise serve index.html
         // on a reserved seam path, and mgr-web's apiError would die on HTML

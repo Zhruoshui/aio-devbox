@@ -4,7 +4,8 @@
 #
 # Build context is the REPO ROOT (mgr/compose.yml sets `context: ..` /
 # `dockerfile: mgr/Dockerfile`), mirroring app/Dockerfile, because mgr is a
-# member of the root cargo workspace and depends on the aio-config path crate.
+# member of the root cargo workspace and depends on the aio-config and
+# aio-models path crates.
 #
 # Unlike app, mgr has no scenario-derived base image - it is a plain
 # self-contained axum server, so the official Rust image is also the natural
@@ -27,7 +28,10 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 # Dep-cache layer: root manifest + lock + every member manifest with dummy
 # sources (same contract as app/Dockerfile; `--locked` pins the shared lock).
 # mgr-web does not affect this layer: it is an npm project, not a cargo
-# member, so no dummy sources for it here.
+# member, so no dummy sources for it here. Since Phase 4 mgr depends on the
+# aio-models lib too (canonical model-config store), so its dummy sources
+# come along (sandbox-mgr-ops.md contract 5: dep-cache must dummy EVERY
+# workspace member, real-source touch list must follow).
 COPY Cargo.toml Cargo.lock ./
 COPY app/Cargo.toml app/Cargo.toml
 COPY config/Cargo.toml config/Cargo.toml
@@ -43,15 +47,17 @@ RUN mkdir -p app/src aio-models/src config/src mgr/src \
  && rm -rf mgr/src
 
 # Real source. mgr depends on the aio-config path crate's lib (scenario
-# catalog + gen assembly), so its real sources come along here too (the
-# dep-cache layer had only the dummy empty lib). touch defeats BuildKit's
+# catalog + gen assembly) AND the aio-models lib (canonical model config,
+# Phase 4), so both crates' real sources come along here too (the
+# dep-cache layer had only the dummy empty libs). touch defeats BuildKit's
 # COPY-mtime trap (see app/Dockerfile) for every file the dummy layer
 # touched - COPY pins old context mtimes, which cargo can read as "older
 # than the dummy build's fingerprint", skipping the recompile and shipping
 # the dummy lib. lib.rs especially: it IS the lib target's unit fingerprint.
 COPY config/src ./config/src
+COPY aio-models/src ./aio-models/src
 COPY mgr/src ./mgr/src
-RUN touch config/src/lib.rs config/src/main.rs mgr/src/main.rs \
+RUN touch config/src/lib.rs config/src/main.rs aio-models/src/lib.rs mgr/src/main.rs \
  && cargo build --release --locked -p aio-mgr
 
 # --- web-builder: compile the mgr-web management SPA with Vite (Phase 3). ---

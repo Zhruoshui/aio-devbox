@@ -1,22 +1,7 @@
-// ModelRow — single-model collapsed/expanded row (Kumo redesign).
-//
-// Collapsed (screens_model-config.html §model-row): chevron + editable mono id
-// (reads as text until focused) + name + a .test-pill (play → spin →
-// check·ms / fail) + delete. The pill's ok state is just the green check plus
-// latency — the color already reads as connected and the long `已连通 · Nms`
-// variant crowded out the delete button (08-28 feedback). The cost summary
-// `$in / $out` and reasoning flag are also intentionally NOT shown in the
-// collapsed row (08-28 feedback: they crowd out the test/delete actions in
-// narrow panes; costs stay editable via the expanded form and set by catalog
-// fill).
-// Expanded: name + protocol-override side by side, then context-window /
-// max-output / reasoning-check three-across, then the four cost fields
-// (in/out/cacheRead/cacheWrite), then a "fill from models.dev" ghost button.
-// All edits patch canonical state through ModelsPane callbacks.
-//
-// `readOnly` (sandbox-mgr managed mode, Phase 4b): every editor control and
-// the delete action are disabled/hidden; the test pill (a pure GET probe)
-// stays usable.
+// ModelRow — single-model collapsed/expanded row. Ported verbatim from
+// web/src/panes/models/ModelRow.tsx (Phase 4c): chevron + editable mono id +
+// name + test pill + delete collapsed; full field editor + catalog fill
+// expanded. All edits patch canonical state through ModelsPage callbacks.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -31,7 +16,6 @@ export function ModelRow({
   idx,
   testState,
   catalogFillState,
-  readOnly,
   onPatchModel,
   onDeleteModel,
   onUpdateCost,
@@ -45,8 +29,6 @@ export function ModelRow({
   idx: number;
   testState: TestStateMap;
   catalogFillState: CatalogFillState;
-  /** Managed mode: disable the editors + delete; the test probe stays on. */
-  readOnly: boolean;
   onPatchModel: (idx: number, patch: Partial<ModelEntry>) => void;
   onDeleteModel: (idx: number) => void;
   onUpdateCost: (idx: number, field: keyof CostEntry, val: string) => void;
@@ -59,7 +41,7 @@ export function ModelRow({
   const ts = testState[`${providerId}:${model.id}`];
 
   return (
-    <div className="ml-model-row" data-od-id={`model-row-${idx}`}>
+    <div className="ml-model-row">
       <div className="ml-model-row-head">
         <button
           className="icon-btn ml-model-expand"
@@ -72,7 +54,6 @@ export function ModelRow({
           value={model.id}
           className="ml-cell-mono ml-model-id"
           placeholder={t(lang, "mcModelId")}
-          disabled={readOnly}
           onChange={(e) => {
             onResetTest(providerId, model.id);
             onPatchModel(idx, { id: e.target.value });
@@ -105,27 +86,24 @@ export function ModelRow({
                 ? t(lang, "mcTestFail")
                 : t(lang, "mcTest")}
           </button>
-          {!readOnly && (
-            <button
-              className="icon-btn ml-cell-del"
-              aria-label={t(lang, "mcDeleteProvider")}
-              onClick={() => onDeleteModel(idx)}
-            >
-              <Icon name="trash" />
-            </button>
-          )}
+          <button
+            className="icon-btn ml-cell-del"
+            aria-label={t(lang, "mcDeleteProvider")}
+            onClick={() => onDeleteModel(idx)}
+          >
+            <Icon name="trash" />
+          </button>
         </div>
       </div>
 
       {expanded && (
         <div className="ml-model-row-body">
-          {/* name + protocol override side by side (design §field-row) */}
+          {/* name + protocol override side by side */}
           <div className="field-row">
             <div className="field">
               <label>{t(lang, "mcModelName")}</label>
               <input
                 value={model.name ?? ""}
-                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, { name: e.target.value || undefined })
                 }
@@ -136,7 +114,6 @@ export function ModelRow({
               <select
                 className="ml-cell-select"
                 value={model.api ?? ""}
-                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, { api: e.target.value || undefined })
                 }
@@ -151,7 +128,7 @@ export function ModelRow({
             </div>
           </div>
 
-          {/* ctx / maxOut / reasoning (design §field-row-3) */}
+          {/* ctx / maxOut / reasoning */}
           <div className="field-row-3">
             <div className="field">
               <label>{t(lang, "mcContextWindow")}</label>
@@ -159,7 +136,6 @@ export function ModelRow({
                 className="mono"
                 type="number"
                 value={model.contextWindow ?? ""}
-                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, {
                     contextWindow: e.target.value
@@ -175,7 +151,6 @@ export function ModelRow({
                 className="mono"
                 type="number"
                 value={model.maxTokens ?? ""}
-                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, {
                     maxTokens: e.target.value
@@ -190,7 +165,6 @@ export function ModelRow({
                 <input
                   type="checkbox"
                   checked={model.reasoning ?? false}
-                  disabled={readOnly}
                   onChange={(e) =>
                     onPatchModel(idx, { reasoning: e.target.checked })
                   }
@@ -200,7 +174,7 @@ export function ModelRow({
             </div>
           </div>
 
-          {/* cost per M (design §field-row-4) */}
+          {/* cost per M */}
           <span className="ml-section-title">{t(lang, "mcCostPerM")}</span>
           <div className="ml-model-cost-grid">
             <div className="field">
@@ -210,7 +184,6 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.input ?? ""}
-                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "input", e.target.value)}
               />
             </div>
@@ -221,7 +194,6 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.output ?? ""}
-                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "output", e.target.value)}
               />
             </div>
@@ -232,7 +204,6 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.cacheRead ?? ""}
-                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "cacheRead", e.target.value)}
               />
             </div>
@@ -243,7 +214,6 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.cacheWrite ?? ""}
-                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "cacheWrite", e.target.value)}
               />
             </div>
@@ -251,7 +221,7 @@ export function ModelRow({
 
           <button
             className="btn btn-ghost btn-sm"
-            disabled={readOnly || !model.id || catalogFillState === "loading"}
+            disabled={!model.id || catalogFillState === "loading"}
             title={
               catalogFillState === "notfound"
                 ? t(lang, "mcCatalogNotFound")

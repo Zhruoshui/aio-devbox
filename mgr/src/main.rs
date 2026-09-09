@@ -27,8 +27,10 @@ mod db;
 mod docker;
 mod envhash;
 mod jobs;
+mod models;
 mod routes;
 mod state;
+mod usage;
 
 use std::path::PathBuf;
 use std::sync::Arc;

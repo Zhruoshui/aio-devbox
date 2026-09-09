@@ -1,13 +1,16 @@
 // App - mgr-web shell.
 //
-// Owns the sidebar navigation (sandboxes / images), theme + language state
-// (same persistence pattern as the workbench SPA in web/src/App.tsx, with
-// mgr-prefixed localStorage keys) and the current sub-view of the sandboxes
-// page. No state library and no router library: views are a discriminated
-// union in local state (state-management spec: state is local, flows down).
+// Owns the sidebar navigation (sandboxes / images / models / usage), theme +
+// language state (same persistence pattern as the workbench SPA in
+// web/src/App.tsx, with mgr-prefixed localStorage keys) and the current
+// sub-view of the sandboxes page. No state library and no router library:
+// views are a discriminated union in local state (state-management spec:
+// state is local, flows down).
 //
 //   page "sandboxes": list | create (wizard) | edit:<name> | job:<id>
 //   page "images":    the image registry table
+//   page "models":    model config (port of web/src/panes/models, Phase 4c)
+//   page "usage":     multi-sandbox usage over GET /api/usage
 //
 // Long operations (create/edit/delete) return a job id; the view then
 // switches to <JobView> which polls GET /api/jobs/:id and returns to the
@@ -22,11 +25,13 @@ import { CreatePage } from "./pages/CreatePage";
 import { EditPage } from "./pages/EditPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { JobView } from "./pages/JobView";
+import { ModelsPage } from "./pages/models/ModelsPage";
+import { UsagePage } from "./pages/UsagePage";
 import type { Scenario } from "./types";
 import "./styles.css";
 
 type Theme = "dark" | "light";
-type Page = "sandboxes" | "images";
+type Page = "sandboxes" | "images" | "models" | "usage";
 
 /** Sub-view of the sandboxes page. Job views carry the job id plus which
  * flow produced them (for the right heading + done message). */
@@ -99,6 +104,24 @@ export function App(): JSX.Element {
                 <span className="launch-label">{t(lang, "navImages")}</span>
               </button>
             </div>
+            <div className="sb-row">
+              <button
+                className={`launch-btn${page === "models" ? " active" : ""}`}
+                onClick={() => nav("models")}
+              >
+                <Icon name="sliders" />
+                <span className="launch-label">{t(lang, "navModels")}</span>
+              </button>
+            </div>
+            <div className="sb-row">
+              <button
+                className={`launch-btn${page === "usage" ? " active" : ""}`}
+                onClick={() => nav("usage")}
+              >
+                <Icon name="chart" />
+                <span className="launch-label">{t(lang, "navUsage")}</span>
+              </button>
+            </div>
           </div>
         </nav>
         <div className="sb-foot">
@@ -129,8 +152,12 @@ export function App(): JSX.Element {
             scenarios={scenarios}
             onScenarios={setScenarios}
           />
-        ) : (
+        ) : page === "images" ? (
           <ImagesPage lang={lang} />
+        ) : page === "models" ? (
+          <ModelsPage lang={lang} />
+        ) : (
+          <UsagePage lang={lang} />
         )}
       </main>
     </div>

@@ -7,6 +7,10 @@
 // - delete (dangling default cleanup happens backend-side)
 // The list is read-only state from GET /api/models/agents live.providers;
 // mutations are delegated upward so ModelsPane owns every fetch.
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): the sync/edit/delete row
+// actions are hidden (all three hit write endpoints); the expand toggle
+// stays so the model chips remain viewable.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -32,6 +36,7 @@ export function LiveProviderList({
   agent,
   live,
   busyId,
+  readOnly,
   onSync,
   onEdit,
   onDelete,
@@ -41,6 +46,8 @@ export function LiveProviderList({
   live: AgentLive | null;
   /** Row-level busy marker (sync/edit/delete in flight for that row). */
   busyId: string | null;
+  /** Managed mode: hide the sync/edit/delete write actions. */
+  readOnly: boolean;
   onSync: (id: string) => void;
   onEdit: (id: string, patch: LiveEditPatch) => void;
   onDelete: (id: string) => void;
@@ -105,34 +112,36 @@ export function LiveProviderList({
                   {t(lang, "maLiveCurrent")}
                 </span>
               )}
-              <span className="ml-live-actions">
-                <button
-                  className="btn btn-secondary btn-sm"
-                  disabled={busyId === p.id}
-                  onClick={() => onSync(p.id)}
-                >
-                  {busyId === p.id ? <Icon name="refresh" /> : null}
-                  {t(lang, "maSyncToLib")}
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  disabled={busyId === p.id}
-                  onClick={() => (isEditing ? setEditing(null) : openEdit(p))}
-                >
-                  {t(lang, "mcEdit")}
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  disabled={busyId === p.id}
-                  onClick={() => {
-                    if (window.confirm(t(lang, "maConfirmDeleteLive"))) {
-                      onDelete(p.id);
-                    }
-                  }}
-                >
-                  {t(lang, "mcDeleteProvider")}
-                </button>
-              </span>
+              {!readOnly && (
+                <span className="ml-live-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyId === p.id}
+                    onClick={() => onSync(p.id)}
+                  >
+                    {busyId === p.id ? <Icon name="refresh" /> : null}
+                    {t(lang, "maSyncToLib")}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyId === p.id}
+                    onClick={() => (isEditing ? setEditing(null) : openEdit(p))}
+                  >
+                    {t(lang, "mcEdit")}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyId === p.id}
+                    onClick={() => {
+                      if (window.confirm(t(lang, "maConfirmDeleteLive"))) {
+                        onDelete(p.id);
+                      }
+                    }}
+                  >
+                    {t(lang, "mcDeleteProvider")}
+                  </button>
+                </span>
+              )}
             </div>
 
             {/* expanded: model id chips */}

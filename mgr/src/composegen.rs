@@ -84,6 +84,11 @@ services:
       # extends the entrypoint's default "app" (design §2.1).
       PI_WEB_URL: http://sbx-{name}-piweb.mgr.localhost/
       PI_WEB_ALLOWED_HOSTS: app,sbx-{name}-piweb.mgr.localhost
+      # Phase 4 (app side wired): model-config pull endpoint (design §3.7).
+      # mgr-api's alias on aio-mgr-net is `mgr-api` :8089; the app pulls
+      # GET /api/models/sync every 60s and flips its local /api/models
+      # write endpoints to 403 managed-by-mgr (app mgr_sync.rs).
+      MGR_URL: http://mgr-api:8089
     volumes:
       - workspace:/root
     networks:
@@ -184,6 +189,9 @@ mod tests {
         assert!(gen.compose.contains("cpus: \"2\""));
         assert!(gen.compose.contains("memory: 2048M"));
         assert!(gen.compose.contains("aliases:\n          - sbx-t1-piweb"));
+        // Phase 4 model-config pull endpoint: mgr-api's aio-mgr-net alias,
+        // fixed :8089 (design §3.7).
+        assert!(gen.compose.contains("MGR_URL: http://mgr-api:8089"));
         // basicauth must never appear (D9)
         assert!(!gen.compose.contains("basicauth"));
         assert!(!gen.caddyfile.contains("basicauth"));

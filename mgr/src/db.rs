@@ -238,6 +238,18 @@ pub fn kv_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Read a kv row. None when the key has never been written (models.rs
+/// treats "no stored config" as "start from default" - same semantics as
+/// app's read_config on a missing file).
+pub fn kv_get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM kv WHERE key = ?1")?;
+    let mut rows = stmt.query(params![key])?;
+    match rows.next()? {
+        Some(r) => Ok(Some(r.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 /// Seconds since epoch. (mgr has no chrono dep; std::time is enough.)
 fn chrono_now_secs() -> i64 {
     std::time::SystemTime::now()
