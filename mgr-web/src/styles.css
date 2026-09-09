@@ -2492,6 +2492,37 @@ body {
   background: var(--term-bg);
 }
 
+/* Non-iframe pane states (code-server on-demand start machine, D4): a
+ * centered muted placeholder while probing/starting, with a spinning glyph
+ * (same rot keyframes as the other spin sites) and an error variant with a
+ * retry button. */
+.pane-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-sm);
+}
+.pane-note-error {
+  color: var(--danger);
+  max-width: 48ch;
+  word-break: break-word;
+}
+.pane-note-spin {
+  display: inline-flex;
+  vertical-align: -3px;
+  margin-right: var(--space-2);
+}
+.pane-note-spin .icon {
+  width: 13px;
+  height: 13px;
+  animation: rot 0.9s linear infinite;
+}
+
 /* ── register dialog pieces (ported from web/src/styles.css) ───────── */
 
 /* Register dialog port liveness hint: non-blocking probe result under the

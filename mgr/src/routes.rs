@@ -36,6 +36,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/sandboxes/:name/start", post(start_sandbox))
         .route("/api/sandboxes/:name/stop", post(stop_sandbox))
         .route("/api/sandboxes/:name/restart", post(restart_sandbox))
+        // On-demand single-service start (D4, unified Phase 3): the one
+        // profile-gated sidecar `up` deliberately does not carry. Synchronous
+        // (container create+start of a pre-built image, seconds), so no job.
+        .route("/api/sandboxes/:name/service/:service/start", post(service_start))
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
         .route("/api/jobs/:id", get(get_job))
@@ -195,9 +199,9 @@ fn now_secs() -> i64 {
 
 /// Resource-limit validation (Phase 3, mgr-web). Negative values are
 /// rejected with a fix-it message; `0` is a legal "no limit" sentinel (it is
-/// normalized to None on create, and means "clear the current limit" on PUT
-/// - see put_sandbox). 0 is meaningless as an actual limit, so no valid
-/// input is lost to the sentinel.
+/// normalized to None on create, and means "clear the current limit" on PUT -
+/// see put_sandbox). 0 is meaningless as an actual limit, so no valid input
+/// is lost to the sentinel.
 fn check_limits(cpus: Option<f64>, mem_mb: Option<i64>) -> Result<(), ApiError> {
     if let Some(c) = cpus {
         if c < 0.0 {
@@ -699,6 +703,92 @@ async fn restart_sandbox(
     Ok(Json(json!({ "ok": true, "output": out.trim() })))
 }
 
+/// On-demand services (D4): the profile-gated sidecars `up` deliberately
+/// does not carry. The second tuple item is the service's OWN profile flag
+/// (compose only sees a profile-gated service when its profile is active).
+/// The whitelist is closed - an arbitrary service name must never reach a
+/// compose argv.
+const ON_DEMAND_SERVICES: [(&str, [&str; 2]); 1] = [("code-server", docker::CODE_SERVER_PROFILE)];
+
+/// Compose-ps truth for the service-start guard, mirroring sandbox_json's
+/// live mapping ("running" = any running entry; empty ps = "gone"). A ps
+/// ERROR propagates as 500 before this helper - same honesty as the other
+/// lifecycle handlers.
+fn ps_live(ps: &[docker::ComposePsEntry]) -> &'static str {
+    if ps.iter().any(|e| e.state.eq_ignore_ascii_case("running")) {
+        "running"
+    } else if ps.is_empty() {
+        "gone"
+    } else {
+        "stopped"
+    }
+}
+
+fn not_running(name: &str, service: &str, live: &str) -> ApiError {
+    ApiError::bad(format!("sandbox {name:?} is {live} - start the sandbox before starting {service:?}"))
+}
+
+/// POST /api/sandboxes/:name/service/:service/start (D4): bring up ONE
+/// on-demand service of a RUNNING sandbox (currently code-server; native
+/// and adopted rows alike - an adopted stack's compose may gate its own
+/// code-server behind a profile, same mechanics). Synchronous: container
+/// create+start of a pre-built image is seconds, no job (design §3.2).
+///
+/// The liveness guard is load-bearing (verified live on compose 5.2.0):
+/// `up -d <svc>` also starts the service's DEPENDENCIES (app, via
+/// network_mode: service:app), so against a stopped stack it would produce
+/// a half-started sandbox (app + code-server up, gateway + vnc down). The
+/// workspace tree greys stopped sandboxes out, but a pane restored from a
+/// saved layout mounts without going through the tree - the guard holds the
+/// invariant here instead. `up -d <svc>` itself is idempotent and heals a
+/// stale container (docker.rs compose_service_up); probe-before-start is
+/// the pane's UX concern, mgr does not double-guess.
+///
+/// No service-stop route by design (prd D4): pane close keeps the code-
+/// server session; the explicit stop is the sandbox's own stop/restart,
+/// which still carries the full profile set (契约 4) and takes code-server
+/// down with it.
+async fn service_start(
+    State(state): State<Arc<AppState>>,
+    Path((name, service)): Path<(String, String)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let Some((_, profile)) = ON_DEMAND_SERVICES.iter().find(|(svc, _)| *svc == service) else {
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            format!("unknown on-demand service {service:?}"),
+        ));
+    };
+    // 404-shaped unknown-sandbox (design §3.2 "404 未知服务/沙箱"), not the
+    // sibling lifecycle handlers' 400-shaped require_row: both path segments
+    // name resources here, the same choice as the sandbox proxy's :name.
+    let row = {
+        let conn = state.db.lock().unwrap();
+        db::get_sandbox(&conn, &name)?.ok_or_else(|| {
+            ApiError::with_status(StatusCode::NOT_FOUND, format!("sandbox {name:?} not found"))
+        })?
+    };
+    let out = if row.adopted {
+        let compose_file = external_compose_file(&row)?;
+        let live = ps_live(&docker::compose_ps_file(&compose_file).await?);
+        if live != "running" {
+            return Err(not_running(&name, &service, live));
+        }
+        docker::compose_service_up_file(&compose_file, profile, &service).await?
+    } else {
+        let compose_file = state.instance_dir(&name).join("compose.yml");
+        if !compose_file.exists() {
+            return Err(ApiError::bad(format!("sandbox {name:?} has no compose file")));
+        }
+        let project = envhash::project_name(&name);
+        let live = ps_live(&docker::compose_ps(&project, &compose_file).await?);
+        if live != "running" {
+            return Err(not_running(&name, &service, live));
+        }
+        docker::compose_service_up(&project, &compose_file, profile, &service).await?
+    };
+    Ok(Json(json!({ "ok": true, "service": service, "output": out.trim() })))
+}
+
 async fn entry_url(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -830,6 +920,121 @@ mod tests {
         // the service beats None.
         let ps = vec![entry("a-gateway-1", "gateway", "exited")];
         assert_eq!(find_service_container(&ps, "gateway"), Some("a-gateway-1"));
+    }
+
+    // ── service_start (D4, unified Phase 3) ─────────────────────────
+
+    fn insert_row(state: &AppState, name: &str) {
+        let conn = state.db.lock().unwrap();
+        db::insert_sandbox(
+            &conn,
+            &db::SandboxRow {
+                name: name.into(),
+                created_at: 0,
+                env_json: "{}".into(),
+                env_hash: String::new(),
+                cpus: None,
+                mem_mb: None,
+                status: "running".into(),
+                adopted: false,
+                external_compose: None,
+            },
+        )
+        .expect("insert test sandbox");
+    }
+
+    /// Serve the REAL top-level router on an ephemeral port (the proxy.rs
+    /// test pattern - mgr has no tower dev-dependency for oneshot). The
+    /// service_start tests only exercise branches that return BEFORE any
+    /// docker invocation; the docker paths are locked by the argv-shape
+    /// tests in docker.rs and the manual verification list.
+    async fn serve(state: &Arc<AppState>) -> String {
+        let app = crate::routes::router().with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn service_start_unknown_service_is_404_whitelist() {
+        // Closed whitelist: vnc is profile-gated too but NOT on-demand (it
+        // is a resident dependency). The ROUTE must answer (not the /api
+        // seam - whose message differs).
+        let state = Arc::new(AppState::new_for_test());
+        insert_row(&state, "alpha");
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .post(format!("{base}/api/sandboxes/alpha/service/vnc/start"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v["error"].as_str().unwrap().contains("unknown on-demand service"));
+    }
+
+    #[tokio::test]
+    async fn service_start_unknown_sandbox_is_404() {
+        let state = Arc::new(AppState::new_for_test());
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .post(format!("{base}/api/sandboxes/ghost/service/code-server/start"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["error"], "sandbox \"ghost\" not found");
+    }
+
+    #[tokio::test]
+    async fn service_start_native_without_compose_file_is_400() {
+        // The native branch refuses before any docker call when the
+        // generated compose is missing (a failed create) - same guard shape
+        // as start_sandbox.
+        let state = Arc::new(AppState::new_for_test());
+        insert_row(&state, "svcstart");
+        assert!(
+            !state.instance_dir("svcstart").join("compose.yml").exists(),
+            "precondition: test data dir holds no compose file"
+        );
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .post(format!("{base}/api/sandboxes/svcstart/service/code-server/start"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v["error"].as_str().unwrap().contains("no compose file"));
+    }
+
+    #[test]
+    fn ps_live_maps_running_gone_stopped() {
+        // Mirrors sandbox_json's live mapping (drives the guard's message).
+        let running = vec![entry("a-app-1", "app", "running")];
+        assert_eq!(ps_live(&running), "running");
+        assert_eq!(ps_live(&[]), "gone");
+        let stopped = vec![entry("a-app-1", "app", "exited")];
+        assert_eq!(ps_live(&stopped), "stopped");
+    }
+
+    #[test]
+    fn on_demand_whitelist_is_code_server_only() {
+        // The closed whitelist: an arbitrary service name must never
+        // resolve to profile flags that reach a compose argv.
+        assert_eq!(ON_DEMAND_SERVICES.len(), 1);
+        assert_eq!(ON_DEMAND_SERVICES[0].0, "code-server");
+        assert_eq!(ON_DEMAND_SERVICES[0].1, docker::CODE_SERVER_PROFILE);
     }
 
     fn entry(name: &str, service: &str, state: &str) -> docker::ComposePsEntry {

@@ -34,6 +34,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     openInstanceSuffix: "，点击打开新实例",
     removePrefix: "移除 ",
     register: "注册按钮",
+    // code-server on-demand pane (D4): probe -> start -> poll -> iframe
+    csProbing: "正在检查 {s} 状态…",
+    csStarting: "正在按需启动 {s}（镜像已构建，容器秒级就绪）…",
+    csStartFailed: "启动失败：",
+    csNotReady: "启动后长时间未监听 8200 端口（可能仍在启动或已崩溃），可重试。",
+    csRetry: "重试",
     popin: "返回工作区",
     dialogTitle: "注册自定义按钮",
     dialogSub:
@@ -301,6 +307,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     openInstanceSuffix: " - click to open a new instance",
     removePrefix: "Remove ",
     register: "Register button",
+    // code-server on-demand pane (D4): probe -> start -> poll -> iframe
+    csProbing: "Checking {s}…",
+    csStarting: "Starting {s} on demand (image pre-built, container up in seconds)…",
+    csStartFailed: "Failed to start: ",
+    csNotReady: "Started but port 8200 never came up (still booting, or crashed) - retry?",
+    csRetry: "Retry",
     popin: "Dock back to workspace",
     dialogTitle: "Register a custom button",
     dialogSub:

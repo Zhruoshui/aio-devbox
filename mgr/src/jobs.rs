@@ -160,8 +160,33 @@ async fn run_create(
     append_log(&log, "compose.yml + gateway/Caddyfile written\n").await;
 
     // 5. up -d (force-recreate on env change keeps volumes - design §3.6).
+    //    D4: up carries only the vnc profile (docker.rs UP_PROFILES), so the
+    //    force-recreate below REPLACES the app container without touching a
+    //    leftover code-server container from an earlier on-demand start -
+    //    which would keep "running" attached to the REMOVED app's netns
+    //    (network_mode: service:app): an unreachable zombie that also breaks
+    //    the next full-profile restart ("joining network namespace ... No
+    //    such container", verified live). Remove it first - idempotent when
+    //    no container exists (fresh create never has one); best-effort, since
+    //    a failed rm only leaves the self-healing zombie that the next
+    //    code-server pane start repairs (compose recreates stale services).
     let project = envhash::project_name(&name);
     let compose_file = instance.join("compose.yml");
+    if recreate {
+        match docker::compose_service_rm(
+            &project,
+            &compose_file,
+            &docker::CODE_SERVER_PROFILE,
+            "code-server",
+        )
+        .await
+        {
+            Ok(out) => append_log(&log, &out).await,
+            Err(e) => {
+                append_log(&log, &format!("code-server pre-clean failed (continuing): {e:#}\n")).await
+            }
+        }
+    }
     let out = docker::compose_up(&project, &compose_file, recreate).await?;
     append_log(&log, &out).await;
 

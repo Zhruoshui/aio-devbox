@@ -26,7 +26,7 @@ import type { ReactNode } from "react";
 import { t, type Lang } from "../../i18n";
 import { Icon } from "../../icons";
 import type { Sandbox } from "../../types";
-import type { ServiceEntry } from "./types";
+import { ON_DEMAND_SERVICE_IDS, type ServiceEntry } from "./types";
 
 /** One sandbox's manifest fetch state. `services` keeps the LAST decoded
  * manifest across refreshes/errors (stale-while-revalidate), null = never
@@ -84,15 +84,20 @@ function liveCls(live: string): string {
 /** A sandbox's launchable buttons, in the workbench group order
  * (web -> tui -> custom) flattened into one list. Only ENABLED entries are
  * shown (the manifest's server-driven visibility: web buttons probe TCP,
- * agent buttons check command_exists). type "page" entries (the sandbox's
+ * agent buttons check command_exists) - with one deliberate exception:
+ * ON_DEMAND services (D4: code-server) are shown even when disabled,
+ * because "disabled" (nothing listening on app:8200) is exactly the state
+ * the pane's start machine is FOR. type "page" entries (the sandbox's
  * modelsConfig pane) are deliberately EXCLUDED - mgr-web's own Models page
  * is that surface, and Phase 6 removes the entry from services.toml. */
 function buttonsOf(services: ServiceEntry[]): ServiceEntry[] {
-  const enabled = services.filter((s) => s.enabled && s.type !== "page");
+  const visible = services.filter(
+    (s) => (s.enabled || ON_DEMAND_SERVICE_IDS.has(s.id)) && s.type !== "page",
+  );
   return [
-    ...enabled.filter((s) => s.type === "web" && !s.deletable),
-    ...enabled.filter((s) => s.type === "agent" && !s.deletable),
-    ...enabled.filter((s) => s.deletable),
+    ...visible.filter((s) => s.type === "web" && !s.deletable),
+    ...visible.filter((s) => s.type === "agent" && !s.deletable),
+    ...visible.filter((s) => s.deletable),
   ];
 }
 

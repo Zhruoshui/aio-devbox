@@ -67,7 +67,8 @@ import { RegisterDialog } from "./workspace/RegisterDialog";
 import { SandboxTree, serviceIcon, type ManifestState } from "./workspace/SandboxTree";
 import { IframePane } from "./workspace/panes/IframePane";
 import { XtermPane } from "./workspace/panes/XtermPane";
-import { isServiceEntry, type RegisterButtonInput, type ServiceEntry } from "./workspace/types";
+import { isServiceEntry, ON_DEMAND_SERVICE_IDS, type RegisterButtonInput, type ServiceEntry } from "./workspace/types";
+import { CodeServerPane } from "./workspace/panes/CodeServerPane";
 
 const PANE_COMPONENT_TYPE = "mgr-pane";
 const TERMINAL_ID = "terminal";
@@ -75,6 +76,20 @@ const HEADER_HEIGHT = 40;
 const LAYOUT_KEY = "mgr.layout";
 const GL_WINDOW_PARAM = "gl-window";
 const POLL_MS = 4000;
+
+/**
+ * Current UI language for pane components that render OUTSIDE React's prop
+ * flow: golden-layout's component factory creates pane contents imperatively
+ * (createRoot in the factory closure), so CodeServerPane's start/placeholder
+ * states receive their lang through this ref instead of a prop chain. A
+ * module-level ref set on every WorkspacePage render is the same "latest
+ * value for imperative code" pattern as manifestsRef; it is read at the
+ * pane's CREATION time - an already-open pane keeps its creation language
+ * across a mid-session switch (panes have never followed lang live: the
+ * xterm connect/disconnect notices are fixed strings), new panes pick up
+ * the current one.
+ */
+const langRef: { current: Lang } = { current: "zh-CN" };
 
 /**
  * Popout child windows carry their layout in localStorage under the
@@ -140,6 +155,7 @@ interface Props {
 }
 
 export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
+  langRef.current = lang;
   const containerRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<GoldenLayout | null>(null);
   // React roots per golden-layout component container (unmount on release).
@@ -640,7 +656,9 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
 /** Render the generic pane for a service by its type. "page" entries are
  * filtered out of the tree (mgr-web's Models page replaces the sandbox-local
  * pane); that branch only guards a foreign componentState decoded from a
- * restored layout. */
+ * restored layout. ON_DEMAND services (D4: codeServer) get the start-state
+ * machine pane instead of the plain iframe - a disabled manifest entry is
+ * not a dead button but the pane's whole reason to exist. */
 function PaneForService({
   service,
   sandbox,
@@ -648,6 +666,9 @@ function PaneForService({
   service: ServiceEntry;
   sandbox: string;
 }): JSX.Element {
+  if (service.type === "web" && ON_DEMAND_SERVICE_IDS.has(service.id)) {
+    return <CodeServerPane service={service} sandbox={sandbox} lang={langRef.current} />;
+  }
   if (service.type === "web") return <IframePane service={service} sandbox={sandbox} />;
   if (service.type === "agent") return <XtermPane service={service} sandbox={sandbox} />;
   return <div className="ws-empty">{service.label}</div>;

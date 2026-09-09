@@ -95,6 +95,17 @@ export function sandboxAction(
   return send(`/api/sandboxes/${enc(name)}/${action}`, "POST");
 }
 
+/** Bring up ONE on-demand service (D4: code-server) of a running sandbox -
+ * synchronous on the backend (container create+start, seconds). Backend
+ * 404s on an unknown sandbox/service and 400s when the sandbox is not
+ * running (a stopped stack must not come back up half-started). */
+export function startSandboxService(
+  name: string,
+  service: "code-server",
+): Promise<{ ok: boolean; service: string; output: string }> {
+  return send(`/api/sandboxes/${enc(name)}/service/${service}/start`, "POST");
+}
+
 // ── images / jobs ──────────────────────────────────────────────────
 
 export function listImages(): Promise<ImageList> {

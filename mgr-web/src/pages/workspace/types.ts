@@ -79,3 +79,17 @@ export interface RegisterButtonInput {
    * port - proxying it would recurse inside the sandbox). */
   port?: number;
 }
+
+// ── on-demand services (prd D4) ────────────────────────────────────
+
+/** The service ids whose pane starts their container on demand (D4:
+ * code-server only). Its container is profile-gated and NOT started with
+ * the sandbox (mgr's compose up carries only the vnc profile - mgr/src/
+ * docker.rs UP_PROFILES), so the manifest's `enabled` (a TCP probe of
+ * app:8200) is false exactly when clicking the button is supposed to start
+ * it. Mirrors the backend whitelist (mgr/src/routes.rs ON_DEMAND_SERVICES,
+ * compose service "code-server") and the manifest id (app/services.toml
+ * "codeServer") - keep the three in sync. Consumers: SandboxTree shows
+ * these entries regardless of `enabled`; WorkspacePage routes them to
+ * CodeServerPane (the probe -> start -> poll machine). */
+export const ON_DEMAND_SERVICE_IDS: ReadonlySet<string> = new Set(["codeServer"]);

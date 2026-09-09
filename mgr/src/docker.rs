@@ -104,26 +104,33 @@ pub async fn network_disconnect(network: &str, container: &str) {
     }
 }
 
-/// Profile flags every mgr compose lifecycle command carries: the generated
-/// sandbox compose gates code-server / vnc behind profiles (same shape as the
-/// repo compose, design §3.5), but mgr sandboxes build ALL images and are
-/// managed as a unit - the workbench without its panes is half a product, so
-/// up starts them all (A3) and down must see them to tear them down. The
-/// external-stack variants below carry them too: the repo stack has the same
-/// profile-gated sidecars, and a start/stop that dropped them would maim an
-/// adopted workbench.
+/// Profile flags every `up` carries (D4, code-server on-demand): vnc ONLY.
+/// vnc is a resident dependency - pi agent-browser hard-depends on the CDP
+/// Chromium inside it - while code-server is a pure editor surface nothing
+/// in the sandbox depends on, so it is NOT started with the sandbox: the
+/// workspace pane pulls it up through mgr's service-start route
+/// (compose_service_up below). Empirically (compose 5.2.0) an `up` without
+/// the code-server profile never starts it and leaves an already-started
+/// one running untouched.
+const UP_PROFILES: [&str; 2] = ["--profile", "vnc"];
+
+/// Profile flags that activate ONLY the on-demand code-server profile
+/// (carried by the single-service commands below).
+pub const CODE_SERVER_PROFILE: [&str; 2] = ["--profile", "code-server"];
+
+/// Profile flags for every NON-up lifecycle command: stop/restart/down must
+/// still SEE code-server to stop it and tear it down cleanly (契约 4's
+/// second half - a started code-server dies with the sandbox, never
+/// lingers). Empirically (compose 5.2.0) all of them also tolerate a
+/// service with NO container at all: a fresh D4 sandbox that never opened a
+/// code-server pane stops and tears down without error.
 const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
 
-/// `docker compose -p <project> -f <file> up -d`. Modest -d output.
+/// `docker compose -p <project> -f <file> --profile vnc up -d
+/// [--force-recreate]`. The profile split (UP_PROFILES) is D4: vnc comes up
+/// with the sandbox, code-server does not (see compose_service_up).
 pub async fn compose_up(project: &str, compose_file: &Path, force_recreate: bool) -> Result<String> {
-    let mut args = compose_prefix(project, compose_file);
-    args.extend_from_slice(&SANDBOX_PROFILES);
-    args.push("up");
-    args.push("-d");
-    if force_recreate {
-        args.push("--force-recreate");
-    }
-    run_capture("docker", &args).await
+    run_args(&up_args(&compose_prefix(project, compose_file), &UP_PROFILES, force_recreate)).await
 }
 
 pub async fn compose_down(project: &str, compose_file: &Path, volumes: bool) -> Result<String> {
@@ -167,7 +174,7 @@ pub async fn compose_stop(project: &str, compose_file: &Path) -> Result<String> 
 // the file really lives.
 
 /// Prefix for external-stack commands (no `-p`, see section comment).
-fn compose_file_prefix<'a>(compose_file: &'a Path) -> Vec<&'a str> {
+fn compose_file_prefix(compose_file: &Path) -> Vec<&str> {
     vec!["compose", "-f", compose_file.to_str().unwrap_or_default()]
 }
 
@@ -180,12 +187,12 @@ pub async fn compose_ps_file(compose_file: &Path) -> Result<Vec<ComposePsEntry>>
 }
 
 /// `up -d` for an external stack (start of an adopted row). No
-/// force-recreate: recreating someone else's stack is not mgr's call.
+/// force-recreate: recreating someone else's stack is not mgr's call. The
+/// D4 profile split applies here too - only vnc comes up with the stack; an
+/// adopted code-server (if the compose carries one behind a profile) is
+/// pulled up on demand like a native one.
 pub async fn compose_up_file(compose_file: &Path) -> Result<String> {
-    let mut args = compose_file_prefix(compose_file);
-    args.extend_from_slice(&SANDBOX_PROFILES);
-    args.extend_from_slice(&["up", "-d"]);
-    run_capture("docker", &args).await
+    run_args(&up_args(&compose_file_prefix(compose_file), &UP_PROFILES, false)).await
 }
 
 pub async fn compose_stop_file(compose_file: &Path) -> Result<String> {
@@ -200,6 +207,65 @@ pub async fn compose_restart_file(compose_file: &Path) -> Result<String> {
     args.extend_from_slice(&SANDBOX_PROFILES);
     args.extend_from_slice(&["restart"]);
     run_capture("docker", &args).await
+}
+
+// ── on-demand single-service lifecycle (D4, unified Phase 3) ────────
+//
+// code-server is profile-gated and deliberately NOT started by `up`
+// (UP_PROFILES above); these commands address exactly ONE profile-gated
+// service by name. Every one of them carries the service's own profile:
+// compose only sees a profile-gated service when its profile is active.
+
+/// `docker compose -p <project> -f <file> --profile code-server up -d
+/// code-server` - bring up ONE on-demand service. `up -d <svc>`, NOT
+/// `start <svc>`: a profile-gated service that no `up` ever created has no
+/// container for `start` to find. This form also HEALS a stale sidecar:
+/// after the app container was replaced (a recreate job, or hand-driven
+/// compose on the host), a leftover code-server container keeps "running"
+/// attached to the REMOVED app's netns (network_mode: service:app) - dead
+/// network, and the next full-profile restart errors on it; `up -d <svc>`
+/// recreates the service against the CURRENT app container (verified live
+/// on compose 5.2.0).
+///
+/// `up` also starts the service's dependencies (app, via network_mode) -
+/// callers must ensure the sandbox itself is running (routes.rs
+/// service_start guards that: a stopped stack would come back up
+/// half-started, without gateway/vnc).
+pub async fn compose_service_up(
+    project: &str,
+    compose_file: &Path,
+    profiles: &[&str],
+    service: &str,
+) -> Result<String> {
+    run_args(&service_up_args(&compose_prefix(project, compose_file), profiles, service)).await
+}
+
+/// External-stack variant (no `-p`, the file is the identity): an adopted
+/// stack with a code-server service behind a profile is pulled up the same
+/// way as a native sandbox's.
+pub async fn compose_service_up_file(
+    compose_file: &Path,
+    profiles: &[&str],
+    service: &str,
+) -> Result<String> {
+    run_args(&service_up_args(&compose_file_prefix(compose_file), profiles, service)).await
+}
+
+/// `docker compose -p <project> -f <file> --profile code-server rm --force
+/// --stop code-server` - targeted container removal, run by the recreate
+/// job BEFORE a force-recreate `up`. Without it the old code-server
+/// container survives the app replacement as the running-but-unreachable
+/// zombie described on compose_service_up, and the next full-profile
+/// restart fails on it ("joining network namespace of container: No such
+/// container" - verified live). Idempotent: removing a service with no
+/// container at all is a no-op ("No stopped containers", exit 0).
+pub async fn compose_service_rm(
+    project: &str,
+    compose_file: &Path,
+    profiles: &[&str],
+    service: &str,
+) -> Result<String> {
+    run_args(&service_rm_args(&compose_prefix(project, compose_file), profiles, service)).await
 }
 
 /// `docker exec <container> caddy reload --config <path>` - the containerized
@@ -223,6 +289,40 @@ fn compose_prefix<'a>(project: &'a str, compose_file: &'a Path) -> Vec<&'a str> 
         // under mgr-data never contain spaces (name slug charset guarantees).
         compose_file.to_str().unwrap_or_default(),
     ]
+}
+
+/// Build the `up -d` argv shared by the project and external-file variants
+/// (pure, test-asserted): `[prefix...] [profiles...] up -d [--force-recreate]`.
+fn up_args<'a>(prefix: &[&'a str], profiles: &[&'a str], force_recreate: bool) -> Vec<&'a str> {
+    let mut args = prefix.to_vec();
+    args.extend_from_slice(profiles);
+    args.extend_from_slice(&["up", "-d"]);
+    if force_recreate {
+        args.push("--force-recreate");
+    }
+    args
+}
+
+/// Build the single-service `up -d <svc>` argv (pure, test-asserted).
+fn service_up_args<'a>(prefix: &[&'a str], profiles: &[&'a str], service: &'a str) -> Vec<&'a str> {
+    let mut args = up_args(prefix, profiles, false);
+    args.push(service);
+    args
+}
+
+/// Build the single-service `rm --force --stop <svc>` argv (pure,
+/// test-asserted).
+fn service_rm_args<'a>(prefix: &[&'a str], profiles: &[&'a str], service: &'a str) -> Vec<&'a str> {
+    let mut args = prefix.to_vec();
+    args.extend_from_slice(profiles);
+    args.extend_from_slice(&["rm", "--force", "--stop"]);
+    args.push(service);
+    args
+}
+
+/// The one place that turns a built argv into a captured `docker` run.
+async fn run_args(args: &[&str]) -> Result<String> {
+    run_capture("docker", args).await
 }
 
 /// One row of `docker compose ps --format json`. compose v2 emits lowercase
@@ -387,6 +487,79 @@ mod tests {
         // design §7: a parse failure must surface, never read as "gone".
         assert!(parse_ps_output("not json at all").is_err());
         assert!(parse_ps_output("[{\"name\": oops}]").is_err());
+    }
+
+    // ── D4 profile split: argv shapes (pure builders, no docker needed) ──
+
+    #[test]
+    fn up_args_carry_only_vnc_profile() {
+        // D4 core: `up` brings vnc (pi agent-browser's resident dependency)
+        // but NOT code-server (on-demand via compose_service_up).
+        let args = up_args(&["compose", "-p", "sbx-dev1", "-f", "/x/compose.yml"], &UP_PROFILES, false);
+        assert_eq!(
+            args,
+            vec![
+                "compose", "-p", "sbx-dev1", "-f", "/x/compose.yml",
+                "--profile", "vnc", "up", "-d",
+            ]
+        );
+        assert!(!args.contains(&"code-server"));
+    }
+
+    #[test]
+    fn up_args_force_recreate_appends_flag() {
+        let args = up_args(&["compose", "-f", "/x/compose.yml"], &UP_PROFILES, true);
+        assert!(args.ends_with(&["up", "-d", "--force-recreate"]));
+    }
+
+    #[test]
+    fn service_up_args_shape() {
+        // `up -d <svc>` (NOT `start <svc>` - no container exists for a
+        // profile-gated service no `up` ever created), and the service's
+        // OWN profile is carried so compose sees it at all.
+        let args = service_up_args(
+            &["compose", "-p", "sbx-dev1", "-f", "/x/compose.yml"],
+            &CODE_SERVER_PROFILE,
+            "code-server",
+        );
+        assert_eq!(
+            args,
+            vec![
+                "compose", "-p", "sbx-dev1", "-f", "/x/compose.yml",
+                "--profile", "code-server", "up", "-d", "code-server",
+            ]
+        );
+    }
+
+    #[test]
+    fn service_rm_args_shape() {
+        // Targeted pre-recreate removal: --force --stop tolerates a running
+        // container; the service name scopes it to code-server only.
+        let args = service_rm_args(
+            &["compose", "-f", "/x/compose.yml"],
+            &CODE_SERVER_PROFILE,
+            "code-server",
+        );
+        assert_eq!(
+            args,
+            vec![
+                "compose", "-f", "/x/compose.yml",
+                "--profile", "code-server", "rm", "--force", "--stop", "code-server",
+            ]
+        );
+    }
+
+    #[test]
+    fn non_up_commands_keep_full_profiles() {
+        // 契约 4 second half: stop/restart/down still see code-server to
+        // stop and tear it down cleanly. The constants themselves are the
+        // contract - a single place to catch an accidental re-split.
+        assert_eq!(
+            SANDBOX_PROFILES,
+            ["--profile", "code-server", "--profile", "vnc"]
+        );
+        assert_eq!(UP_PROFILES, ["--profile", "vnc"]);
+        assert_eq!(CODE_SERVER_PROFILE, ["--profile", "code-server"]);
     }
 }
 
