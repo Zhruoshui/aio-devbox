@@ -208,3 +208,70 @@ running 沙箱条目且单沙箱挂掉不整体失败。
 **mgr 不提供的端点**(沙箱本地文件操作,mgr 语义不成立,mgr-web 移植
 时裁掉): `/api/models/agents`、`apply/:agent`、`agents/:agent/provider/
 :id`、`agents/:agent/sync`、单沙箱 `/api/models/usage`。
+
+---
+
+## 契约 8: 存量栈纳管(adopt)——别名三方一致 + 外部 compose 无 -p(Phase 5)
+
+**Trigger**: 任何动 `mgr/src/routes.rs` adopt 流程、`mgr/src/docker.rs`
+外部 compose 变体、或试图纳管非 mgr 生成栈的人。
+
+沙箱身份 = aio-mgr-net 上的两个网络别名,由**三方**共同约定,任何一方
+漂移都会死路由(总网关 200 空响应或 proxy unreachable):
+
+| 别名 | 连接方 | 消费方 |
+|------|--------|--------|
+| `sbx-<name>`(gateway 容器) | adopt 时手工 connect;mgr 生成栈由 composegen aliases | caddy.rs render `reverse_proxy sbx-<name>:8080` |
+| `sbx-<name>-piweb`(app 容器) | 同上 | render piweb 块 + usage 扇出 URL |
+
+**外部 compose 生命周期规则**:
+
+1. **不带 `-p`**: 外部栈的 project 名由 compose 从文件所在目录推导
+   (存量栈 `make up` = 目录名如 `aio`)。显式传 sbx- 前缀 project 会
+   打错目标/凭空起第二套容器。`compose_*_file` 变体因此与 mgr 栈
+   变体并存,不可合并。profile 仍带全量(契约 4 同理)。
+2. **start 后必须重连别名**: 外部栈的 compose 里没有 network connect,
+   down/up 重建容器后别名**必然丢失**(D2 已知代价)。adopted start =
+   `compose up -d` + fresh ps 拿容器名 + 两个 network connect。容器名
+   不可持久存(recreate 会变),每次现查。
+3. **adopt 校验**: 相对路径相对 `MGR_REPO` 解析;`compose -f <path> ps`
+   无 running 条目 → 400(先 `make up`);gateway/app 服务名默认
+   "gateway"/"app" 可覆盖,但**仅 adopt 时刻生效**(schema 无列,start
+   重连用默认名——自定义服务名栈 stop→start 后显式报错而非静默死路由)。
+4. **unadopt 只去登记**: 删行 → best-effort 断连两个容器(ps 失败仅
+   warn,不阻断)→ caddy regenerate。**绝不 down 外部容器/卷**。
+   caddy 写文件失败时行已删、接口 500、重试报 not found——注释已声明
+   best-effort 自愈(同名 re-adopt 覆盖残留别名)。
+5. **路由失效语义**: 注销后 `curl -H 'Host: sbx-x.mgr.localhost'` 返回
+   **空 200**(caddy 无 catch-all 站点时未知 Host 的默认行为),不是
+   404。判定"域名失效"用响应体大小(0 字节)或对比 mgr.localhost。
+
+**验证点**: adopt 后列表出现 adopted 行(image=external);stop→start
+后别名仍在(`docker inspect ... Aliases`);DELETE 后容器仍 running、
+别名消失、Caddyfile 无该站点块、子域名 0 字节响应。
+
+---
+
+## 契约 9: 全栈无认证——安全边界与残留清理(Phase 5, D9)
+
+**Trigger**: 任何想给网关/mgr 加回认证、或在不受信网络部署的人。
+
+D9 决策: 信任边界 = 宿主机/本机。**全面无认证**——存量栈 gateway
+(去 basicauth 后的 repo gateway/Caddyfile)、mgr 总网关(caddy.rs
+render,有单测 `render_never_contains_basicauth` 锚定)、每沙箱生成的
+gateway(composegen,同锚定)。
+
+- 重新引入认证必须三处同步: repo Caddyfile + caddy.rs render +
+  composegen render_caddyfile(任一遗漏 = 部分路由裸奔)。
+- 历史机制已删,不可"顺手恢复": `make hash`/`ensure-hash`、
+  gateway/secrets/、gateway/entrypoint.sh(hash 投递)、Makefile
+  save/load 的 hash 打包、CI 冒烟的 `-u admin:admin`。
+- `docker-compose.yml` gateway 的 `env_file: .env` **保留**(PI_WEB_HOST_PORT
+  等仍需要;SANDBOX_USER 残留在旧 .env 里是无害未引用 env)。
+- 部署边界: mgr 总网关 `ports: 80:80` 是**宿主入口**,任何 LAN 暴露
+  = 无认证暴露全部沙箱 + mgr 控制面。远程使用自行加 VPN/带认证反代。
+
+**验证点**: `grep -rn "basicauth\|SANDBOX_USER\|ensure-hash\|secrets/hash"
+Makefile docker-compose.yml gateway/ .env.example .github/ README* docs/`
+清零;`make -n up NOBUILD=1` 无 ensure-hash 报错;网关直连 200 无
+WWW-Authenticate 头。

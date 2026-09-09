@@ -93,14 +93,24 @@
 
 ## Phase 5: 存量纳管 + 收尾
 
-- [ ] 导入向导（adopted 流程，design §3.8：network connect --alias、
+- [x] 导入向导（adopted 流程，design §3.8：network connect --alias、
       外部 compose 登记、只读式管理）。
-- [ ] 存量栈去认证：gateway/Caddyfile 删 basicauth、Makefile hash target
+- [x] 存量栈去认证：gateway/Caddyfile 删 basicauth、Makefile hash target
       移除、entrypoint secrets 挂载清理。
-- [ ] README/wiki 更新（多沙箱使用、mgr 双形态、安全边界声明）。
-- [ ] 验证：A9（存量栈导入后可管理）；`make up` 回归；A7 全量（删除确认 +
+- [x] README/wiki 更新（多沙箱使用、mgr 双形态、安全边界声明）。
+- [x] 验证：A9（存量栈导入后可管理）；`make up` 回归；A7 全量（删除确认 +
       卷清理 + 域名失效）。
-- [ ] 回滚点：commit 6（PR merge）。
+      （09-09 容器级全过：A9 用 mgr-data/tmp-a9 临时外部栈实测 adopt→
+      双别名连接→列表 adopted/external/running→子域名 200→stop/start/
+      restart（start 后别名自动重连）→PUT 拒改 400→unadopt 不删容器、
+      别名/Caddyfile/行全清、域名 0 字节。A7 全量 a7full：创建 job ok→
+      子域名 200→stop/start/restart→DELETE volumes=1→容器/卷/instance
+      目录/路由/域名 0 字节/列表全清。make up 回归：四容器健康、网关
+      无认证 200、code-server/vnc 子路径 302/200。cargo test --workspace
+      326 绿；mgr-web build 过；check agent PASS 含 6 处自修（usage
+      汇总纳入 adopted + 活文档残留清理）。浏览器 A9/确认交互人工验收
+      留宿主机）
+- [x] 回滚点：commit 6（PR merge）。
 
 ## 全局验证命令
 
