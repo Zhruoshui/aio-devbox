@@ -73,15 +73,23 @@
 
 ## Phase 4: 模型配置上收
 
-- [ ] mgr 侧 /api/models/*（config/discover/test，aio-models 逻辑 + kv 存储，
+- [x] mgr 侧 /api/models/*（config/discover/test，aio-models 逻辑 + kv 存储，
       契约对齐 app 现有接口）。
-- [ ] mgr-web 模型配置页（自 web/src/panes/models/ 移植）。
-- [ ] app 侧：MGR_URL 后台拉取任务（启动 + 60s 周期 + 落盘 render）；
+- [x] mgr-web 模型配置页（自 web/src/panes/models/ 移植）。
+- [x] app 侧：MGR_URL 后台拉取任务（启动 + 60s 周期 + 落盘 render）；
       写接口在 MGR_URL 设置时 403 managed-by-mgr；沙箱模型页只读降级。
-- [ ] usage 汇总：mgr 定时拉各沙箱 /api/models/usage → /api/usage；
+- [x] usage 汇总：mgr 定时拉各沙箱 /api/models/usage → /api/usage；
       mgr-web 用量页多沙箱视图。
-- [ ] 验证：A6（改 mgr 配置 → 沙箱内生效 + 沙箱内只读）；usage 汇总可见。
-- [ ] 回滚点：commit 5。
+- [x] 验证：A6（改 mgr 配置 → 沙箱内生效 + 沙箱内只读）；usage 汇总可见。
+      （09-09 容器级等价验证全过：mgr PUT→masked-echo GET；沙箱 a6 启动拉取
+      ——canonical 明文落盘 + pi native render 正确；GET /api/models/managed
+      =true + 6 写接口 403 managed-by-mgr；60s 周期同步实测 ~25s 轮换 key
+      生效；/api/usage 扇出含沙箱条目（error 隔离 + rows 形状）；删除后
+      容器/卷/instances/Caddyfile 全清。mgr-web 新 dist 已上线 mgr.localhost
+      （4c puppeteer 22+19 冒烟过：供应商 CRUD/preset/分配/用量合计）。
+      cargo test --workspace 316 全绿；web/mgr-web tsc 构建门过。浏览器
+      A6 人工目视（沙箱内只读横幅 + mgr 模型页）留宿主机）
+- [x] 回滚点：commit 5（d9a18e0）。
 
 ## Phase 5: 存量纳管 + 收尾
 
