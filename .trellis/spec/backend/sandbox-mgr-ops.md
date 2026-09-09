@@ -128,3 +128,36 @@ const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "v
   [CI Image Conventions 约定 7](../guides/ci-image-conventions.md));
   dep-cache 层必须为**每个** workspace member 写 dummy 源,漏一个
   `cargo build -p` 直接报 target resolution error。
+- **web-builder 阶段(Phase 3)**: mgr 无 sandbox-base 依赖,用
+  `node:20-bookworm-slim AS web-builder`(`COPY mgr-web/package*.json` →
+  `npm ci` → `COPY mgr-web` → `npm run build`),runtime 阶段 `COPY
+  --from=web-builder /mgr-web/dist /app/static` 并 `ENV MGR_WEB_DIR=/app/static`。
+  npm 项目不是 cargo member,dep-cache 虚拟源层不受影响。
+
+---
+
+## 契约 6: mgr.localhost 静态站点 + mgr-web 静态服务(Phase 3)
+
+**Trigger**: mgr-web 自身的访问入口;任何修改 caddy.rs render() 的人。
+
+mgr-api 在 compose 里**不发布宿主端口**——mgr-web 只经总网关
+`http://mgr.localhost` 访问。render() 生成的 Caddyfile **第一个站点块固定为**:
+
+```caddyfile
+http://mgr.localhost {
+    reverse_proxy mgr-api:8089
+}
+```
+
+上游 `mgr-api` 名来自 mgr-net 上的服务名(compose 双网: mgr-net +
+aio-mgr-net,alias `mgr-api` 保留给 Phase 4 沙箱侧 MGR_URL 拉取)。
+
+**静态服务**: mgr-api 用 tower-http `ServeDir::new(dir).fallback(
+ServeFile::new(dir/index.html))` 服务 SPA(同 app 模式);dist 路径 env
+`MGR_WEB_DIR` 覆盖,默认 `<repo>/mgr-web/dist`(裸跑形态);容器形态
+Dockerfile 烘 `/app/static`(见契约 5)。`/api` seam 三路由(app 同构)
+注册在 ServeDir fallback 之前。
+
+**验证点**: `curl -s -H 'Host: mgr.localhost' http://localhost/` 返回
+index.html;`/api/sandboxes` 返回 JSON 而非 HTML;未知 `/api/*` 404 JSON。
+render() 单测 `render_has_static_mgr_site_first` 锚定站点块存在且在最前。

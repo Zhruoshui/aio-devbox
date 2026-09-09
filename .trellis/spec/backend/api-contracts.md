@@ -1,9 +1,10 @@
 # API Contracts
 
-Executable contracts for the axum HTTP surface. Code owners: the
-serialization struct in `app/src/routes/*.rs` is the single owner of each
-payload; the frontend mirror lives in `web/src/types.ts` (see
-cross-layer-thinking-guide: decode once at the boundary).
+Executable contracts for the axum HTTP surface. There are TWO axum servers:
+the sandbox app (`app/src/routes/*.rs` owns each payload, frontend mirror
+`web/src/types.ts`) and the mgr control plane (`mgr/src/routes.rs` owns each
+payload, frontend mirror `mgr-web/src/types.ts`) — same decode-once-at-the-
+boundary rule (cross-layer-thinking-guide).
 
 ## GET /api/stats — container-view resource metrics
 
@@ -196,3 +197,69 @@ during the process lifetime, so the manifest handler never re-expands.
   default, multiple/adjacent placeholders, malformed pass-through, no
   closing brace, plain string. Verified live: `PI_WEB_HOST_PORT=30142` makes
   the manifest piWeb url `http://{host}:30142/`; unset keeps `:30141`.
+
+---
+
+# mgr 控制面 API(`mgr/src/routes.rs`)
+
+sandbox-mgr(09-08-sandbox-mgr-tui Phase 1/3)。base path:容器形态经总网关
+`http://mgr.localhost` → `mgr-api:8089`;裸跑形态直连 `MGR_BIND`(默认
+`:8089`)。mgr-web SPA 与静态 `/api` seam 同 app 模式(见 GET /api/stats 的
+路由顺序规则)。所有错误统一 `{"error": "<message>"}` JSON;校验类 400,
+内部失败 500(anyhow 链尾)。
+
+## GET /api/sandboxes — 列表(含实时状态合并)
+
+### 1. Scope / Trigger
+
+mgr-web 列表页数据源;DB status 是"意图"(creating/running/error),`live`
+是 compose ps 的实时事实。两个维度刻意分离——DB 说"应该 running"而 live
+说"gone"时,说明有人手工 `docker compose down` 过,UI 必须如实展示而非隐藏。
+
+### 2. Signatures
+
+- Owner: `mgr/src/routes.rs::sandbox_json`(单行 payload 构造,列表与详情
+  共用;改字段 = 两处同步 `mgr-web/src/types.ts::Sandbox`)。
+- `live` 枚举: `"running" | "stopped" | "gone" | "unknown"`——**unknown 是
+  compose ps 本身失败**(docker daemon 挂/文件丢失),与"没有容器"(gone)
+  语义不同;Err 分支必须显式报 unknown,不能映射成空列表(否则 daemon 故障
+  会显示所有沙箱"已消失")。
+
+### 3. Contracts
+
+列表项字段(12): `name/status/live/adopted/created_at/cpus/mem_mb/env/
+image/entry_url/piweb_url/services[]`。URL 字段在 payload 里内联生成
+(`http://sbx-<name>.mgr.localhost/`),sbx- 前缀与 caddy.rs render 及
+composegen 网络别名三方共享同一身份——改前缀必须三处同改。
+
+### 4. Validation & Error Matrix
+
+- name slug: `[a-z0-9-]+`,≤32 字符,字母数字开头;保留 `mgr` 与 `sbx-`
+  前缀 → 400。前端 `mgr-web/src/pages/CreatePage.tsx::NAME_RE` 必须与
+  `validate_name` 等价(提交前先本地拒)。
+
+### 5. Tests Required
+
+- `caddy.rs` render 单测(站点块存在/删除消失/mgr 静态站优先)锁 URL 形状。
+
+## PUT /api/sandboxes/:name — limits 三态语义
+
+**缺失 = 保留当前值;`>0` = 设置;`0` = 清除(无限制)。** `null` 与缺失
+同义(serde Option),所以 UI 的"清除"必须显式发 `0`,不能发 `null`——纯
+null 方案下 UI 无法区分"未更改"与"清除"。创建侧对偶:`0`/null 归一化为
+无限制。负数 400(`check_limits`)。改 env 走 recreate job(202 + `{job}`),
+卷保留。
+
+## images 表 build_log 的 A5 保留语义
+
+同 env 第二个沙箱复用镜像(A5)时,`upsert_image` 以**空 log**命中
+`ON CONFLICT DO UPDATE`——必须 CASE WHEN 保留旧 build_log/built_at,否则
+原始构建日志被空值覆盖,镜像页日志按钮永久禁用。`mgr/src/db.rs` 单测
+锁语义(3 个)。
+
+## /api seam 404(app 与 mgr 同构)
+
+未知 `/api/*` 路径不得落到 SPA fallback(否则 `/api/nonexistent` 返回
+200 HTML,前端 fetch 解析为文本"成功")。app 的三路由 seam 模式
+(`/api`、`/api/`、`/api/*rest` any-method → 404 JSON)在 mgr
+`main.rs` 同样落地;新增 API 路由注册在 seam 之前。
