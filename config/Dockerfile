@@ -11,9 +11,10 @@
 
 FROM rust:1-bookworm AS build
 WORKDIR /src
-# Copy the manifest + lock + sources and build. Cargo.lock is committed (binary
-# crate, like app/) for reproducible builds; --locked fails the build if the lock
-# is out of sync with Cargo.toml.
+# Copy the manifest + lock + sources and build. Cargo.lock is committed (this
+# image builds standalone from config/ as context; the repo-root workspace
+# keeps its own shared Cargo.lock) for reproducible builds; --locked fails the
+# build if the lock is out of sync with Cargo.toml.
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release --locked

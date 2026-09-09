@@ -7,7 +7,7 @@
 
 ## 前置:整机分发(make save / make load)
 
-本指南的正文针对"离线机**已有运行中的 stack**"之后补装工具。若目标是一台**全新离线机**的整套部署,用仓库自带的打包目标 —— 镜像之外还要带上两个被 gitignore、且不随镜像走的宿主状态文件(`.env` 是 compose 起栈的硬依赖,`gateway/secrets/hash` 缺失会被重置为默认密码):
+本指南的正文针对"离线机**已有运行中的 stack**"之后补装工具。若目标是一台**全新离线机**的整套部署,用仓库自带的打包目标 —— 镜像之外还要带上一个被 gitignore、且不随镜像走的宿主状态文件(`.env` 是 compose 起栈的硬依赖):
 
 ```bash
 # 联网机:一键打包(docker save 在同一 tar 内对共享层去重,多带 sandbox-base 几乎不增体积)
@@ -15,7 +15,6 @@ make save
 #   → aio-offline-bundle/ 目录(整体传输:tar cf bundle.tar aio-offline-bundle 或 scp -r)
 #   = images.tar(镜像 sandbox-base/app/code-server/vnc + caddy:2)
 #   + env(.env,compose env_file)
-#   + hash(gateway/secrets/hash,basicauth bcrypt)
 #   + enabled.toml(.aio/enabled.toml,场景选择记录)
 
 # 传到离线机仓库根目录后:

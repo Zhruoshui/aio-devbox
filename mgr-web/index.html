@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-mode="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sandbox 管理器</title>
+    <script>
+      // Pre-paint theme/lang restore (the Kumo default is dark; a stored
+      // "light"/"en" preference is applied before first paint so the app
+      // never flashes the wrong mode). App.tsx owns these values afterwards.
+      // Keys are mgr-prefixed: mgr.localhost and the sandbox workbench are
+      // different origins (localStorage is per-origin), but distinct keys
+      // keep the two apps debuggable side by side.
+      try {
+        var mode = localStorage.getItem("mgr.theme");
+        if (mode === "light" || mode === "dark") {
+          document.documentElement.dataset.mode = mode;
+        }
+        var lang = localStorage.getItem("mgr.lang");
+        if (lang === "zh-CN" || lang === "en") {
+          document.documentElement.lang = lang;
+        }
+      } catch (e) {
+        /* localStorage unavailable - keep dark default */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

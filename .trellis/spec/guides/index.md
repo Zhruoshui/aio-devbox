@@ -88,7 +88,7 @@ inference at Trellis step 3.4.
 | Convention | Summary | When |
 |------------|---------|------|
 | [Commit Guidelines](./commit-guidelines.md) | Commit 描述用中文(英文 conventional 前缀 + 中文主标题/body) | Trellis step 3.4,起草任何 commit 前 |
-| [CI Image Conventions](./ci-image-conventions.md) | gen 命令漂移锚定/BASE_IMAGE 参数化/标签方案/探针语义 | 改 Makefile gen、派生镜像 Dockerfile、workflow 或镜像标签前 |
+| [CI Image Conventions](./ci-image-conventions.md) | gen 命令漂移锚定/BASE_IMAGE 参数化/标签方案/探针语义/COPY-mtime 陷阱 | 改 Makefile gen、派生镜像 Dockerfile、workflow 或镜像标签前 |
 
 ---
 

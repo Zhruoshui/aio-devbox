@@ -1,12 +1,23 @@
 # Directory Structure
 
-The backend is a single axum crate at `app/`.
+The backend is a single axum crate at `app/`, one member of the REPO-ROOT
+cargo workspace (root `Cargo.toml`, members `app` / `config` / `aio-models` /
+`mgr`; ONE shared `Cargo.lock` lives at the repo root and is committed —
+member lockfiles do not exist. `config/` additionally keeps its own
+`config/Cargo.lock` ONLY for its standalone container build, whose context is
+`config/` alone).
 
 ```
+Cargo.toml                # workspace root: members + [profile.release] (honored ONLY here)
+Cargo.lock                # committed - one lock for the whole workspace
+aio-models/               # canonical model-config store (schema + read/write +
+│                         # mask/merge/validate), NO axum dependency - shared by
+│                         # app (routes) and mgr (Phase 1+); single owner of the
+│                         # models.json contract
+mgr/                      # sandbox-mgr control plane (Phase 0: placeholder bin)
 app/
-├── Cargo.toml              # deps; binary name `aio-app`
-├── Cargo.lock              # committed (binary crate)
-├── Dockerfile              # multi-stage: builder (cargo) + web-builder (vite) + runtime
+├── Cargo.toml              # deps; binary name `aio-app` (no [profile] section - root-owned)
+├── Dockerfile              # multi-stage: builder (cargo, workspace-aware) + web-builder (vite) + runtime
 ├── services.toml           # the pane registry - SINGLE SOURCE OF TRUTH (baked in via include_str!)
 └── src/
     ├── main.rs             # entry: router setup, route registration, ServeDir
@@ -36,11 +47,15 @@ app/
 
 ## Build/host-side tooling (`config/`)
 
-`config/` is a SEPARATE Rust crate (not part of the running stack) producing the
-`aio-config` binary: `tui` (scenario picker) + `gen` (assembles `Dockerfile.base`
-from `Dockerfile.base.head` + enabled `scenarios/<id>/fragment.Dockerfile` +
-`Dockerfile.base.tail`). Built into the `aio-config` image, run via `docker run`
-from the Makefile. See `.trellis/tasks/08-03-scenario-preset-profiles/`.
+`config/` is a Rust crate separate from the running stack (workspace member,
+but built STANDALONE into the `aio-config` image with `config/` as its own
+context + its own `config/Cargo.lock`). It carries a lib target
+(`aio_config`: `scenario` / `manifest` / `gen` — reusable by `mgr`) plus the
+`aio-config` bin (`tui` scenario picker is bin-only + `gen` assembles
+`Dockerfile.base` from `Dockerfile.base.head` + enabled
+`scenarios/<id>/fragment.Dockerfile` + `Dockerfile.base.tail`). Run via
+`docker run` from the Makefile. See
+`.trellis/tasks/08-03-scenario-preset-profiles/`.
 
 **Scenario fragment rules (must follow when adding `scenarios/<id>/`)**:
 - Fragments run as root (inserted before the tail's `USER gem`).

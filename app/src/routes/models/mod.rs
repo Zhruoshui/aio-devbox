@@ -11,6 +11,7 @@
 //   POST /api/models/apply/:agent — render canonical assignment to the agent's files
 //   GET  /api/models/usage        — per-(agent,model) token aggregation (design §6)
 //   GET  /api/models/catalog      — models.dev metadata catalog (1h cache, 08-27-provider-form-piweb)
+//   GET  /api/models/managed      — is this sandbox managed by sandbox-mgr? (Phase 4b)
 //   PUT    /api/models/agents/:agent/provider/:id — field-level edit of one live
 //          provider node in the agent's native config (08-27-agent-tabs-live-config)
 //   DELETE /api/models/agents/:agent/provider/:id — remove one live provider node
@@ -19,13 +20,25 @@
 // All writes are serialized by `state.models_lock` (per design §3). Corrupt
 // files are moved aside (models.json.corrupt-<ts>) and the error surfaced;
 // the next PUT succeeds on a fresh file.
+//
+// Sandbox-mgr managed mode (Phase 4b, D6): when MGR_URL is set, mgr is the
+// single source of truth — every WRITE endpoint above returns 403
+// `managed-by-mgr` via `managed_guard` (config flows in through the pull
+// task in mgr_sync.rs, never out). GET endpoints (config/agents/usage/
+// catalog/discover/test) stay open so the sandbox keeps a read + probe view.
 
 pub mod catalog;
 pub mod discover;
 pub mod render;
-pub mod store;
 pub mod test;
 pub mod usage;
+
+// Canonical store (schema + read/write + mask/merge/validate) lives in the
+// aio-models crate (shared with the mgr control plane, sandbox-mgr Phase 0).
+use aio_models::store::{
+    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
+    CanonicalConfig, ImportResponse, PutResponse, StoreError,
+};
 
 use std::path::{Path, PathBuf};
 
@@ -38,10 +51,6 @@ use serde_json::{json, Value};
 use crate::config::{command_exists, resolve_path_dirs};
 use crate::state::AppState;
 use render::{home_dir, ApplyResult, Agent, ProviderPatch};
-use store::{
-    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
-    CanonicalConfig, ImportResponse, PutResponse, StoreError,
-};
 
 /// GET /api/models/config — return the full canonical config with masked keys.
 pub async fn get_config(State(state): State<AppState>) -> Json<CanonicalConfig> {
@@ -50,11 +59,32 @@ pub async fn get_config(State(state): State<AppState>) -> Json<CanonicalConfig> 
     Json(config)
 }
 
+/// GET /api/models/managed — read-only marker for the frontend: is this
+/// sandbox's model config managed by sandbox-mgr (MGR_URL set, Phase 4b)?
+/// The models page probes this once on mount and flips to its read-only
+/// presentation; a later 403 managed-by-mgr on a write is the fallback.
+pub async fn get_managed(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "managed": state.mgr_url.is_some() }))
+}
+
+/// Shared 403 guard for every /api/models WRITE endpoint while this sandbox
+/// is managed by sandbox-mgr (MGR_URL set, D6). The body is the exact
+/// marker string the frontend matches to flip its read-only view. Call as
+/// the first statement of each write handler, before any lock/file work.
+pub(crate) fn managed_guard(state: &AppState) -> Result<(), (StatusCode, String)> {
+    if state.mgr_url.is_some() {
+        Err((StatusCode::FORBIDDEN, "managed-by-mgr".to_string()))
+    } else {
+        Ok(())
+    }
+}
+
 /// PUT /api/models/config — merge masked-echo keys, validate, atomic write.
 pub async fn put_config(
     State(state): State<AppState>,
     Json(mut incoming): Json<CanonicalConfig>,
 ) -> Result<Json<PutResponse>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let _guard = state.models_lock.lock().await;
 
     // Read stored config; handle corrupt file by moving it aside.
@@ -111,6 +141,7 @@ pub async fn put_config(
 pub async fn import_pi(
     State(state): State<AppState>,
 ) -> Result<Json<ImportResponse>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let _guard = state.models_lock.lock().await;
 
     let pi_path = pi_models_path();
@@ -131,7 +162,7 @@ pub async fn import_pi(
         }
     };
 
-    let result = store::import_from_pi(&pi_path, &config).map_err(|e| match e {
+    let result = aio_models::store::import_from_pi(&pi_path, &config).map_err(|e| match e {
         StoreError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             (StatusCode::NOT_FOUND, "pi models.json not found".to_string())
         }
@@ -212,6 +243,7 @@ pub async fn apply_agent(
     State(state): State<AppState>,
     axum::extract::Path(agent): axum::extract::Path<String>,
 ) -> Result<Json<ApplyResult>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let _guard = state.models_lock.lock().await;
 
     let canonical = match read_config(&state.models_file) {
@@ -254,14 +286,44 @@ pub async fn apply_agent(
     }
 
     let home = home_dir();
-    let result = match agent_kind {
-        Agent::Pi => render::pi::apply_pi(&home, &canonical),
-        Agent::Opencode => render::opencode::apply_opencode(&home, &canonical),
-        Agent::Claude => render::claude::apply_claude(&home, &canonical),
-        Agent::Codex => render::codex::apply_codex(&home, &canonical),
-    };
+    let result = render_agent(agent_kind, &home, &canonical);
 
     Ok(Json(result))
+}
+
+/// Render one agent's canonical assignment to its native files — the exact
+/// call apply_agent makes after its validation. Shared with the mgr-sync
+/// pull task (Phase 4b) so a pulled config derives files through the SAME
+/// render path a user-triggered apply uses (no duplicated pipeline).
+fn render_agent(agent_kind: Agent, home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
+    match agent_kind {
+        Agent::Pi => render::pi::apply_pi(home, canonical),
+        Agent::Opencode => render::opencode::apply_opencode(home, canonical),
+        Agent::Claude => render::claude::apply_claude(home, canonical),
+        Agent::Codex => render::codex::apply_codex(home, canonical),
+    }
+}
+
+/// Render EVERY agent that has an assignment (mgr-sync's post-write render
+/// pass, Phase 4b). Absent assignments are skipped — the per-agent endpoint
+/// 400s on those ("no <agent> assignment"), a full pass just leaves that
+/// agent's files untouched. Caller holds models_lock. Returns per-agent
+/// results for the caller's logging.
+pub(crate) fn apply_all_agents(
+    canonical: &CanonicalConfig,
+    home: &Path,
+) -> Vec<(&'static str, ApplyResult)> {
+    let agents: [(&'static str, Agent, bool); 4] = [
+        ("pi", Agent::Pi, canonical.agents.pi.is_some()),
+        ("opencode", Agent::Opencode, canonical.agents.opencode.is_some()),
+        ("claude", Agent::Claude, canonical.agents.claude.is_some()),
+        ("codex", Agent::Codex, canonical.agents.codex.is_some()),
+    ];
+    agents
+        .into_iter()
+        .filter(|&(_, _, assigned)| assigned)
+        .map(|(name, kind, _)| (name, render_agent(kind, home, canonical)))
+        .collect()
 }
 
 // ── live provider management (08-27-agent-tabs-live-config) ────────
@@ -294,6 +356,7 @@ pub async fn edit_live_provider(
     axum::extract::Path((agent, provider_id)): axum::extract::Path<(String, String)>,
     Json(patch): Json<ProviderPatch>,
 ) -> Result<Json<ApplyResult>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let agent_kind = incremental_agent(&agent)?;
     // Serialize with apply: both write the same native files.
     let _guard = state.models_lock.lock().await;
@@ -314,6 +377,7 @@ pub async fn delete_live_provider(
     State(state): State<AppState>,
     axum::extract::Path((agent, provider_id)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<ApplyResult>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let agent_kind = incremental_agent(&agent)?;
     let _guard = state.models_lock.lock().await;
 
@@ -342,6 +406,7 @@ pub async fn sync_live_provider(
     axum::extract::Path(agent): axum::extract::Path<String>,
     body: Option<Json<SyncRequest>>,
 ) -> Result<Json<ImportResponse>, (StatusCode, String)> {
+    managed_guard(&state)?;
     let agent_kind = incremental_agent(&agent)?;
     let req = body.map(|Json(b)| b).unwrap_or_default();
     let _guard = state.models_lock.lock().await;
@@ -366,16 +431,16 @@ pub async fn sync_live_provider(
         Agent::Pi => {
             let p = pi_models_path();
             let r = match &req.id {
-                Some(id) => store::import_pi_provider(&p, &config, id),
-                None => store::import_from_pi(&p, &config),
+                Some(id) => aio_models::store::import_pi_provider(&p, &config, id),
+                None => aio_models::store::import_from_pi(&p, &config),
             };
             (p, r)
         }
         Agent::Opencode => {
             let p = opencode_jsonc_path();
             let r = match &req.id {
-                Some(id) => store::import_opencode_provider(&p, &config, id),
-                None => store::import_from_opencode(&p, &config),
+                Some(id) => aio_models::store::import_opencode_provider(&p, &config, id),
+                None => aio_models::store::import_from_opencode(&p, &config),
             };
             (p, r)
         }
@@ -815,5 +880,153 @@ mod tests {
         for bad in ["claude", "codex", "nope"] {
             assert!(incremental_agent(bad).is_err(), "'{bad}' must be rejected");
         }
+    }
+
+    // ── sandbox-mgr managed mode (Phase 4b) ─────────────────────────
+
+    use aio_models::store::{AgentAssignment, ProviderEntry};
+    use crate::state::AppState as TestAppState;
+
+    fn test_state(mgr_url: Option<&str>) -> (TestAppState, std::path::PathBuf) {
+        let dir = temp_home();
+        let models_file = dir.join("models.json");
+        let state = TestAppState::new(
+            Vec::new(),
+            dir.join("buttons.toml"),
+            models_file.clone(),
+            mgr_url.map(str::to_string),
+        );
+        (state, models_file)
+    }
+
+    #[test]
+    fn managed_guard_managed_and_unmanaged() {
+        let (unmanaged, _) = test_state(None);
+        assert!(managed_guard(&unmanaged).is_ok());
+        let (managed, _) = test_state(Some("http://mgr-api:8089"));
+        let err = managed_guard(&managed).expect_err("managed must 403");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(err.1, "managed-by-mgr");
+    }
+
+    #[tokio::test]
+    async fn managed_write_handlers_all_return_403_managed_by_mgr() {
+        // Every write endpoint (PUT/POST/DELETE) refuses before touching
+        // files — the models.json seed must survive untouched, proving the
+        // guard short-circuits ahead of any file work.
+        let (state, models_file) = test_state(Some("http://mgr-api:8089"));
+        std::fs::write(&models_file, r#"{"version":1}"#).unwrap();
+        let marker = (StatusCode::FORBIDDEN, "managed-by-mgr".to_string());
+
+        let r = put_config(State(state.clone()), Json(CanonicalConfig::default()))
+            .await
+            .unwrap_err();
+        assert_eq!(r, marker);
+        let r = import_pi(State(state.clone())).await.unwrap_err();
+        assert_eq!(r, marker);
+        let r = apply_agent(
+            State(state.clone()),
+            axum::extract::Path("pi".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(r, marker);
+        let r = edit_live_provider(
+            State(state.clone()),
+            axum::extract::Path(("pi".to_string(), "prov-a".to_string())),
+            Json(Default::default()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(r, marker);
+        let r = delete_live_provider(
+            State(state.clone()),
+            axum::extract::Path(("pi".to_string(), "prov-a".to_string())),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(r, marker);
+        let r = sync_live_provider(State(state), axum::extract::Path("pi".to_string()), None)
+            .await
+            .unwrap_err();
+        assert_eq!(r, marker);
+
+        assert_eq!(
+            std::fs::read_to_string(&models_file).unwrap(),
+            r#"{"version":1}"#,
+            "guard must short-circuit before any file write"
+        );
+    }
+
+    #[tokio::test]
+    async fn unmanaged_put_config_behaves_as_before() {
+        // mgr_url unset: the guard is a no-op and a valid PUT still writes.
+        let (state, models_file) = test_state(None);
+        let mut incoming = CanonicalConfig::default();
+        incoming.providers.insert(
+            "prov-a".to_string(),
+            ProviderEntry {
+                name: "Prov A".into(),
+                base_url: "https://a.example/v1".into(),
+                models: vec![aio_models::store::ModelEntry {
+                    id: "model-a".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        incoming.agents.pi = Some(AgentAssignment {
+            provider: "prov-a".into(),
+            model: "model-a".into(),
+        });
+        let r = put_config(State(state), Json(incoming.clone())).await;
+        assert!(r.is_ok(), "unmanaged PUT must keep working: {r:?}");
+        let back = read_config(&models_file).unwrap();
+        assert!(back.providers.contains_key("prov-a"));
+        assert!(config_json_equal(&back, &incoming));
+    }
+
+    /// serde_json deep equality (same compare the mgr-sync pull task uses).
+    fn config_json_equal(a: &CanonicalConfig, b: &CanonicalConfig) -> bool {
+        serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+    }
+
+    #[test]
+    fn apply_all_agents_renders_only_assigned_agents() {
+        // pi assigned, others absent => exactly one render, and pi's native
+        // settings.json actually lands in the temp home.
+        let home = temp_home();
+        let mut canonical = CanonicalConfig::default();
+        canonical.providers.insert(
+            "prov-a".to_string(),
+            ProviderEntry {
+                name: "Prov A".into(),
+                base_url: "https://a.example/v1".into(),
+                api_key: Some("sk-test".into()),
+                models: vec![aio_models::store::ModelEntry {
+                    id: "model-a".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        canonical.agents.pi = Some(AgentAssignment {
+            provider: "prov-a".into(),
+            model: "model-a".into(),
+        });
+
+        let results = apply_all_agents(&canonical, &home);
+        assert_eq!(results.len(), 1, "only assigned agents render");
+        assert_eq!(results[0].0, "pi");
+        assert!(results[0].1.ok, "pi render must succeed: {:?}", results[0].1);
+
+        let settings = std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap();
+        assert!(settings.contains("prov-a"), "settings written: {settings}");
+
+        // No assignment at all => empty pass, no file touched.
+        let empty_home = temp_home();
+        let results = apply_all_agents(&CanonicalConfig::default(), &empty_home);
+        assert!(results.is_empty());
+        assert!(!empty_home.join(".pi/agent/models.json").exists());
     }
 }

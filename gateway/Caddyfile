@@ -1,11 +1,13 @@
 # Caddyfile - Phase D/G gateway.
-# basicauth over everything (HTTP + WS); reverse-proxies to the axum app and to
-# the pluggable web services (code-server, vnc). Adding a web service = one more
+# Reverse-proxies to the axum app and to the pluggable web services
+# (code-server, vnc). Adding a web service = one more
 # `handle_path <prefix>/*` block before the catch-all (design §3 / §14B).
 #
-# {$SANDBOX_USER} and {$SANDBOX_PASSWORD_HASH} are resolved by caddy from its
-# process environment. See gateway/entrypoint.sh for how the hash is delivered
-# (a mounted file, because docker-compose mangles '$' in env values).
+# Security boundary: NO authentication (D9). This system targets a single
+# user on a trusted machine/LAN - the trust boundary is the host. The
+# sandbox-mgr total gateway (*.mgr.localhost) runs bare the same way. Do not
+# expose to untrusted networks; add your own VPN / reverse-proxy auth layer
+# if remote access is needed.
 #
 # code-server subpath: code-server has no --prefix flag and 404s on /code-server/
 # (it is not subpath-aware). It is served behind /code-server/ via `handle_path`,
@@ -20,13 +22,9 @@
 # emits RELATIVE asset URLs (src="app/ui.js", href="app/styles/base.css") and
 # connects its WebSocket to `websockify` relative to the page, so the browser
 # resolves them against /vnc/ and caddy strips /vnc back to / on the websockify
-# side. basicauth applies to the WS upgrade too (browser caches the challenge).
-# `handle` + `handle_path` are evaluated in source order, so both web-service
-# routes must precede the catch-all (design §3).
+# side. `handle` + `handle_path` are evaluated in source order, so both
+# web-service routes must precede the catch-all (design §3).
 :8080 {
-	basicauth {
-		{$SANDBOX_USER} {$SANDBOX_PASSWORD_HASH}
-	}
 	handle_path /code-server/* {
 		reverse_proxy app:8200
 	}

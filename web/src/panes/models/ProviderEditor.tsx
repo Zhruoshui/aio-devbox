@@ -12,6 +12,12 @@
 //
 // `open` starts false and flips on a rAF after mount so the drawer + scrim
 // animate in; closing unmounts immediately (no exit animation).
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): every mutating control is
+// disabled (fields, add/delete model, save, delete provider, add-selected);
+// the GET-type probes — fetch models (discover), per-model test, models.dev
+// fill lookup — stay enabled so the drawer remains a working read + probe
+// view of a managed config.
 
 import { useEffect, useState } from "react";
 import { Icon } from "../../icons";
@@ -43,6 +49,7 @@ export function ProviderEditor({
   dirty,
   saving,
   saveMsg,
+  readOnly,
   headersText,
   compatText,
   showAdvanced,
@@ -75,6 +82,8 @@ export function ProviderEditor({
   dirty: boolean;
   saving: boolean;
   saveMsg: { ok: boolean; text: string } | null;
+  /** Managed mode: disable every write control; probes stay usable. */
+  readOnly: boolean;
   headersText: string;
   compatText: string;
   showAdvanced: boolean;
@@ -159,6 +168,7 @@ export function ProviderEditor({
               <label>{t(lang, "mcName")}</label>
               <input
                 value={provider.name}
+                disabled={readOnly}
                 onChange={(e) => onPatchProvider({ name: e.target.value })}
               />
             </div>
@@ -166,6 +176,7 @@ export function ProviderEditor({
               <label>{t(lang, "mcBaseUrl")}</label>
               <input
                 value={provider.baseUrl}
+                disabled={readOnly}
                 onChange={(e) => onPatchProvider({ baseUrl: e.target.value })}
                 placeholder="https://api.example.com/v1"
               />
@@ -175,6 +186,7 @@ export function ProviderEditor({
                 <label>{t(lang, "mcApi")}</label>
                 <select
                   value={provider.api}
+                  disabled={readOnly}
                   onChange={(e) => onPatchProvider({ api: e.target.value })}
                 >
                   {API_PROTOCOLS.map((p) => (
@@ -191,6 +203,7 @@ export function ProviderEditor({
                     type={showKey ? "text" : "password"}
                     value={provider.apiKey ?? ""}
                     placeholder={t(lang, "mcApiKeyPh")}
+                    disabled={readOnly}
                     onChange={(e) => onPatchProvider({ apiKey: e.target.value })}
                   />
                   <button
@@ -225,6 +238,7 @@ export function ProviderEditor({
                   <textarea
                     className="ml-json-area"
                     value={headersText}
+                    disabled={readOnly}
                     onChange={(e) => onHeadersChange(e.target.value)}
                     rows={4}
                     spellCheck={false}
@@ -235,6 +249,7 @@ export function ProviderEditor({
                   <textarea
                     className="ml-json-area"
                     value={compatText}
+                    disabled={readOnly}
                     onChange={(e) => onCompatChange(e.target.value)}
                     rows={4}
                     spellCheck={false}
@@ -259,7 +274,11 @@ export function ProviderEditor({
                   <Icon name="download" />
                   {t(lang, "mcFetchModels")}
                 </button>
-                <button className="btn btn-secondary btn-sm" onClick={onAddModel}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  disabled={readOnly}
+                  onClick={onAddModel}
+                >
                   <Icon name="plus" />
                   {t(lang, "mcAddModel")}
                 </button>
@@ -277,6 +296,7 @@ export function ProviderEditor({
                     idx={idx}
                     testState={testState}
                     catalogFillState={catalogFillState[`${providerId}:${m.id}`]}
+                    readOnly={readOnly}
                     onPatchModel={onPatchModel}
                     onDeleteModel={onDeleteModel}
                     onUpdateCost={onUpdateCost}
@@ -316,15 +336,17 @@ export function ProviderEditor({
 
         {/* save bar */}
         <div className="ml-drawer-savebar">
-          <button
-            className="btn btn-danger-text"
-            aria-label={t(lang, "mcDeleteProvider")}
-            title={t(lang, "mcDeleteProvider")}
-            onClick={onDeleteProvider}
-          >
-            <Icon name="trash" />
-            {t(lang, "mcDeleteProvider")}
-          </button>
+          {!readOnly && (
+            <button
+              className="btn btn-danger-text"
+              aria-label={t(lang, "mcDeleteProvider")}
+              title={t(lang, "mcDeleteProvider")}
+              onClick={onDeleteProvider}
+            >
+              <Icon name="trash" />
+              {t(lang, "mcDeleteProvider")}
+            </button>
+          )}
           <span className="spacer" />
           {dirty && <span className="ml-dirty">{t(lang, "mcDirty")}</span>}
           {saveMsg && (
@@ -337,7 +359,7 @@ export function ProviderEditor({
           </button>
           <button
             className="btn btn-primary"
-            disabled={!dirty || saving}
+            disabled={readOnly || !dirty || saving}
             onClick={onSave}
           >
             {saving ? <Icon name="refresh" /> : null}
@@ -477,7 +499,7 @@ export function ProviderEditor({
                         </button>
                         <button
                           className="btn btn-primary btn-sm"
-                          disabled={discover.selected.size === 0}
+                          disabled={readOnly || discover.selected.size === 0}
                           onClick={() => {
                             onDiscoverAddSelected();
                             onDiscoverSet(null);

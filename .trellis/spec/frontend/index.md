@@ -21,6 +21,10 @@ See [directory-structure.md](./directory-structure.md). In short: `web/src/main.
 `ModelsPane.tsx` shell + view sub-components; `index.tsx` re-exports
 `ModelsPane`. Backend contract in the backend Model Config Guide).
 
+A second SPA lives in `mgr-web/` (sandbox-mgr admin console: no
+golden-layout, `App.tsx` in-memory view state instead of routing; `types.ts`/
+`api.ts` mirror the mgr control-plane API — backend/api-contracts.md).
+
 ## Pane types (`ServiceEntry.type`)
 
 - `"web"` → `IframePane` (containerized service in an iframe; TCP-probed `enabled`).

@@ -17,8 +17,8 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 
 ## 特性
 
-- **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`(HTTP
-  basic auth)。左侧可折叠侧边栏列出按钮,每次点击在主区启动一个**新实例**标签页
+- **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`。左侧
+  可折叠侧边栏列出按钮,每次点击在主区启动一个**新实例**标签页
   (终端默认打开),标签页可拖拽拆分/平铺(golden-layout),也可用 tab 上的 ✕ 关闭。
 - **可插拔按钮,自动探测——三种类型。**
   - `web`(code-server、VNC):由 compose profile 控制——容器没跑就没有按钮
@@ -46,17 +46,16 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
   `~/.local/bin` 工具)都在卷上,扛过 `down`/`up`。注意:已部署沙箱里运行时
   `mise use` 落容器可写层,recreate 即丢(已知取舍——离线整目录搬迁是受支持
   的路径,见 `docs/offline-tool-install.md` §14)。
-- **支持离线。** 联网机 `make save` 打包(镜像 + `.env` + 网关哈希 + 场景选择),
+- **支持离线。** 联网机 `make save` 打包(镜像 + `.env` + 场景选择),
   离线机 `make load` 恢复(或裸 `docker save`/`load`),`make up NOBUILD=1` 运行。
   完整的离线补装手册见 [`docs/offline-install-guide.md`](docs/offline-install-guide.md)。
 
 ## 快速开始
 
 ```sh
-make hash                              # 网关密码(默认 admin)
 make config                            # (可选)TUI:勾场景 + 选 Node/Python 版本
 make up PROFILES="code-server vnc"      # 带 Web 按钮启动(终端始终启用)
-# → 打开 http://localhost:8080   (admin / admin)
+# → 打开 http://localhost:8080
 ```
 
 不带 `PROFILES` 时,只启动常驻服务(`gateway` + `app`),侧边栏显示终端和模型配置
@@ -74,7 +73,7 @@ make clean                             # 停止、删卷、删已构建镜像
 ```
                          ┌──────────────────────────────────────────────┐
    浏览器 :8080 ───────► │  gateway   (caddy:2)                          │
-   admin:admin            │  basicauth + reverse_proxy                    │
+                         │  reverse_proxy(无认证)                        │
                          └──────┬───────────────┬───────────────┬────────┘
                                 │ /             │ /code-server/  │ /vnc/
                                 ▼               ▼                ▼
@@ -96,7 +95,7 @@ make clean                             # 停止、删卷、删已构建镜像
 
 | 容器 | 镜像 | 职责 |
 |---|---|---|
-| `gateway` | `caddy:2` | HTTP basic auth + 反向代理到 `app`、`code-server`、`vnc`,也转发 WS 升级。 |
+| `gateway` | `caddy:2` | 反向代理到 `app`、`code-server`、`vnc`(无认证,见[安全边界](#安全边界无认证)),也转发 WS 升级。 |
 | `app` | `sandbox-app`(构建) | Axum 服务:托管 React SPA、`GET /api/manifest`(哪些按钮在线)、`/api/term/ws` pty WebSocket 桥、`POST/DELETE /api/buttons`(用户自注册按钮)、`/api/models/*`(模型配置页)、`/api/stats`、`/preview/<port>/` dev server 动态反代。烘进 pi-web 时由 entrypoint 自启在 `:30141`。`FROM sandbox-base`。 |
 | `code-server` | `sandbox-code-server`(构建) | 浏览器版 VSCode。profile 控制,TCP 探测 `app:8200` 自动探测。`FROM sandbox-base`。 |
 | `vnc` | `sandbox-vnc`(构建) | Xvnc + Chromium + noVNC Web 客户端。profile 控制,TCP 探测 `app:6080` 自动探测。`FROM debian:bookworm-slim`(与 `sandbox-base` 解耦)。`shm_size 2gb` 供 Chromium。 |
@@ -191,40 +190,35 @@ docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行
 | `make build-base` | `gen` + `docker build -t sandbox-base -f Dockerfile.base .` |
 | `make build` | `build-base` + `docker compose build` |
 | `make up [PROFILES=…]` | `build-base`(或 `NOBUILD=1` 跳过)+ `compose up -d --build` |
-| `make hash [PASS=…]` | 为密码 `PASS`(默认 `admin`)生成网关 bcrypt 哈希。 |
 | `make down [PROFILES=…]` | 停止栈(保留镜像和工作区卷)。 |
 | `make restart` / `make logs` | 重启 / 跟踪日志。 |
-| `make save` / `make load` | 离线 bundle:`save` 把镜像 + `.env` + 网关哈希 + 场景选择打包进 `aio-offline-bundle/`;`load` 在离线机恢复。 |
+| `make save` / `make load` | 离线 bundle:`save` 把镜像 + `.env` + 场景选择打包进 `aio-offline-bundle/`;`load` 在离线机恢复。 |
 | `make clean` | 破坏性:`down -v` + 删已构建镜像。 |
 | `make pull [VARIANT=…]` | 从 GHCR 拉预构建镜像 + retag 为本地 compose 名(见下)。 |
+| `make mgr-up` / `make mgr-down` | 启 / 停 sandbox-mgr 控制面栈(见[多沙箱管理](#多沙箱管理sandbox-mgr))。 |
 
-内部辅助目标:`build-config`(构建 `aio-config` 镜像)、`ensure-hash`(缺省时写
-默认密码哈希;由 `up` / `pull` 调用)。
+内部辅助目标:`build-config`(构建 `aio-config` 镜像)。
 
 可选服务以空格分隔的 profile 传入:`make up PROFILES="code-server vnc"`。不带
 `PROFILES` 时只启动常驻服务(`gateway` + `app`)。`NOBUILD=1` 跳过 `build-base` /
 `gen` / `--build`——给离线机用 `docker load` 预构建镜像而非现场构建。
 
-### 鉴权
+### 安全边界(无认证)
 
-网关用 Caddy `basicauth`(用户 `admin`,密码默认 `admin`;用户名在 `.env` 里用
-`SANDBOX_USER` 设)。bcrypt 哈希含 `$` 字符,经 `env_file` / `environment` 传入时
-会被 docker-compose 破坏(它把 env 值里的 `$VAR` 模式当变量插值)。故哈希生成到
-`gateway/secrets/hash`(gitignored),经 `gateway/entrypoint.sh` 交给 Caddy——后者在
-exec Caddy 前 export 它。Caddyfile 仍按设计用 `{$SANDBOX_PASSWORD_HASH}` 占位符。
+**本系统按设计全面无认证**(sandbox-mgr 设计决策 D9),面向单用户本机 / 受信
+内网——信任边界在宿主机本身。本栈网关与 sandbox-mgr 总网关(`*.mgr.localhost`)
+均不做任何认证(原 HTTP 基本认证层与密码哈希机制已一并移除)。
 
-```sh
-make hash              # 为密码 "admin"(默认)生成哈希
-make hash PASS=secret  # 自定义密码
-```
+- **不要**把网关或 mgr 栈暴露到公网 / 不受信网络;
+- 需要远程访问时,自行在前方加防护层(VPN,或带认证的反向代理如 Caddy/nginx)。
 
 ## 离线安装
 
 ```sh
 # 联网机
-make save                                  # → aio-offline-bundle/:images.tar + env + hash + enabled.toml
+make save                                  # → aio-offline-bundle/:images.tar + env + enabled.toml
 # 离线机(bundle 拷过去)
-make load                                  # 恢复镜像 + .env + 哈希 + 场景选择
+make load                                  # 恢复镜像 + .env + 场景选择
 make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
@@ -248,18 +242,44 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 ```sh
 make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)
 make up NOBUILD=1 PROFILES="code-server vnc"   # 不构建直接启动
-# → 打开 http://localhost:8080   (admin / admin)
+# → 打开 http://localhost:8080
 ```
 
 `make pull` 以 `:minimal` 或 `:full` 拉取 `sandbox-base` / `sandbox-app` /
 `sandbox-code-server`,外加 `sandbox-vnc:latest`,retag 成 compose 本地名,并备齐
-栈启动所需的两个 gitignore 主机文件(`.env` 从示例复制,以及默认密码 `admin` 的
-网关哈希)。它绝不碰 `.aio/enabled.toml`——纯消费者无需关心场景选择,`make up
+栈启动所需的 gitignore 主机文件(`.env`,缺失时从示例复制)。它绝不碰
+`.aio/enabled.toml`——纯消费者无需关心场景选择,`make up
 NOBUILD=1` 也不跑 `gen`。
 
 用 `REGISTRY_PREFIX` 指定你的镜像仓库(默认即本仓库的 GHCR 命名空间
 `ghcr.io/zhruoshui`,从 fork 拉取时覆写),用 `VARIANT=minimal` 拉更精简的集合。
 如果机器完全无法访问镜像仓库,走上面的离线路径(`make save` / `make load`)。
+
+## 多沙箱管理(sandbox-mgr)
+
+本栈只管理**一个**沙箱。要**多实例并行、统一管理**,仓库里另有独立的控制面栈
+(`aio-mgr`,源码在 `mgr/` + `mgr-web/`):
+
+```sh
+make mgr-up      # 启 mgr 栈:总网关(*.mgr.localhost 路由)+ mgr-api + mgr-web
+make mgr-down    # 停掉(已运行的沙箱容器不受影响)
+```
+
+- **管理界面**:打开 `http://mgr.localhost/`——沙箱列表、创建向导(场景 +
+  版本 + CPU/内存)、环境配置编辑、模型配置、用量汇总、镜像列表。
+- **每沙箱独立入口**:每个沙箱有自己的子域名
+  `http://sbx-<name>.mgr.localhost/`(工作台 SPA)与
+  `http://sbx-<name>-piweb.mgr.localhost/`(pi-web),由 mgr 总网关经共享 Docker
+  网络路由——每个沙箱**不发布任何宿主端口**。
+- **双形态**(D3):容器化(上面的 compose 形态,挂 `/var/run/docker.sock`)
+  或宿主机裸跑:`MGR_REPO=. MGR_DATA=mgr-data cargo run -p aio-mgr`。
+- **可手工接管**(D2):每个沙箱是独立的 compose project,生成物在
+  `mgr-data/instances/sbx-<name>/compose.yml`,宿主机上直接
+  `docker compose -f mgr-data/instances/sbx-<name>/compose.yml <cmd>` 即可接管。
+- **纳管本栈**:现有单沙箱栈可经 mgr-web 的「导入现有栈」向导登记进 mgr
+  (只读式管理:状态 + 启停;不改 env/资源)。
+
+mgr 栈与本系统其余部分一样**无认证**——见上面的[安全边界](#安全边界无认证)。
 
 ## 项目结构
 
@@ -272,12 +292,13 @@ config/                  aio-config crate(Rust):TUI 勾选器 + Dockerfile.base 
 app/                     axum 应用(Cargo.toml、src/、Dockerfile、services.toml)
   └ services.toml        内置工作区按钮(id/type/target/url/label/cmd)
 web/                     React SPA(Vite + TS + 侧边栏/标签栈 + xterm.js),烘进 app 镜像
-gateway/                 Caddyfile + entrypoint.sh(+ secrets/hash,生成)
+gateway/                 Caddyfile(反向代理;无认证)
+mgr/ + mgr-web/          sandbox-mgr 控制面(axum API + 管理 SPA;状态在 mgr-data/,gitignored)
 vnc/                     Xvnc + Chromium + noVNC(FROM debian:bookworm-slim)
 code-server/             浏览器版 VSCode 镜像(FROM sandbox-base)
 docker-compose.yml       gateway + app + code-server + vnc + base(build profile)
-Makefile                 config / gen / build-base / up / hash / save / load / pull / clean
-.env / .env.example      SANDBOX_USER(哈希是生成的,不经 env 传递)
+Makefile                 config / gen / build-base / up / save / load / pull / mgr-up / clean
+.env / .env.example      PI_WEB_HOST_PORT(可选,宿主侧 pi-web 端口)
 docs/                    offline-install-guide.md(+ offline-tool-install.md 实测记录)
 .aio/enabled.toml        场景选择(make config 写,gen 读)
 .aio/presets/            minimal.toml / full.toml——CI 预设(`["*"]` 通配符 = 全选)
@@ -289,7 +310,7 @@ aio-offline-bundle/      `make save` 的输出(gitignored)
 分阶段构建。MVP 已完成:gateway + app(axum + React SPA)+ code-server + vnc,带四
 层与版本化 L1 运行时的场景预置系统、离线支持,侧边栏按钮化工作区(web/agent/page
 三类自动探测按钮、用户自注册 agent/web 按钮 + dev server 端口预览、统一模型配置),
-以及 pi / pi-web agent 栈。
+pi / pi-web agent 栈,以及 sandbox-mgr 多沙箱控制面(见[多沙箱管理](#多沙箱管理sandbox-mgr))。
 尚未做:按需 TUI 按钮之外的 L5 外部服务、终端多实例。
 
 ### dev server 预览(`/preview/<port>/`)

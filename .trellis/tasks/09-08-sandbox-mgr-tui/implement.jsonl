@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "mgr-api 是新 Rust axum 服务，需对齐现有 app 栈规范（路由组织、静态服务、错误处理约定）"}
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "D6 模型上收：mgr 侧 /api/models/* 契约必须与 app 现有契约完全一致（masked-echo merge、preset 后端 id、canonical store 原子写）"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "mgr API 面（sandboxes/scenarios/images/jobs/models）设计与 app 现有 API 风格对齐"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Phase 0 抽 aio-models crate + 新增 mgr/ crate 的目录归属约定"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web SPA 沿用 web/ 的 React+TS+Vite 规范（typecheck 为构建门、目录结构）"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "mgr-web 页面组件（列表/向导/配置页）遵循现有组件规范；模型页自 panes/models 移植"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "mgr-web 的 API 轮询/job 进度状态管理模式对齐现有 useStats 等范式"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层契约多（mgr↔compose CLI、mgr↔沙箱 app、mgr-web↔mgr-api），单一 owner 原则约束 schema 抽取与 API 设计"}
+{"file": ".trellis/tasks/09-08-sandbox-mgr-tui/design.md", "reason": "本任务技术设计：workspace 重构、共享网络路由、compose 生成、模型同步契约、纳管流程"}
+{"file": ".trellis/tasks/09-08-sandbox-mgr-tui/prd.md", "reason": "需求与决策 D1-D12、验收 A1-A10"}

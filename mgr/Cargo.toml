@@ -1,0 +1,48 @@
+[package]
+name = "aio-mgr"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox-mgr control plane: multi-sandbox lifecycle manager (sandbox-mgr task)"
+
+# Phase 1: the mgr-api axum server. Runs in TWO forms (prd D3):
+#   bare-metal  - `cargo run -p aio-mgr` on the host with the docker CLI on PATH
+#   containerized - the mgr compose stack mounting /var/run/docker.sock
+# All docker/compose interaction goes through the CLI (`docker ...` /
+# `docker compose ...`), never the Docker API, so both forms behave
+# identically and the generated per-sandbox compose files stay hand-operable
+# on the host (D2: 生成物可 diff、可手工接管).
+
+[[bin]]
+name = "aio-mgr"
+path = "src/main.rs"
+
+[dependencies]
+# Reuses the scenario catalog + Dockerfile.base assembler (single owner of
+# the scenario/env contract - cross-layer-thinking-guide).
+aio-config = { path = "../config" }
+# Phase 4: the canonical model-config schema + store helpers (single owner of
+# the models.json contract, shared with the sandbox app - same guide).
+aio-models = { path = "../aio-models" }
+# Model discover/test/catalog probes + the /api/usage sandbox fan-out
+# (Phase 4). Same feature family as app/Cargo.toml minus `stream` (mgr
+# proxies no response bodies): rustls-tls keeps it env-proxy aware without
+# openssl; json for request bodies. Shares the workspace lock entry.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# join_all for the /api/usage per-sandbox fan-out (same crate/feature set
+# as app, which uses it for the preview proxy's split WebSocket sink).
+futures-util = "0.3"
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+# Static serving of the mgr-web SPA (Phase 3): same ServeDir pattern (and the
+# same version) as app/Cargo.toml, so both crates share the 0.5.2 lock entry.
+tower-http = { version = "0.5", features = ["fs"] }
+# SQLite state (sandboxes / images / jobs / kv). rusqlite is sync; mgr locks
+# it briefly per query and never holds the lock across an await (state.rs).
+rusqlite = { version = "0.32", features = ["bundled"] }
+# env_hash = sha256 over the assembled Dockerfile.base content (envhash.rs).
+sha2 = "0.10"

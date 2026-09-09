@@ -1,0 +1,16 @@
+[workspace]
+# Repo-root cargo workspace (sandbox-mgr task Phase 0). All Rust crates are
+# members so `cargo build --workspace` from the repo root builds everything
+# with ONE shared Cargo.lock (root-locked; member Cargo.locks no longer
+# exist). `mgr` is the sandbox-mgr control plane (Phase 1 fills it in; the
+# placeholder keeps the workspace resolvable today).
+members = ["app", "config", "aio-models", "mgr"]
+
+resolver = "2"
+
+# Profile settings are honored ONLY from the workspace root (cargo ignores
+# them in member manifests), so the app's release profile moved here verbatim
+# from app/Cargo.toml in the Phase 0 workspace refactor - the shipped binary
+# builds with the same opt-level as before.
+[profile.release]
+opt-level = 2

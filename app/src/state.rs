@@ -7,6 +7,11 @@
 //   registered buttons; read per manifest request, written under `file_lock`.
 // - `models_file`: path to the canonical model config (`AIO_MODELS_FILE` env,
 //   default `/root/.aio/models.json`). Read/written under `models_lock`.
+// - `mgr_url`: sandbox-mgr base URL (`MGR_URL` env, sandbox-mgr Phase 4).
+//   When set, this sandbox's model config is MANAGED by mgr: the background
+//   pull task (mgr_sync.rs) overwrites the local canonical store from mgr,
+//   and every /api/models write endpoint returns 403 managed-by-mgr
+//   (routes/models::managed_guard). None = stock stack, zero behavior change.
 // - `path_cache`: cached login-shell PATH for command_exists (TTL-refreshed).
 // - `file_lock`: serializes read-modify-write on buttons.toml so concurrent
 //   POST/DELETE can't interleave.
@@ -29,6 +34,7 @@ pub struct AppState {
     pub builtin: Arc<Vec<Service>>,
     pub buttons_file: PathBuf,
     pub models_file: PathBuf,
+    pub mgr_url: Option<String>,
     pub path_cache: Arc<RwLock<PathCache>>,
     pub file_lock: Arc<Mutex<()>>,
     pub models_lock: Arc<Mutex<()>>,
@@ -37,7 +43,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(builtin: Vec<Service>, buttons_file: PathBuf, models_file: PathBuf) -> Self {
+    pub fn new(
+        builtin: Vec<Service>,
+        buttons_file: PathBuf,
+        models_file: PathBuf,
+        mgr_url: Option<String>,
+    ) -> Self {
         let http = reqwest::Client::builder()
             // No default timeout: each route sets its own via RequestBuilder::timeout.
             // Pool with keep-alive so repeated discover/test calls reuse conns.
@@ -48,6 +59,7 @@ impl AppState {
             builtin: Arc::new(builtin),
             buttons_file,
             models_file,
+            mgr_url,
             path_cache: Arc::new(RwLock::new(PathCache::default())),
             file_lock: Arc::new(Mutex::new(())),
             models_lock: Arc::new(Mutex::new(())),

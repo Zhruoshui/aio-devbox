@@ -5,6 +5,10 @@
 // through the shared save bar (same PUT /api/models/config channel — no new
 // backend routes). A preset never copies the provider's key/headers blob:
 // credentials stay in the provider library (SSOT, design §5).
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): every preset write action
+// (new/switch/edit/duplicate/delete + the save bar) is disabled; the cards
+// stay visible as a read-only view of what mgr manages.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -36,6 +40,7 @@ export function PresetList({
   applying,
   applyResult,
   agentSaveMsg,
+  readOnly,
   onAddPreset,
   onUpdatePreset,
   onDeletePreset,
@@ -52,6 +57,8 @@ export function PresetList({
   applying: boolean;
   applyResult: ApplyResponse | null;
   agentSaveMsg: { ok: boolean; text: string } | null;
+  /** Managed mode: preset CRUD + switch + save/apply all disabled. */
+  readOnly: boolean;
   onAddPreset: (agent: PresetAgent, preset: AnyPreset) => void;
   onUpdatePreset: (agent: PresetAgent, id: string, preset: AnyPreset) => void;
   onDeletePreset: (agent: PresetAgent, id: string) => void;
@@ -125,7 +132,7 @@ export function PresetList({
         <div className="ml-sec-actions">
           <button
             className="btn btn-primary"
-            disabled={editing !== null || isDirty || saving}
+            disabled={readOnly || editing !== null || isDirty || saving}
             onClick={() => setEditing("")}
           >
             <Icon name="plus" />
@@ -184,7 +191,7 @@ export function PresetList({
                 {!isCurrent && (
                   <button
                     className="btn btn-primary btn-sm"
-                    disabled={isDirty || saving || applying}
+                    disabled={readOnly || isDirty || saving || applying}
                     onClick={() => onSwitchPreset(agent, preset.id)}
                   >
                     {t(lang, "maSetCurrent")}
@@ -192,7 +199,7 @@ export function PresetList({
                 )}
                 <button
                   className="icon-btn"
-                  disabled={isDirty || saving}
+                  disabled={readOnly || isDirty || saving}
                   aria-label={t(lang, "mcEdit")}
                   title={t(lang, "mcEdit")}
                   onClick={() => setEditing(editing === preset.id ? null : preset.id)}
@@ -201,7 +208,7 @@ export function PresetList({
                 </button>
                 <button
                   className="icon-btn"
-                  disabled={isDirty || saving}
+                  disabled={readOnly || isDirty || saving}
                   aria-label={t(lang, "maDuplicate")}
                   title={t(lang, "maDuplicate")}
                   onClick={() => onDuplicatePreset(agent, preset.id)}
@@ -210,7 +217,7 @@ export function PresetList({
                 </button>
                 <button
                   className="icon-btn ml-cell-del"
-                  disabled={isDirty || saving}
+                  disabled={readOnly || isDirty || saving}
                   aria-label={t(lang, "mcDeleteProvider")}
                   title={t(lang, "mcDeleteProvider")}
                   onClick={() => {
@@ -276,14 +283,14 @@ export function PresetList({
         <span className="spacer" />
         <button
           className="btn btn-secondary"
-          disabled={!isDirty || saving}
+          disabled={readOnly || !isDirty || saving}
           onClick={() => onSaveAssignment(agent)}
         >
           {t(lang, "mcSave")}
         </button>
         <button
           className="btn btn-primary"
-          disabled={isDirty || applying || !currentId}
+          disabled={readOnly || isDirty || applying || !currentId}
           title={!currentId ? t(lang, "maNoCurrentPreset") : undefined}
           onClick={() => onSwitchPreset(agent, currentId ?? "")}
         >

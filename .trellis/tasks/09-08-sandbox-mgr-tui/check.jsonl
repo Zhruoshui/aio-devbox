@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/09-08-sandbox-mgr-tui/prd.md", "reason": "验收 A1-A10 逐条核对 + 决策 D1-D12 无违背"}
+{"file": ".trellis/tasks/09-08-sandbox-mgr-tui/implement.md", "reason": "分阶段验证命令与回滚点核对"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 代码质量检查基线"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "mgr-web TS/React 质量检查基线（tsc --noEmit 构建门）"}
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "mgr 侧模型契约与 app 一致性核对（mask 语义、原子写、preset id）"}

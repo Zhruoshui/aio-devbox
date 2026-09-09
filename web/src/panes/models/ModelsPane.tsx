@@ -86,6 +86,13 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  // Sandbox-mgr managed mode (Phase 4b): when the backend runs with MGR_URL,
+  // mgr owns the model config (a background task pulls it every 60s) and
+  // every write endpoint 403s with the `managed-by-mgr` marker. The pane
+  // then shows a banner + turns every write action read-only; GET-type
+  // probes (discover/test/catalog/usage) stay fully usable.
+  const [managed, setManaged] = useState(false);
+
   // Editor drawer state: `selectedId` non-null opens the drawer for that
   // provider. It also carries the provider whose headers/compat textareas are
   // live, and scopes the test-pill reset effect.
@@ -153,6 +160,41 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   useEffect(() => {
     void fetchConfig();
   }, [fetchConfig]);
+
+  // Probe the managed marker once on mount (GET, no side effects). A probe
+  // failure keeps the editable view — the 403 fallback below still catches
+  // the managed case on the first write attempt.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/models/managed");
+        if (!r.ok) return;
+        const j = (await r.json()) as { managed?: boolean };
+        if (alive && j.managed === true) setManaged(true);
+      } catch {
+        /* unreachable backend: keep the editable presentation */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** Error text for a rejected WRITE response; flips the pane into its
+   * read-only presentation when the 403 managed-by-mgr marker is present
+   * (belt-and-braces behind the mount probe above). */
+  const writeErrorText = useCallback(
+    async (r: Response): Promise<string> => {
+      const text = await r.text();
+      if (r.status === 403 && text.includes("managed-by-mgr")) {
+        setManaged(true);
+        return t(lang, "mcManagedBanner");
+      }
+      return text;
+    },
+    [lang],
+  );
 
   // Sync the advanced JSON textareas when the selected provider changes.
   useEffect(() => {
@@ -327,7 +369,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   );
 
   const handleSave = useCallback(async (): Promise<void> => {
-    if (!config || !selectedId) return;
+    if (!config || !selectedId || managed) return;
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -363,7 +405,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        setSaveMsg({ ok: false, text: await r.text() });
+        setSaveMsg({ ok: false, text: await writeErrorText(r) });
         return;
       }
       const resp = (await r.json()) as { ok: boolean; warnings?: string[] };
@@ -381,14 +423,15 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
       setSaving(false);
       window.setTimeout(() => setSaveMsg(null), 3000);
     }
-  }, [config, selectedId, headersText, compatText, lang, fetchConfig]);
+  }, [config, selectedId, headersText, compatText, lang, fetchConfig, managed, writeErrorText]);
 
   const handleImport = useCallback(async (): Promise<void> => {
+    if (managed) return;
     if (!confirm(t(lang, "mcImportConfirm"))) return;
     try {
       const r = await fetch("/api/models/import/pi", { method: "POST" });
       if (!r.ok) {
-        setSaveMsg({ ok: false, text: await r.text() });
+        setSaveMsg({ ok: false, text: await writeErrorText(r) });
         return;
       }
       const resp = (await r.json()) as { imported: string[]; skipped: string[] };
@@ -404,7 +447,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
     } finally {
       window.setTimeout(() => setSaveMsg(null), 5000);
     }
-  }, [lang, fetchConfig]);
+  }, [lang, fetchConfig, managed, writeErrorText]);
 
   // ── M2: test + discover ─────────────────────────────────────────
 
@@ -740,7 +783,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
   /** Switch = setCurrent + save + apply, one click (design §4). */
   const handleSwitchPreset = useCallback(
     async (agent: PresetAgent, id: string): Promise<void> => {
-      if (!config || id === "") return;
+      if (!config || id === "" || managed) return;
       const block = agent === "claude" ? config.agents.claude : config.agents.codex;
       const next =
         id === (block?.current ?? null)
@@ -760,7 +803,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           body: JSON.stringify(next),
         });
         if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await r.text() });
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
           return;
         }
         await fetchConfig();
@@ -772,6 +815,10 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         // Apply the now-current preset to the agent's native files.
         setApplying(true);
         const ar = await fetch(`/api/models/apply/${agent}`, { method: "POST" });
+        if (!ar.ok) {
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(ar) });
+          return;
+        }
         setApplyResult((await ar.json()) as ApplyResponse);
         await fetchAgents();
       } catch (e) {
@@ -788,12 +835,12 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, fetchConfig, fetchAgents],
+    [config, fetchConfig, fetchAgents, managed, writeErrorText],
   );
 
   const handleSaveAssignment = useCallback(
     async (agent: AgentTab): Promise<void> => {
-      if (!config) return;
+      if (!config || managed) return;
       setSaving(true);
       setAgentSaveMsg(null);
       try {
@@ -803,7 +850,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           body: JSON.stringify(config),
         });
         if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await r.text() });
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
           return;
         }
         setAgentDirty((prev) => {
@@ -823,15 +870,20 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, lang, fetchConfig],
+    [config, lang, fetchConfig, managed, writeErrorText],
   );
 
   const handleApply = useCallback(
     async (agent: AgentTab): Promise<void> => {
+      if (managed) return;
       setApplying(true);
       setApplyResult(null);
       try {
         const r = await fetch(`/api/models/apply/${agent}`, { method: "POST" });
+        if (!r.ok) {
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
+          return;
+        }
         setApplyResult((await r.json()) as ApplyResponse);
         await fetchAgents();
       } catch (e) {
@@ -846,7 +898,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         setApplying(false);
       }
     },
-    [fetchAgents],
+    [fetchAgents, managed, writeErrorText],
   );
 
   // ── R2/R3: live provider management (pi/opencode native files) ────
@@ -855,6 +907,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
    * canonical library (idempotent — already-present ids come back skipped). */
   const syncLiveProvider = useCallback(
     async (agent: "pi" | "opencode", id: string): Promise<void> => {
+      if (managed) return;
       setLiveBusy({ agent, id });
       setAgentSaveMsg(null);
       try {
@@ -864,7 +917,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           body: JSON.stringify({ id }),
         });
         if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await r.text() });
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
           return;
         }
         const j = (await r.json()) as { imported: string[]; skipped: string[] };
@@ -884,13 +937,14 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 4000);
       }
     },
-    [lang, fetchConfig, fetchAgents],
+    [lang, fetchConfig, fetchAgents, managed, writeErrorText],
   );
 
   /** Field-level edit of one live provider node; outcome lands in the same
    * apply-result panel the assignment flow uses. */
   const editLiveProvider = useCallback(
     async (agent: "pi" | "opencode", id: string, patch: LiveEditPatch): Promise<void> => {
+      if (managed) return;
       setLiveBusy({ agent, id });
       setApplyResult(null);
       try {
@@ -903,7 +957,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           },
         );
         if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await r.text() });
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
           return;
         }
         setApplyResult((await r.json()) as ApplyResponse);
@@ -917,12 +971,13 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         setLiveBusy(null);
       }
     },
-    [fetchAgents],
+    [fetchAgents, managed, writeErrorText],
   );
 
   /** Remove one live provider node (backend clears a dangling default). */
   const deleteLiveProvider = useCallback(
     async (agent: "pi" | "opencode", id: string): Promise<void> => {
+      if (managed) return;
       setLiveBusy({ agent, id });
       setApplyResult(null);
       try {
@@ -931,7 +986,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           { method: "DELETE" },
         );
         if (!r.ok) {
-          setAgentSaveMsg({ ok: false, text: await r.text() });
+          setAgentSaveMsg({ ok: false, text: await writeErrorText(r) });
           return;
         }
         setApplyResult((await r.json()) as ApplyResponse);
@@ -945,7 +1000,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         setLiveBusy(null);
       }
     },
-    [fetchAgents],
+    [fetchAgents, managed, writeErrorText],
   );
 
   // ── M4: usage ───────────────────────────────────────────────────
@@ -1017,6 +1072,14 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
         ))}
       </div>
 
+      {/* sandbox-mgr managed banner (Phase 4b): read-only presentation */}
+      {managed && (
+        <div className="ml-warn-strip" data-od-id="managed-banner">
+          <Icon name="alert" />
+          {t(lang, "mcManagedBanner")}
+        </div>
+      )}
+
       <div className="ml-body">
         {tab === "usage" ? (
           <UsageTab
@@ -1039,6 +1102,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
             applying={applying}
             applyResult={applyResult}
             agentSaveMsg={agentSaveMsg}
+            readOnly={managed}
             onAddPreset={addPreset}
             onUpdatePreset={updatePreset}
             onDeletePreset={deletePreset}
@@ -1058,6 +1122,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
             applyResult={applyResult}
             agentSaveMsg={agentSaveMsg}
             liveBusyId={liveBusy?.agent === tab ? liveBusy.id : null}
+            readOnly={managed}
             onUpdateAssignment={updateAgentAssignment}
             onSaveAssignment={(a) => void handleSaveAssignment(a)}
             onApply={(a) => void handleApply(a)}
@@ -1073,18 +1138,22 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
                 <h2>{t(lang, "mcProviders")}</h2>
                 <p>{t(lang, "mcProvidersSub")}</p>
               </div>
-              <div className="ml-sec-actions">
-                <button className="btn btn-secondary" onClick={() => void handleImport()}>
-                  {t(lang, "mcImportPi")}
-                </button>
-                <button className="btn btn-primary" onClick={addProvider}>
-                  <Icon name="plus" />
-                  {t(lang, "mcAddProvider")}
-                </button>
-              </div>
+              {/* Add/import are library writes — hidden under mgr (D6). */}
+              {!managed && (
+                <div className="ml-sec-actions">
+                  <button className="btn btn-secondary" onClick={() => void handleImport()}>
+                    {t(lang, "mcImportPi")}
+                  </button>
+                  <button className="btn btn-primary" onClick={addProvider}>
+                    <Icon name="plus" />
+                    {t(lang, "mcAddProvider")}
+                  </button>
+                </div>
+              )}
             </div>
             <ProviderGrid
               config={config}
+              readOnly={managed}
               onSelect={setSelectedId}
               onAdd={addProvider}
               onImport={() => void handleImport()}
@@ -1098,7 +1167,9 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
 
       {/* Drawer anchors to .pane-models (position: relative), not .ml-body —
        * a sibling of the scrollable body so its scrim/drawer cover the whole
-       * pane and never scroll away with the provider grid (design §drawer). */}
+       * pane and never scroll away with the provider grid (design §drawer).
+       * Under mgr the drawer stays openable (view + discover/test probes)
+       * but every mutating control inside is disabled (readOnly). */}
       {tab === "providers" && config && selectedId && selected && (
         <ProviderEditor
           providerId={selectedId}
@@ -1107,6 +1178,7 @@ export function ModelsPane(_: { service: ServiceEntry }): JSX.Element {
           dirty={dirty}
           saving={saving}
           saveMsg={saveMsg}
+          readOnly={managed}
           headersText={headersText}
           compatText={compatText}
           showAdvanced={showAdvanced}

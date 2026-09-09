@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::routes::models::render::common::{backup_write_verify_json, ApplyResult, ProviderPatch};
-use crate::routes::models::store::CanonicalConfig;
+use aio_models::store::CanonicalConfig;
 
 /// Apply the opencode assignment to ~/.config/opencode/opencode.jsonc.
 pub fn apply_opencode(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
@@ -290,7 +290,7 @@ fn read_live_root(path: &Path, result: &mut ApplyResult) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes::models::store::{
+    use aio_models::store::{
         AgentAssignment, CanonicalConfig, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};

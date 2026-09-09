@@ -116,8 +116,8 @@ locally or shipping a bundle.
 - `make pull VARIANT=minimal|full` pulls `sandbox-base` / `sandbox-app` /
   `sandbox-code-server` at the floating `:minimal`/`:full` tag plus
   `sandbox-vnc:latest`, retags them to the local compose names, and prepares the
-  two gitignored host files the stack needs to start (`.env` from the example,
-  and `gateway/secrets/hash` via `ensure-hash`). `REGISTRY_PREFIX` (default
+  gitignored host file the stack needs to start (`.env`, copied from the example
+  if missing). `REGISTRY_PREFIX` (default
   `ghcr.io/zhruoshui`, this repo's pipeline target; override to pull a fork)
   points the pull at your GHCR namespace.
 - It does NOT touch `.aio/enabled.toml`: a pure consumer doesn't care about the

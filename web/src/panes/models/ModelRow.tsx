@@ -13,6 +13,10 @@
 // max-output / reasoning-check three-across, then the four cost fields
 // (in/out/cacheRead/cacheWrite), then a "fill from models.dev" ghost button.
 // All edits patch canonical state through ModelsPane callbacks.
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): every editor control and
+// the delete action are disabled/hidden; the test pill (a pure GET probe)
+// stays usable.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
@@ -27,6 +31,7 @@ export function ModelRow({
   idx,
   testState,
   catalogFillState,
+  readOnly,
   onPatchModel,
   onDeleteModel,
   onUpdateCost,
@@ -40,6 +45,8 @@ export function ModelRow({
   idx: number;
   testState: TestStateMap;
   catalogFillState: CatalogFillState;
+  /** Managed mode: disable the editors + delete; the test probe stays on. */
+  readOnly: boolean;
   onPatchModel: (idx: number, patch: Partial<ModelEntry>) => void;
   onDeleteModel: (idx: number) => void;
   onUpdateCost: (idx: number, field: keyof CostEntry, val: string) => void;
@@ -65,6 +72,7 @@ export function ModelRow({
           value={model.id}
           className="ml-cell-mono ml-model-id"
           placeholder={t(lang, "mcModelId")}
+          disabled={readOnly}
           onChange={(e) => {
             onResetTest(providerId, model.id);
             onPatchModel(idx, { id: e.target.value });
@@ -97,13 +105,15 @@ export function ModelRow({
                 ? t(lang, "mcTestFail")
                 : t(lang, "mcTest")}
           </button>
-          <button
-            className="icon-btn ml-cell-del"
-            aria-label={t(lang, "mcDeleteProvider")}
-            onClick={() => onDeleteModel(idx)}
-          >
-            <Icon name="trash" />
-          </button>
+          {!readOnly && (
+            <button
+              className="icon-btn ml-cell-del"
+              aria-label={t(lang, "mcDeleteProvider")}
+              onClick={() => onDeleteModel(idx)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -115,6 +125,7 @@ export function ModelRow({
               <label>{t(lang, "mcModelName")}</label>
               <input
                 value={model.name ?? ""}
+                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, { name: e.target.value || undefined })
                 }
@@ -125,6 +136,7 @@ export function ModelRow({
               <select
                 className="ml-cell-select"
                 value={model.api ?? ""}
+                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, { api: e.target.value || undefined })
                 }
@@ -147,6 +159,7 @@ export function ModelRow({
                 className="mono"
                 type="number"
                 value={model.contextWindow ?? ""}
+                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, {
                     contextWindow: e.target.value
@@ -162,6 +175,7 @@ export function ModelRow({
                 className="mono"
                 type="number"
                 value={model.maxTokens ?? ""}
+                disabled={readOnly}
                 onChange={(e) =>
                   onPatchModel(idx, {
                     maxTokens: e.target.value
@@ -176,6 +190,7 @@ export function ModelRow({
                 <input
                   type="checkbox"
                   checked={model.reasoning ?? false}
+                  disabled={readOnly}
                   onChange={(e) =>
                     onPatchModel(idx, { reasoning: e.target.checked })
                   }
@@ -195,6 +210,7 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.input ?? ""}
+                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "input", e.target.value)}
               />
             </div>
@@ -205,6 +221,7 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.output ?? ""}
+                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "output", e.target.value)}
               />
             </div>
@@ -215,6 +232,7 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.cacheRead ?? ""}
+                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "cacheRead", e.target.value)}
               />
             </div>
@@ -225,6 +243,7 @@ export function ModelRow({
                 type="number"
                 step="any"
                 value={model.cost?.cacheWrite ?? ""}
+                disabled={readOnly}
                 onChange={(e) => onUpdateCost(idx, "cacheWrite", e.target.value)}
               />
             </div>
@@ -232,7 +251,7 @@ export function ModelRow({
 
           <button
             className="btn btn-ghost btn-sm"
-            disabled={!model.id || catalogFillState === "loading"}
+            disabled={readOnly || !model.id || catalogFillState === "loading"}
             title={
               catalogFillState === "notfound"
                 ? t(lang, "mcCatalogNotFound")

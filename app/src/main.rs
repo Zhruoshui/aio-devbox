@@ -33,6 +33,7 @@ use std::path::PathBuf;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod config;
+mod mgr_sync;
 mod pty;
 mod routes;
 mod state;
@@ -42,8 +43,8 @@ use routes::{
     manifest::manifest,
     models::{
         apply_agent, catalog::get_catalog, delete_live_provider, discover::discover,
-        edit_live_provider, get_agents, get_config, import_pi, put_config, sync_live_provider,
-        test::test, usage::usage,
+        edit_live_provider, get_agents, get_config, get_managed, import_pi, put_config,
+        sync_live_provider, test::test, usage::usage,
     },
     preview::preview_proxy,
     seam::seam,
@@ -74,19 +75,42 @@ async fn main() {
     );
     let models_file =
         PathBuf::from(std::env::var("AIO_MODELS_FILE").unwrap_or_else(|_| MODELS_FILE.to_string()));
-    // Expand {env:VAR:default} placeholders (piWeb url's host publish port)
-    // once at startup - env doesn't change during the process lifetime.
+    // Resolve service urls once at startup - env doesn't change during the
+    // process lifetime:
+    //   - {env:VAR:default} placeholder expansion (piWeb url's host publish
+    //     port, issue #3);
+    //   - piWeb's PI_WEB_URL override (sandbox-mgr Phase 2, design §2.1): a
+    //     set value replaces the url verbatim, skipping expansion entirely.
     let services: Vec<_> = config::load_services()
         .into_iter()
         .map(|mut s| {
-            s.url = s.url.map(|u| config::expand_placeholders(&u));
+            s.url = if s.id == "piWeb" {
+                match config::piweb_url_override() {
+                    Some(u) => Some(u),
+                    None => s.url.map(|u| config::expand_placeholders(&u)),
+                }
+            } else {
+                s.url.map(|u| config::expand_placeholders(&u))
+            };
             s
         })
         .collect();
-    let state = AppState::new(services, buttons_file, models_file);
+    // MGR_URL (sandbox-mgr Phase 4, design §3.7): when set, this sandbox's
+    // model config is managed by mgr — resolved once at startup (env doesn't
+    // change during the process lifetime, same rationale as PI_WEB_URL) and
+    // carried on AppState so the write endpoints can 403 (managed_guard).
+    let mgr_url = config::mgr_url();
+    let state = AppState::new(services, buttons_file, models_file, mgr_url.clone());
 
     // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
     spawn_stats_sampler(state.clone());
+
+    // Model-config pull task: GET {MGR_URL}/api/models/sync at startup +
+    // every 60s, overwrite the local canonical store + re-render when mgr's
+    // copy differs. Only under mgr; stock stacks never spawn it.
+    if mgr_url.is_some() {
+        mgr_sync::spawn_mgr_sync(state.clone());
+    }
 
     // Static SPA tree. `/` serves index.html (dir index); unknown paths fall
     // back to index.html (SPA client-side routing, used from Phase C onward).
@@ -130,6 +154,10 @@ async fn main() {
         .route("/api/models/agents/:agent/sync", post(sync_live_provider))
         // M4: per-(agent,model) token usage aggregation (design §6).
         .route("/api/models/usage", get(usage))
+        // Sandbox-mgr managed marker (Phase 4b): `{"managed": bool}` from
+        // MGR_URL — the models page probes it once on mount to flip to its
+        // read-only presentation. Static segment, wins over the catch-all.
+        .route("/api/models/managed", get(get_managed))
         // models.dev metadata catalog (1h cache, 08-27-provider-form-piweb).
         .route("/api/models/catalog", get(get_catalog))
         // Dynamic dev-server preview (web-type user buttons): reverse-proxy

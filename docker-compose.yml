@@ -7,9 +7,6 @@ services:
     env_file: .env
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./gateway/entrypoint.sh:/entrypoint.sh:ro
-      - ./gateway/secrets/hash:/run/secrets/hash:ro
-    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     depends_on:
       - app
     networks:

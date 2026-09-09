@@ -19,11 +19,16 @@ set -eu
 # baked, nothing listens on 30141, the manifest probe fails, and the button
 # hides itself (same degradation the old command_exists probe gave).
 #
-# PI_WEB_ALLOWED_HOSTS=app mirrors /etc/profile.d/pi-web.sh (baked by the
-# pi-web scenario) so the sandbox-net name http://app:30141 keeps working; this
-# script does not run a login shell, so profile.d is NOT sourced here. The
-# entrypoint itself is NOT part of sandbox-base (it lives in the app image), so
-# base rebuilds are unaffected.
+# PI_WEB_ALLOWED_HOSTS mirrors /etc/profile.d/pi-web.sh (baked by the pi-web
+# scenario) so the sandbox-net name http://app:30141 keeps working; this
+# script does not run a login shell, so profile.d is NOT sourced here.
+# Overridable since sandbox-mgr Phase 2 (design §2.1): the mgr-generated
+# sandbox compose sets it to "app,sbx-<name>-piweb.mgr.localhost" (the total
+# gateway rewrites Host to the upstream alias anyway - this is the second
+# belt). Unset => "app", the stock behavior.
+#
+# The entrypoint itself is NOT part of sandbox-base (it lives in the app
+# image), so base rebuilds are unaffected.
 #
 # Logs go to ~/.aio/pi-web.log on the persistent workspace volume (visible from
 # code-server / the terminal pane via `tail -f`), not to docker logs, which
@@ -33,7 +38,7 @@ if command -v pi-web >/dev/null 2>&1; then
 	mkdir -p "$HOME/.aio"
 	(
 		while true; do
-			PI_WEB_ALLOWED_HOSTS=app pi-web --no-open --hostname 0.0.0.0 --port 30141 \
+			PI_WEB_ALLOWED_HOSTS="${PI_WEB_ALLOWED_HOSTS:-app}" pi-web --no-open --hostname 0.0.0.0 --port 30141 \
 				>>"$HOME/.aio/pi-web.log" 2>&1 || :
 			sleep 2
 		done

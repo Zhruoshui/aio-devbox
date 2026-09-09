@@ -277,5 +277,5 @@ docker exec aio-app-1 sh -c 'curl -sS -o /dev/null -w "%{http_code}\n" http://<s
 # the generated Dockerfile.base has no leftover {{ placeholders:
 grep -n '{{' Dockerfile.base   # should print nothing
 # the manifest reflects services.toml (after app rebuild):
-curl -sS -u admin:admin http://localhost:8080/api/manifest | head
+curl -sS http://localhost:8080/api/manifest | head
 ```

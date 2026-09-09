@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::routes::models::render::common::{
     backup_write_verify_json, read_json_object, ApplyResult, ProviderPatch, ReadError,
 };
-use crate::routes::models::store::{
+use aio_models::store::{
     AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
 };
 
@@ -419,7 +419,7 @@ fn render_pi_cost(cost: &CostEntry) -> serde_json::Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes::models::store::{
+    use aio_models::store::{
         AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};

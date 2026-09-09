@@ -29,7 +29,8 @@ registry - single source of truth).
 | Guide | Status |
 |-------|--------|
 | [Directory Structure](./directory-structure.md) | filled |
-| [API Contracts](./api-contracts.md) | filled (GET /api/stats; /api/models/* in the Model Config Guide) |
+| [Sandbox-mgr Ops](./sandbox-mgr-ops.md) | filled (DooD 路径同一性、bind-mount inode、pi-web Host 规则、profile 全量、mgr.localhost 静态站点、模型上收同步链与写降级) |
+| [API Contracts](./api-contracts.md) | filled (GET /api/stats; /api/models/* in the Model Config Guide; mgr 控制面 API: live 四态、PUT limits 三态、build_log 保留) |
 | [Model Config Guide](./model-config-guide.md) | filled (canonical store, renderers, discover/test, usage, key masking) |
 | [Database Guidelines](./database-guidelines.md) | read-only opencode.db only - documented |
 | [Error Handling](./error-handling.md) | filled |

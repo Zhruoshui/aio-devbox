@@ -2,8 +2,10 @@
 #
 # Applies to every build whose context is `.` (the `app` image via
 # app/Dockerfile, and the `base` image via Dockerfile.base). The `app` image
-# needs only `app/` (Rust) and `web/` (React) source; the `base` image COPYs
-# no local files at all. Keep the context small and free of secrets/build state.
+# needs the root cargo workspace manifests (Cargo.toml/Cargo.lock + member
+# crates app/, config/, aio-models/, mgr/ - sandbox-mgr Phase 0) and `web/`
+# (React); the `base` image COPYs no local files at all. Keep the context
+# small and free of secrets/build state.
 
 # VCS + agent/tooling metadata
 .git
@@ -20,6 +22,12 @@ gateway/secrets
 # Build artifacts (rebuilt inside the image; never send stale copies)
 node_modules
 **/node_modules
-app/target
+**/target
 app/static
 web/dist
+mgr-web/dist
+
+# mgr runtime state (state.db, generated per-sandbox compose files, the
+# generated total-gateway Caddyfile) - mgr/Dockerfile's build context is the
+# repo root too, and none of this belongs in any image's context.
+mgr-data

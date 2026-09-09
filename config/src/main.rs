@@ -7,17 +7,17 @@
 //
 // Both operate on a repo root (`--repo`) so the Makefile mounts the repo once
 // and calls either mode. The TUI never touches Dockerfile.base.head/tail; gen
-// never starts a terminal. Shared code lives in scenario.rs / manifest.rs
-// (single owner of each cross-boundary payload - cross-layer-thinking-guide).
+// never starts a terminal. Shared code lives in the aio_config lib
+// (scenario.rs / manifest.rs / gen.rs - single owner of each cross-boundary
+// payload - cross-layer-thinking-guide); only the TUI wiring stays bin-only.
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-mod gen;
-mod manifest;
-mod scenario;
+use aio_config::gen;
+
 mod tui;
 
 #[derive(Parser)]

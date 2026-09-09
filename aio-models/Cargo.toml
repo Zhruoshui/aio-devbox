@@ -1,0 +1,17 @@
+[package]
+name = "aio-models"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical model-config store: schema + read/write + mask/merge/validate"
+
+# Pure data crate shared by `app` (sandbox axum server) and, from the
+# sandbox-mgr task onward, the `mgr` control plane — the canonical
+# models.json schema has exactly one owner (cross-layer-thinking-guide).
+# No axum/http dependency: routes live in `app`, this crate is IO + serde
+# only (file read/write via injectable &Path, JSON serialization).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# opencode import: parse opencode.jsonc (JSON with comments / trailing commas).
+json5 = "0.4"

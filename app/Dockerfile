@@ -27,24 +27,44 @@ WORKDIR /app
 # unnecessary since index.crates.io is reachable here).
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
-# Dep-caching layer: copy manifests first and build a dummy binary so that
-# source changes don't re-fetch/recompile the dependency graph.
-COPY app/Cargo.toml app/Cargo.lock ./
-RUN mkdir src && echo 'fn main() { println!("dummy"); }' > src/main.rs \
- && cargo build --release \
- && rm -rf src
+# Dep-caching layer: the repo is a cargo WORKSPACE (sandbox-mgr Phase 0), so
+# cargo needs the root manifest + the shared root Cargo.lock + every member
+# manifest to resolve. Dummy sources make the members buildable without their
+# real code; `--locked` pins the dep graph to the committed lock (fails loudly
+# when a member Cargo.toml changes without regenerating the lock - same
+# contract as config/Dockerfile).
+COPY Cargo.toml Cargo.lock ./
+COPY app/Cargo.toml app/Cargo.toml
+COPY config/Cargo.toml config/Cargo.toml
+COPY aio-models/Cargo.toml aio-models/Cargo.toml
+COPY mgr/Cargo.toml mgr/Cargo.toml
+RUN mkdir -p app/src aio-models/src config/src mgr/src \
+ && echo '' > aio-models/src/lib.rs \
+ && echo '' > config/src/lib.rs \
+ && echo 'fn main() {}' > config/src/main.rs \
+ && echo 'fn main() {}' > mgr/src/main.rs \
+ && echo 'fn main() { println!("dummy"); }' > app/src/main.rs \
+ && cargo build --release --locked -p aio-app \
+ && rm -rf app/src aio-models/src
 
 # Real source. `touch` defeats BuildKit's COPY mtime: COPY pins file mtimes to
 # the context/build time which cargo can read as "older than the fingerprint"
 # written by the dummy build, causing it to skip recompiling the bin target and
-# ship the dummy binary. touch forces cargo to notice the changed source.
+# ship the dummy binary. touch forces cargo to notice the changed source. Both
+# app/src (dummy main) and aio-models/src (dummy empty lib) need it — the
+# fingerprint-vs-mtime trap hits every member whose sources were dummied in
+# the dep-cache layer.
+# `-p aio-app` targets this member in the shared workspace (mgr placeholder is
+# a bin-only crate and app does not depend on it).
 #
 # services.toml is baked into the binary via include_str! in config.rs, so it
 # must be present at compile time. Copied here (not in the dep-cache layer) so
 # editing it doesn't force a full dependency recompile.
-COPY app/src ./src
-COPY app/services.toml ./
-RUN touch src/main.rs && cargo build --release
+COPY app/src ./app/src
+COPY aio-models/src ./aio-models/src
+COPY app/services.toml ./app/
+RUN touch app/src/main.rs aio-models/src/lib.rs \
+ && cargo build --release --locked -p aio-app
 
 # --- web-builder: compile the React SPA with Vite (sandbox-base has node 20). ---
 FROM ${BASE_IMAGE} AS web-builder

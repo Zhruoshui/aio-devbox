@@ -5,6 +5,10 @@
 // baseUrl, model count + masked key, and chips for the agents that bind this
 // provider (clicking a chip jumps to that agent tab). Clicking the card body
 // opens the editor drawer (ModelsPane owns the open state).
+//
+// `readOnly` (sandbox-mgr managed mode, Phase 4b): the card body still opens
+// the drawer (view + discover/test), but the per-card delete action and the
+// empty-state add/import actions are hidden — they only ever write.
 
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
@@ -24,6 +28,7 @@ const AGENT_LABEL: Record<AgentTab, string> = {
 
 export function ProviderGrid({
   config,
+  readOnly,
   onSelect,
   onAdd,
   onImport,
@@ -32,6 +37,8 @@ export function ProviderGrid({
   lang,
 }: {
   config: CanonicalConfig;
+  /** Managed mode: hide every write action (card delete, empty-state add/import). */
+  readOnly: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onImport: () => void;
@@ -45,15 +52,17 @@ export function ProviderGrid({
     return (
       <div className="ml-empty">
         <p>{t(lang, "mcNoProviders")}</p>
-        <div className="ml-empty-actions">
-          <button className="btn btn-primary" onClick={onAdd}>
-            <Icon name="plus" />
-            {t(lang, "mcAddProvider")}
-          </button>
-          <button className="btn btn-secondary" onClick={onImport}>
-            {t(lang, "mcImportPi")}
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="ml-empty-actions">
+            <button className="btn btn-primary" onClick={onAdd}>
+              <Icon name="plus" />
+              {t(lang, "mcAddProvider")}
+            </button>
+            <button className="btn btn-secondary" onClick={onImport}>
+              {t(lang, "mcImportPi")}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -97,17 +106,19 @@ export function ProviderGrid({
                 >
                   <Icon name="edit" />
                 </button>
-                <button
-                  className="icon-btn ml-card-del"
-                  aria-label={t(lang, "mcDeleteProvider")}
-                  title={t(lang, "mcDeleteProvider")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(id);
-                  }}
-                >
-                  <Icon name="trash" />
-                </button>
+                {!readOnly && (
+                  <button
+                    className="icon-btn ml-card-del"
+                    aria-label={t(lang, "mcDeleteProvider")}
+                    title={t(lang, "mcDeleteProvider")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(id);
+                    }}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                )}
               </span>
             </div>
 

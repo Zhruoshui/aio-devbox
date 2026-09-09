@@ -23,10 +23,9 @@
 ## 三分钟速览
 
 ```sh
-make hash                            # 生成网关密码(默认用户 admin)
 make up                              # 起网关 + 工作区(app)
 make up PROFILES="code-server vnc"   # 需要浏览器 IDE / Chromium 时
-# 打开 http://localhost:8080,basic auth 登录
+# 打开 http://localhost:8080(无认证,面向本机/受信内网)
 ```
 
 - 侧边栏按钮分三类(`web` / `agent` / `page`),全部自动探测,**没有死面板**;
@@ -34,3 +33,19 @@ make up PROFILES="code-server vnc"   # 需要浏览器 IDE / Chromium 时
   `make config` 勾选后由 `make build` 烘进共享的 `sandbox-base` 镜像;
 - 工作区是挂在 `/root` 的命名卷,项目 / 配置 / `~/.local/bin` 工具扛过重建;
 - 联网机 `make save` 打包,离线机 `make load` 恢复,断网也能跑。
+
+## 多沙箱管理(sandbox-mgr)
+
+要同时跑多个沙箱、统一创建/启停/模型配置,用独立的 mgr 控制面栈:
+
+```sh
+make mgr-up      # 启 mgr 栈,打开 http://mgr.localhost/ 管理界面
+make mgr-down    # 停掉
+```
+
+每个沙箱经 `http://sbx-<name>.mgr.localhost/` 独立访问(工作台)与
+`http://sbx-<name>-piweb.mgr.localhost/`(pi-web);现有单沙箱栈可在 mgr-web
+「导入现有栈」向导里登记纳管。详见 README 的「多沙箱管理(sandbox-mgr)」一节。
+
+**安全边界**:本系统(网关与 mgr 总网关)全面无认证,面向单用户本机/受信内网;
+不要暴露到公网,远程使用自行加 VPN / 认证反代。

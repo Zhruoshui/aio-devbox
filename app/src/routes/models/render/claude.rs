@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use crate::routes::models::render::common::{
     backup_write_verify_json, read_json_object, ApplyResult, ReadError,
 };
-use crate::routes::models::store::CanonicalConfig;
+use aio_models::store::CanonicalConfig;
 
 /// Apply the current claude preset to ~/.claude/settings.json. When there
 /// is no current preset (claude block absent, `current` unset, or dangling),
@@ -120,7 +120,7 @@ pub fn apply_claude(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes::models::store::{
+    use aio_models::store::{
         CanonicalConfig, ClaudePreset, ClaudePresets, ModelEntry, ProviderEntry,
     };
     use std::sync::atomic::{AtomicU32, Ordering};

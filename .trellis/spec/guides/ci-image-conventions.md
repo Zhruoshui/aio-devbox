@@ -71,6 +71,31 @@ always_on 排除规则唯一归属 `config/src/manifest.rs::expand`。
 - `.env`/`gateway/secrets/`/`Dockerfile.base`(生成物)不入库;`.dockerignore`
   排除 `.env` + `gateway/secrets`。
 
+## 约定 7: BuildKit COPY-mtime 陷阱(含 lib 目标)
+
+任何 Dockerfile 的 dep-cache 层(_dummy 源先编依赖_)之后的真实源层,
+`COPY` 会把**构建时刻的旧 mtime** 钉进文件,cargo 可能把新源判为"早于
+dep-cache 层写下的 fingerprint"而跳过重编译——最终镜像里是 dummy 产物
+(09-08 在 mgr/Dockerfile 实测复现)。规则:
+
+- 真实源层必须 `touch` **所有** dep-cache 层 dummied 过的文件;
+- 依赖**路径 crate 的 lib** 时,`lib.rs` 必须在 touch 清单里(它就是 lib
+  目标的 unit fingerprint——mgr/Dockerfile 漏 touch `config/src/lib.rs`
+  导致 aio_config::scenario 消失,编译错误还是轻的,静默旧产物才致命);
+- dep-cache 层必须给**每个** workspace member 写 dummy 源(漏写
+  `cargo build -p <member>` 直接报 target resolution error)。
+
+```dockerfile
+# mgr/Dockerfile (正确)
+COPY config/src ./config/src
+COPY mgr/src ./mgr/src
+RUN touch config/src/lib.rs config/src/main.rs mgr/src/main.rs \
+ && cargo build --release --locked -p aio-mgr
+```
+
+镜像内联注释(app/Dockerfile)与本条互为锚定;改 Dockerfile 层结构时
+两边同步。
+
 ## 遗留占位(已解决)
 
 ~~`REGISTRY_PREFIX ?= ghcr.io/<OWNER>` 占位~~ → 2026-08-31 仓库定为

@@ -30,8 +30,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
 
-use crate::manifest;
-use crate::scenario;
+use aio_config::manifest;
+use aio_config::scenario;
 
 /// A renderable list row: either a category header (non-selectable) or a
 /// scenario item (checkbox). `scenario_idx` indexes the `scenarios` Vec and the
