@@ -71,14 +71,17 @@ services:
     networks:
       mgr-net:
       # alias `mgr-api` is reserved for Phase 4 (MGR_URL pull sync from the
-      # sandbox apps, design §3.7); joining now costs nothing.
+      # sandbox apps, design §3.7); the total gateway already uses the same
+      # name for the mgr.localhost site block (mgr/src/caddy.rs render).
       aio-mgr-net:
         aliases:
           - mgr-api
 
-  # Phase 3: mgr-web (Vite SPA) gets served statically BY mgr-api from
-  # ../mgr-web/dist - no separate service needed, just a COPY/mount addition
-  # to mgr-api when that lands.
+  # Phase 3 (mgr-web, the Vite management SPA) needs NO service of its own:
+  # mgr/Dockerfile's web-builder stage bakes mgr-web/dist into the mgr-api
+  # image at /app/static and the axum process serves it (main.rs MGR_WEB_DIR
+  # default). The total gateway routes http://mgr.localhost -> mgr-api:8089,
+  # so the UI, the API and the sandboxes all sit behind the one :80 entry.
 
 networks:
   mgr-net:

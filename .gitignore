@@ -46,9 +46,10 @@ config/target/
 # web/; it is a build artifact, not source.
 app/static/
 
-# --- Node / web (web/) ---
+# --- Node / web (web/ workbench SPA + mgr-web/ management SPA) ---
 node_modules/
 web/dist/
+mgr-web/dist/
 
 # --- Test artifacts ---
 vnc-screenshot.png

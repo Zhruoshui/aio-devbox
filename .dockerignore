@@ -25,3 +25,9 @@ node_modules
 **/target
 app/static
 web/dist
+mgr-web/dist
+
+# mgr runtime state (state.db, generated per-sandbox compose files, the
+# generated total-gateway Caddyfile) - mgr/Dockerfile's build context is the
+# repo root too, and none of this belongs in any image's context.
+mgr-data

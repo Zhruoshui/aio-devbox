@@ -11,7 +11,7 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -33,6 +33,23 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
         .route("/api/jobs/:id", get(get_job))
+        // Unmatched /api path: 404 JSON in the ApiError shape, never the SPA
+        // fallback (main.rs fallback_service would otherwise serve index.html
+        // on a reserved seam path, and mgr-web's apiError would die on HTML
+        // instead of showing the message). Same three-route discipline as
+        // app/src/main.rs: matchit 0.7.3's *rest needs the bare /api and
+        // /api/ forms listed explicitly, and static segments above always win.
+        .route("/api", any(api_not_found))
+        .route("/api/", any(api_not_found))
+        .route("/api/*rest", any(api_not_found))
+}
+
+/// Handler for the /api seam routes above (any method).
+async fn api_not_found() -> ApiError {
+    ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: "no such API route".into(),
+    }
 }
 
 // ── errors ─────────────────────────────────────────────────────────
@@ -125,6 +142,34 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// Resource-limit validation (Phase 3, mgr-web). Negative values are
+/// rejected with a fix-it message; `0` is a legal "no limit" sentinel (it is
+/// normalized to None on create, and means "clear the current limit" on PUT
+/// - see put_sandbox). 0 is meaningless as an actual limit, so no valid
+/// input is lost to the sentinel.
+fn check_limits(cpus: Option<f64>, mem_mb: Option<i64>) -> Result<(), ApiError> {
+    if let Some(c) = cpus {
+        if c < 0.0 {
+            return Err(ApiError::bad("cpus must be >= 0 (0 = no limit)"));
+        }
+    }
+    if let Some(m) = mem_mb {
+        if m < 0 {
+            return Err(ApiError::bad("mem_mb must be >= 0 (0 = no limit)"));
+        }
+    }
+    Ok(())
+}
+
+/// Create-side normalization: 0 / absent -> None (no limit).
+fn limit_or_none(cpus: Option<f64>) -> Option<f64> {
+    cpus.filter(|c| *c > 0.0)
+}
+
+fn limit_or_none_mb(mem_mb: Option<i64>) -> Option<i64> {
+    mem_mb.filter(|m| *m > 0)
+}
+
 async fn create_sandbox(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SandboxBody>,
@@ -146,14 +191,16 @@ async fn create_sandbox(
     body.env
         .to_manifest_checked(&state.repo)
         .map_err(|e| ApiError::bad(format!("{e:#}")))?;
+    check_limits(body.cpus, body.mem_mb)?;
+    let (cpus, mem_mb) = (limit_or_none(body.cpus), limit_or_none_mb(body.mem_mb));
 
     let row = db::SandboxRow {
         name: body.name.clone(),
         created_at: now_secs(),
         env_json: body.env.canonical_json(),
         env_hash: String::new(), // filled by the job on success
-        cpus: body.cpus,
-        mem_mb: body.mem_mb,
+        cpus,
+        mem_mb,
         status: "creating".into(),
         adopted: false,
         external_compose: None,
@@ -162,15 +209,8 @@ async fn create_sandbox(
         let conn = state.db.lock().unwrap();
         db::insert_sandbox(&conn, &row)?;
     }
-    let job_id = jobs::spawn_create(
-        state.clone(),
-        body.name.clone(),
-        body.env,
-        body.cpus,
-        body.mem_mb,
-        false,
-    )
-    .await?;
+    let job_id = jobs::spawn_create(state.clone(), body.name.clone(), body.env, cpus, mem_mb, false)
+        .await?;
     Ok(Json(json!({ "job": job_id, "name": body.name })))
 }
 
@@ -180,19 +220,27 @@ async fn create_sandbox(
 /// itself failed - docker down, stale compose file: shown, never hidden).
 async fn sandbox_json(state: &Arc<AppState>, row: &db::SandboxRow) -> serde_json::Value {
     let compose_file = state.instance_dir(&row.name).join("compose.yml");
-    let ps = match docker::compose_ps(&envhash::project_name(&row.name), &compose_file).await {
-        Ok(ps) => ps,
+    // A ps FAILURE is not "gone": the containers may well be running and the
+    // daemon is merely unreachable. Mapping the error to an empty ps list
+    // would make a docker outage render every sandbox as "gone" (observed
+    // contract drift: types.ts/liveLabel in mgr-web carry an "unknown" badge
+    // that this branch is the only producer of).
+    let (live, ps) = match docker::compose_ps(&envhash::project_name(&row.name), &compose_file).await {
+        Ok(ps) => {
+            let running = ps.iter().any(|e| e.state.eq_ignore_ascii_case("running"));
+            let live = if ps.is_empty() { "gone" } else if running { "running" } else { "stopped" };
+            (live, ps)
+        }
         Err(e) => {
             tracing::warn!(sandbox = %row.name, error = %format!("{e:#}"), "compose ps failed");
-            Vec::new()
+            ("unknown", Vec::new())
         }
     };
-    let running = ps.iter().any(|e| e.state.eq_ignore_ascii_case("running"));
     let short_hash = if row.env_hash.len() >= 12 { &row.env_hash[..12] } else { "" };
     json!({
         "name": row.name,
         "status": row.status,
-        "live": if ps.is_empty() { "gone" } else if running { "running" } else { "stopped" },
+        "live": live,
         "adopted": row.adopted,
         "created_at": row.created_at,
         "cpus": row.cpus,
@@ -252,13 +300,24 @@ async fn put_sandbox(
     if row.adopted {
         return Err(ApiError::bad("adopted external stack: env/resource changes unsupported (design §3.8)"));
     }
-    // Merge: absent fields keep current values; a new env hash drives the
-    // recreate flow (design §3.6 PUT).
+    check_limits(body.cpus, body.mem_mb)?;
+    // Merge: absent fields keep current values; an EXPLICIT 0 CLEARS a
+    // resource limit (the UI's "empty field = unlimited" - a plain null
+    // would silently keep the old limit, which is not what a cleared input
+    // means). A new env hash drives the recreate flow (design §3.6 PUT).
     let env = body
         .env
         .unwrap_or_else(|| serde_json::from_str(&row.env_json).expect("env_json roundtrips"));
-    let cpus = body.cpus.or(row.cpus);
-    let mem_mb = body.mem_mb.or(row.mem_mb);
+    let cpus = match body.cpus {
+        Some(c) if c > 0.0 => Some(c),
+        Some(_) => None, // explicit 0 = clear
+        None => row.cpus, // absent = keep
+    };
+    let mem_mb = match body.mem_mb {
+        Some(m) if m > 0 => Some(m),
+        Some(_) => None,
+        None => row.mem_mb,
+    };
     env.to_manifest_checked(&state.repo).map_err(|e| ApiError::bad(format!("{e:#}")))?;
 
     db::update_sandbox_status(&state.db.lock().unwrap(), &name, "creating")?;

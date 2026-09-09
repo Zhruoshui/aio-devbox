@@ -112,7 +112,10 @@ async fn run_create(
 
     // 3. Images: build missing ones. Order base -> app -> code-server -> vnc
     //    (dependency: app/cs FROM base). Same-env reuse (A5) hits the
-    //    existence checks and skips everything.
+    //    existence checks and skips everything. The base build's output is
+    //    kept (tail) as the images-table build_log - the registry page's
+    //    "build log" column / failure display (design §3.3).
+    let mut base_build_log = String::new();
     if !docker::image_exists(&base_tag).await? {
         append_log(&log, &format!("building {base_tag} ...\n")).await;
         // Per-sandbox Dockerfile.base so builds don't share the repo-root
@@ -122,6 +125,7 @@ async fn run_create(
             .with_context(|| format!("write {}", df_path.display()))?;
         let out = docker::build(&repo, &df_path, &base_tag, &[]).await?;
         append_log(&log, &out).await;
+        base_build_log = tail(&out, LOG_TAIL);
     } else {
         append_log(&log, &format!("{base_tag} exists, skip\n")).await;
     }
@@ -146,7 +150,8 @@ async fn run_create(
 
     {
         let conn = state.db.lock().unwrap();
-        db::upsert_image(&conn, &hash, &base_tag, "").with_context(|| "record image")?;
+        db::upsert_image(&conn, &hash, &base_tag, &base_build_log)
+            .with_context(|| "record image")?;
     }
 
     // 4. Compose + Caddyfile.
@@ -161,14 +166,12 @@ async fn run_create(
     append_log(&log, &out).await;
 
     // 6. Persist the env/config on success (A5 correctness: a failed create
-    //    doesn't overwrite a working sandbox's config).
+    //    doesn't overwrite a working sandbox's config). Same statement for
+    //    create and recreate - recreate already overwrote the row's status in
+    //    put_sandbox, and both flows own the row from here on.
     {
         let conn = state.db.lock().unwrap();
-        if recreate {
-            db::update_sandbox_config(&conn, &name, &env.canonical_json(), &hash, cpus, mem_mb)?;
-        } else {
-            db::update_sandbox_config(&conn, &name, &env.canonical_json(), &hash, cpus, mem_mb)?;
-        }
+        db::update_sandbox_config(&conn, &name, &env.canonical_json(), &hash, cpus, mem_mb)?;
     }
 
     // 7. Total gateway: regenerate the Caddyfile with this sandbox's site
@@ -208,7 +211,14 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
         let result = async {
             let compose_file = st.instance_dir(&name).join("compose.yml");
             let project = envhash::project_name(&name);
-            let out = docker::compose_down(&project, &compose_file, volumes).await?;
+            // A failed create never wrote a compose file - compose down would
+            // error on the missing file and leave an undeletable error row.
+            // Skip to the row/dir cleanup instead (nothing is running).
+            let out = if compose_file.exists() {
+                docker::compose_down(&project, &compose_file, volumes).await?
+            } else {
+                format!("no compose file for {name} (create failed early) - skip compose down\n")
+            };
             append_log(&shared, &out).await;
             {
                 let conn = st.db.lock().unwrap();
@@ -255,5 +265,50 @@ async fn append_log(log: &Arc<TokioMutex<JobShared>>, chunk: &str) {
     if job.log.len() > LOG_TAIL {
         let cut = job.log.len() - LOG_TAIL;
         job.log = job.log[cut..].to_string();
+    }
+}
+
+/// Byte-tail of a build output, capped like the job log (the images table's
+/// build_log column serves the same "tail for the UI" role, design §3.3).
+fn tail(s: &str, cap: usize) -> String {
+    if s.len() <= cap {
+        return s.to_string();
+    }
+    let cut = s.len() - cap;
+    // Align to a char boundary so slicing never panics on multibyte output.
+    let mut start = cut;
+    while !s.is_char_boundary(start) {
+        start += 1;
+    }
+    s[start..].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tail_short_input_untouched() {
+        assert_eq!(tail("abc", 8), "abc");
+        assert_eq!(tail("", 8), "");
+    }
+
+    #[test]
+    fn tail_long_input_keeps_suffix() {
+        let out = format!("{}\nERROR: boom", "x".repeat(LOG_TAIL));
+        let t = tail(&out, LOG_TAIL);
+        assert!(t.ends_with("ERROR: boom"));
+        assert!(t.len() >= LOG_TAIL);
+        assert!(!t.starts_with('x') || t.len() == LOG_TAIL);
+    }
+
+    #[test]
+    fn tail_never_splits_multibyte_chars() {
+        // The cut point may land inside a multibyte char; the boundary walk
+        // must skip forward, never panic.
+        let s = "é".repeat(64); // 2 bytes each, 128 bytes total
+        let t = tail(&s, 7); // 7 is odd -> would split an é
+        assert!(!t.is_empty());
+        assert!(s.ends_with(t.as_str()));
     }
 }

@@ -152,6 +152,11 @@ pub fn delete_sandbox(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Record an image row after a create job. `build_log` empty means "the image
+/// already existed and nothing was built" (A5 same-env reuse - jobs.rs still
+/// upserts so a row exists for an image whose record predates the DB): in
+/// that case the original build's built_at/build_log MUST survive; a real
+/// rebuild (non-empty log) replaces both.
 pub fn upsert_image(
     conn: &Connection,
     env_hash: &str,
@@ -160,7 +165,9 @@ pub fn upsert_image(
 ) -> Result<()> {
     conn.execute(
         "INSERT INTO images (env_hash, tag, built_at, build_log) VALUES (?1,?2,?3,?4)
-         ON CONFLICT(env_hash) DO UPDATE SET built_at = ?3, build_log = ?4",
+         ON CONFLICT(env_hash) DO UPDATE SET
+           built_at = CASE WHEN ?4 = '' THEN images.built_at ELSE ?3 END,
+           build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END",
         params![
             env_hash,
             tag,
@@ -237,4 +244,60 @@ fn chrono_now_secs() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mem_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA).expect("init schema");
+        conn
+    }
+
+    #[test]
+    fn upsert_image_empty_log_keeps_existing_record() {
+        // A5 same-env reuse: the second create upserts with "" (nothing was
+        // built); the original build's built_at + log must survive, or the
+        // images page loses its build log the first time a config is reused.
+        let conn = mem_db();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "original log").unwrap();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "").unwrap();
+        let (built_at, build_log) = conn
+            .query_row(
+                "SELECT built_at, build_log FROM images WHERE env_hash = 'h1'",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(build_log, "original log");
+        assert!(built_at > 0);
+    }
+
+    #[test]
+    fn upsert_image_real_rebuild_replaces_log() {
+        let conn = mem_db();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "old").unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "new log").unwrap();
+        let build_log: String = conn
+            .query_row("SELECT build_log FROM images WHERE env_hash = 'h2'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(build_log, "new log");
+    }
+
+    #[test]
+    fn upsert_image_first_insert_with_empty_log_stores_row() {
+        // No prior row: the empty-log preservation branch must not swallow
+        // the INSERT (CASE only fires on conflict).
+        let conn = mem_db();
+        upsert_image(&conn, "h3", "sandbox-base-h3", "").unwrap();
+        let (tag, build_log): (String, String) = conn
+            .query_row("SELECT tag, build_log FROM images WHERE env_hash = 'h3'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(tag, "sandbox-base-h3");
+        assert_eq!(build_log, "");
+    }
 }

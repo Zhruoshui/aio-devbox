@@ -1,0 +1,203 @@
+// Minimal i18n - a flat string table per language plus a `t` lookup (the
+// same pattern as web/src/i18n.ts: deliberately no framework, the UI surface
+// is chrome-only - scenario names/descriptions come from /api/scenarios and
+// stay server-authored). `{n}` placeholders are filled by `fmt`.
+
+export type Lang = "zh-CN" | "en";
+
+export const LANGS: readonly Lang[] = ["zh-CN", "en"];
+
+type Strings = typeof STRINGS["zh-CN"];
+
+const STRINGS: Record<Lang, Record<string, string>> = {
+  "zh-CN": {
+    brand: "Sandbox 管理器",
+    toLight: "切换到浅色主题",
+    toDark: "切换到深色主题",
+    switchLang: "Switch to English",
+    loading: "正在加载…",
+    loadFailed: "加载失败：",
+    // nav
+    navSandboxes: "沙箱列表",
+    navImages: "镜像",
+    // sandbox list
+    refresh: "刷新",
+    newSandbox: "新建沙箱",
+    emptySandboxes: "还没有沙箱。点击「新建沙箱」创建第一个。",
+    enter: "进入沙箱",
+    enterNewTab: "在新标签页打开该沙箱的工作台",
+    editConfig: "编辑配置",
+    start: "启动",
+    stop: "停止",
+    restart: "重启",
+    delete: "删除",
+    confirmDeleteTitle: "删除沙箱",
+    confirmDeleteSub: "该操作不可撤销。compose down 会移除容器与网络。",
+    deleteVolumes: "同时清理数据卷（工作区数据将永久丢失）",
+    confirmDelete: "确认删除",
+    cancel: "取消",
+    actionFailed: "操作失败：",
+    sbCpus: "CPU",
+    sbMem: "内存",
+    sbUnlimited: "未限制",
+    sbImage: "镜像",
+    sbCreated: "创建于",
+    sbServices: "服务",
+    sbAdopted: "外部栈",
+    sbExternalNote: "导入的外部栈：仅支持启停与状态展示，不支持改配置。",
+    // status badges
+    stRunning: "运行中",
+    stStopped: "已停止",
+    stCreating: "创建中",
+    stError: "错误",
+    stGone: "已消失",
+    stUnknown: "未知",
+    stAdopted: "纳管",
+    // wizard
+    wzTitle: "新建沙箱",
+    wzSub: "场景选择决定镜像内容：相同选择的沙箱共享同一镜像（不重复构建）。创建含镜像构建，耗时以分钟计。",
+    wzName: "名称",
+    wzNamePh: "例如：dev1",
+    wzNameHint: "小写字母/数字/连字符，最长 32；将作为子域名 sbx-<名称>.mgr.localhost 的前缀。",
+    wzNameErr: "名称需为 [a-z0-9-]，以字母或数字开头，最长 32 字符。",
+    wzNameTaken: "该名称已被占用。",
+    wzScenarios: "场景",
+    wzScenariosHint: "always_on 场景（node / python / pi / pi-web）固定烘焙，不可取消，只能选版本。",
+    wzLocked: "必装",
+    wzVersion: "版本",
+    wzResources: "资源限制",
+    wzCpus: "CPU 核数",
+    wzCpusPh: "例如：4",
+    wzMem: "内存上限 (MB)",
+    wzMemPh: "例如：8192",
+    wzResHint: "留空 = 不限制。修改资源需要重启沙箱生效（重建流程）。",
+    wzResErr: "CPU 需为正数；内存需为 128 以上的整数（MB）。",
+    wzSubmit: "创建",
+    wzSubmitting: "提交中…",
+    // env editor
+    edTitle: "编辑配置",
+    edSub: "修改场景或版本会改变镜像内容：保存后走重建流程（数据卷保留）。仅修改资源也需要重启容器。",
+    edSave: "保存并重建",
+    edSameEnv: "配置未变化。",
+    // job progress
+    jobCreating: "正在创建沙箱…",
+    jobRecreating: "正在重建沙箱…",
+    jobDeleting: "正在删除沙箱…",
+    jobOk: "完成",
+    jobError: "失败",
+    jobLog: "构建日志（尾部）",
+    jobBack: "返回列表",
+    jobDoneCreate: "沙箱已就绪。",
+    jobDoneDelete: "沙箱已删除。",
+    jobFailedHint: "失败原因见下方日志尾部。沙箱状态已标记为 error，可修正配置后重试。",
+    // images page
+    imgTitle: "镜像",
+    imgSub: "按环境哈希共享：相同场景/版本选择指向同一镜像，引用数归零后可手动清理。",
+    imgTag: "镜像 tag",
+    imgBuiltAt: "构建时间",
+    imgRefcount: "引用沙箱数",
+    imgLog: "构建日志",
+    imgEmpty: "暂无镜像记录。",
+    imgNotBuilt: "未记录",
+  },
+  en: {
+    brand: "Sandbox manager",
+    toLight: "Switch to light theme",
+    toDark: "Switch to dark theme",
+    switchLang: "切换到中文",
+    loading: "Loading…",
+    loadFailed: "Failed to load: ",
+    // nav
+    navSandboxes: "Sandboxes",
+    navImages: "Images",
+    // sandbox list
+    refresh: "Refresh",
+    newSandbox: "New sandbox",
+    emptySandboxes: "No sandboxes yet. Click “New sandbox” to create your first one.",
+    enter: "Open sandbox",
+    enterNewTab: "Open this sandbox's workbench in a new tab",
+    editConfig: "Edit config",
+    start: "Start",
+    stop: "Stop",
+    restart: "Restart",
+    delete: "Delete",
+    confirmDeleteTitle: "Delete sandbox",
+    confirmDeleteSub: "This cannot be undone. compose down removes containers and networks.",
+    deleteVolumes: "Also remove volumes (workspace data will be lost permanently)",
+    confirmDelete: "Delete",
+    cancel: "Cancel",
+    actionFailed: "Action failed: ",
+    sbCpus: "CPU",
+    sbMem: "Memory",
+    sbUnlimited: "unlimited",
+    sbImage: "Image",
+    sbCreated: "Created",
+    sbServices: "Services",
+    sbAdopted: "external stack",
+    sbExternalNote: "Adopted external stack: start/stop and status only, no config changes.",
+    // status badges
+    stRunning: "running",
+    stStopped: "stopped",
+    stCreating: "creating",
+    stError: "error",
+    stGone: "gone",
+    stUnknown: "unknown",
+    stAdopted: "adopted",
+    // wizard
+    wzTitle: "New sandbox",
+    wzSub: "Scenarios define the image contents: identical selections share one image (no rebuild). Creation includes image builds and takes minutes.",
+    wzName: "Name",
+    wzNamePh: "e.g. dev1",
+    wzNameHint: "lowercase letters/digits/hyphens, max 32; becomes the sbx-<name>.mgr.localhost subdomain prefix.",
+    wzNameErr: "Name must be [a-z0-9-], start with a letter or digit, max 32 chars.",
+    wzNameTaken: "That name is already taken.",
+    wzScenarios: "Scenarios",
+    wzScenariosHint: "always_on scenarios (node / python / pi / pi-web) are baked unconditionally - only their version is selectable.",
+    wzLocked: "always-on",
+    wzVersion: "Version",
+    wzResources: "Resource limits",
+    wzCpus: "CPUs",
+    wzCpusPh: "e.g. 4",
+    wzMem: "Memory cap (MB)",
+    wzMemPh: "e.g. 8192",
+    wzResHint: "Empty = unlimited. Resource changes take effect via the recreate flow.",
+    wzResErr: "CPUs must be a positive number; memory an integer of 128+ MB.",
+    wzSubmit: "Create",
+    wzSubmitting: "Submitting…",
+    // env editor
+    edTitle: "Edit config",
+    edSub: "Changing scenarios or versions changes the image: saving runs the recreate flow (volumes are kept). Resource-only changes also restart the container.",
+    edSave: "Save & recreate",
+    edSameEnv: "No changes yet.",
+    // job progress
+    jobCreating: "Creating sandbox…",
+    jobRecreating: "Recreating sandbox…",
+    jobDeleting: "Deleting sandbox…",
+    jobOk: "Done",
+    jobError: "Failed",
+    jobLog: "Build log (tail)",
+    jobBack: "Back to list",
+    jobDoneCreate: "Sandbox is ready.",
+    jobDoneDelete: "Sandbox deleted.",
+    jobFailedHint: "See the log tail below for the failure reason. The sandbox is marked error; fix the config and retry.",
+    // images page
+    imgTitle: "Images",
+    imgSub: "Shared by env hash: identical scenario/version selections point at one image; clean up manually once unreferenced.",
+    imgTag: "Image tag",
+    imgBuiltAt: "Built at",
+    imgRefcount: "Referring sandboxes",
+    imgLog: "Build log",
+    imgEmpty: "No images recorded yet.",
+    imgNotBuilt: "not recorded",
+  },
+};
+
+/** Look up a string for the active language (falls back to the key). */
+export function t(lang: Lang, key: keyof Strings): string {
+  return STRINGS[lang][key] ?? key;
+}
+
+/** Fill a `{n}` placeholder in a looked-up string. */
+export function fmt(lang: Lang, key: keyof Strings, n: number): string {
+  return t(lang, key).replace("{n}", String(n));
+}

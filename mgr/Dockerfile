@@ -6,10 +6,16 @@
 # `dockerfile: mgr/Dockerfile`), mirroring app/Dockerfile, because mgr is a
 # member of the root cargo workspace and depends on the aio-config path crate.
 #
-# Unlike app, mgr has no scenario-derived base image and no web stage - it is
-# a plain self-contained axum server, so the official Rust image is also the
-# natural runtime (nothing from sandbox-base is needed inside the container;
-# docker itself is reached via the mounted host socket, not a docker CLI).
+# Unlike app, mgr has no scenario-derived base image - it is a plain
+# self-contained axum server, so the official Rust image is also the natural
+# runtime (nothing from sandbox-base is needed inside the container; docker
+# itself is reached via the mounted host socket, not a docker CLI).
+#
+# Phase 3 adds a web-builder stage for the mgr-web management SPA (same
+# pattern as app/Dockerfile's web-builder, but mgr does not build FROM
+# sandbox-base, so it pulls node:20-bookworm-slim explicitly). The dist tree
+# is baked to /app/static and served by the axum process (main.rs MGR_WEB_DIR
+# default in-container value).
 
 FROM rust:1-bookworm AS builder
 
@@ -20,6 +26,8 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 # Dep-cache layer: root manifest + lock + every member manifest with dummy
 # sources (same contract as app/Dockerfile; `--locked` pins the shared lock).
+# mgr-web does not affect this layer: it is an npm project, not a cargo
+# member, so no dummy sources for it here.
 COPY Cargo.toml Cargo.lock ./
 COPY app/Cargo.toml app/Cargo.toml
 COPY config/Cargo.toml config/Cargo.toml
@@ -46,6 +54,18 @@ COPY mgr/src ./mgr/src
 RUN touch config/src/lib.rs config/src/main.rs mgr/src/main.rs \
  && cargo build --release --locked -p aio-mgr
 
+# --- web-builder: compile the mgr-web management SPA with Vite (Phase 3). ---
+# mgr has no sandbox-base, so pull node explicitly (same image the app's
+# web-builder inherits through sandbox-base). Lockfile-first for a
+# deterministic, cacheable npm install; `npm run build` runs
+# `tsc --noEmit && vite build` (typecheck is a build gate) into /mgr-web/dist.
+FROM node:20-bookworm-slim AS web-builder
+WORKDIR /mgr-web
+COPY mgr-web/package.json mgr-web/package-lock.json ./
+RUN npm ci
+COPY mgr-web/ ./
+RUN npm run build
+
 # --- Runtime: slim bookworm + docker CLI (client only).
 # mgr shells out to `docker ...` / `docker compose ...` as subprocesses (D2:
 # CLI, never the Docker API), so the client AND its compose/buildx plugins
@@ -70,6 +90,15 @@ COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
                      /usr/local/libexec/docker/cli-plugins/docker-buildx
 
 COPY --from=builder /app/target/release/aio-mgr /usr/local/bin/aio-mgr
+
+# mgr-web SPA tree (React build output from the web-builder stage). Matches
+# the in-container MGR_WEB_DIR default of /app/static set below.
+COPY --from=web-builder /mgr-web/dist /app/static
+
+# main.rs defaults MGR_WEB_DIR to <MGR_REPO>/mgr-web/dist; the repo mount in
+# the containerized form has no dist (it is .dockerignore'd + built in-image),
+# so pin the baked path explicitly.
+ENV MGR_WEB_DIR=/app/static
 
 EXPOSE 8089
 ENTRYPOINT ["/usr/local/bin/aio-mgr"]
