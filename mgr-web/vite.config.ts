@@ -9,7 +9,10 @@ import react from "@vitejs/plugin-react";
 //
 // Dev mode (`npm run dev`): the dev server proxies /api to a bare-metal
 // aio-mgr on :8089. Unlike the workbench SPA there is no auth in front of
-// mgr (prd D9), so the proxy is the full dev story - no 401 caveat.
+// mgr (prd D9), so the proxy is the full dev story - no 401 caveat. The
+// workspace's terminal pane opens a WebSocket on /api/sbx/<name>/api/term/ws,
+// so the proxy must also forward upgrades (same as the workbench's
+// /code-server and /vnc entries in web/vite.config.ts).
 export default defineConfig({
   plugins: [react()],
   base: "/",
@@ -19,7 +22,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:8089",
+      "/api": {
+        target: "http://localhost:8089",
+        ws: true,
+      },
     },
   },
 });

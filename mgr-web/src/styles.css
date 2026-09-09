@@ -1,11 +1,11 @@
-/* sandbox-mgr admin UI - Cloudflare Kumo design language.
+/* sandbox-mgr UI - Cloudflare Kumo design language.
  *
  * Token layer + shared control styles are ported from web/src/styles.css
- * (official sources: kumo-ui.com + cloudflare/kumo @ 0c583257, MIT) with the
- * golden-layout / pane / terminal / models-pane sections dropped - mgr-web is
- * pure admin pages. Choose tokens by role, never by hue: light/dark stay
- * synchronized through [data-mode] overrides only - no manual dark variants
- * below the token layer.
+ * (official sources: kumo-ui.com + cloudflare/kumo @ 0c583257, MIT). Admin
+ * pages + the golden-layout workspace (Phase 2) share this token layer;
+ * golden-layout's own chrome is themed in gl-kumo.css. Choose tokens by
+ * role, never by hue: light/dark stay synchronized through [data-mode]
+ * overrides only - no manual dark variants below the token layer.
  */
 
 @import "@fontsource/inter/400.css";
@@ -87,6 +87,12 @@
   /* Scrollbar thumb ramp — neutral overlay tuned per canvas. */
   --scrollbar-thumb: oklch(14.5% 0 0 / 0.24);
   --scrollbar-thumb-hover: oklch(14.5% 0 0 / 0.4);
+
+  /* Terminal surface + accent colors, consumed by xterm via getComputedStyle
+   * (XtermPane reads these so the pty view follows the active mode). */
+  --term-bg: color-mix(in oklch, var(--bg) 88%, black);
+  --term-fg: var(--fg);
+  --term-selection: color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
 /* Kumo uses data-mode="dark". The data-theme selector keeps generated Open
@@ -2246,4 +2252,288 @@ body {
   font-size: var(--text-xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ─── workspace (golden-layout + sandbox tree, Phase 2) ──────────── */
+/* Ported from web/src/styles.css's golden-layout/pane/terminal sections
+ * (the pieces the admin-page port dropped) + the tree column. The
+ * workspace is app-like: a FIXED viewport-height region (no page scroll),
+ * unlike the scrolling admin pages. */
+
+.ws {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  height: 100vh;
+}
+.ws-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.gl-root {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Empty / loading / error states inside the workspace main area. */
+.ws-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--muted);
+  text-align: center;
+}
+.ws-empty.ws-error {
+  color: var(--danger);
+}
+
+/* Popout child window: a lone workspace (no sidebar/statusbar). The
+ * dock-back button floats bottom-right - where golden-layout's native
+ * popin button used to live before the subwindow path was taken over. */
+.app-popout {
+  height: 100vh;
+  display: flex;
+}
+.app-popout .gl-root {
+  flex: 1;
+  min-width: 0;
+}
+.popin-btn {
+  position: fixed;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 45;
+  background: var(--surface);
+  box-shadow: var(--elev-ring), var(--elev-raised);
+}
+
+/* ── sandbox tree column ─────────────────────────────────────────── */
+.ws-tree {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-warm);
+  border-right: 1px solid var(--border-soft);
+}
+.ws-tree .sb-list {
+  gap: var(--space-1);
+  overflow-y: auto;
+}
+.ws-node {
+  display: flex;
+  flex-direction: column;
+}
+.ws-node.ws-focus > .ws-node-row {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+.ws-node-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+}
+.ws-node-row:hover {
+  background: color-mix(in oklch, var(--fg) 7%, transparent);
+}
+.ws-node-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-2);
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: left;
+}
+.ws-node-btn .icon {
+  color: var(--muted);
+  width: 14px;
+  height: 14px;
+}
+.ws-node-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-node-btn .badge {
+  flex-shrink: 0;
+  transform: scale(0.85);
+  transform-origin: right center;
+}
+.ws-start-btn {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.ws-start-btn .icon {
+  width: 13px;
+  height: 13px;
+}
+.ws-start-btn.spin svg {
+  animation: rot 0.9s linear infinite;
+}
+
+/* Children: the sandbox's manifest buttons, indented under the node. */
+.ws-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-1) var(--space-2) var(--space-4);
+}
+.ws-children .launch-btn {
+  height: 30px;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.ws-children .launch-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+.ws-children .sb-group-label {
+  margin: var(--space-1) 0 0 var(--space-2);
+}
+/* Stopped sandbox: the whole subtree greys out (buttons also disabled). */
+.ws-disabled {
+  opacity: 0.55;
+}
+.ws-register-btn .icon {
+  color: var(--success);
+}
+.ws-tree-foot {
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+.ws-tree-foot .btn {
+  justify-content: center;
+}
+
+/* Row delete button for custom (deletable) tree buttons - ported from
+ * web/src/styles.css's .del-btn (hover-revealed like the workbench). */
+.ws-tree .del-btn {
+  width: 26px;
+  height: 26px;
+  margin-right: var(--space-1);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+.ws-tree .sb-row:hover .del-btn {
+  display: inline-flex;
+}
+.ws-tree .del-btn:hover {
+  color: var(--danger);
+}
+.ws-tree .del-btn .icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* ── panes ────────────────────────────────────────────────────────── */
+.pane {
+  width: 100%;
+  height: 100%;
+}
+
+/* Iframe pane + drag-capture overlay. */
+.pane-iframe-wrap {
+  position: relative;
+}
+.pane-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: var(--bg);
+}
+/* Transparent overlay over iframes while a golden-layout drag/resize is in
+ * progress, so the iframe cannot swallow the pointer events needed to
+ * rearrange panes. Hidden by default; revealed by .is-dragging on the root. */
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  background: transparent;
+}
+.gl-root.is-dragging .drag-overlay {
+  display: block;
+}
+/* Also disable iframe pointer events directly during drag as a belt-and-
+ * braces measure (covers iframes whose overlay has not painted yet). */
+.gl-root.is-dragging .pane-iframe {
+  pointer-events: none;
+}
+
+.pane-xterm {
+  padding: var(--space-3);
+  background: var(--term-bg);
+}
+
+/* ── register dialog pieces (ported from web/src/styles.css) ───────── */
+
+/* Register dialog port liveness hint: non-blocking probe result under the
+ * port field - warn for a dead port, ok for a live one. */
+.field .probe-hint {
+  font-size: var(--text-xs);
+}
+.field .probe-hint.warn {
+  color: var(--warn);
+}
+.field .probe-hint.ok {
+  color: var(--success);
+}
+
+/* Button-type segmented control (register dialog): two mutually exclusive
+ * choices (terminal command / web port preview). Scoped to .dialog so it
+ * never collides with .statusbar .seg. */
+.dialog .seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+}
+.dialog .seg-btn {
+  height: 30px;
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 3px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.dialog .seg-btn:hover {
+  color: var(--fg);
+}
+.dialog .seg-btn.active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--elev-ring);
 }

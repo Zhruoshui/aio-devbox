@@ -1,11 +1,13 @@
-// SandboxListPage - the mgr landing page (design §4 page 1).
+// SandboxListPage - the sandboxes admin page (design §4 page 1).
 //
 // Cards per sandbox: name + status badges (DB intent `status` + live compose
 // state `live`), resources, image tag, creation date, running services, and
-// the entry button ("进入沙箱" - opens entry_url in a NEW TAB per D10; the
-// workbench SPA itself is untouched). Actions: start/stop/restart (synchronous
-// POSTs), edit config (parent switches to the env editor) and delete (confirm
-// dialog with the volumes checkbox - volumes=1 runs compose down -v, A7).
+// the entry button ("进入沙箱" - switches to the WORKSPACE page focused on
+// that sandbox, prd D2: no more new-tab per-sandbox workbench; the unified
+// workspace embeds every sandbox's panes). Actions: start/stop/restart
+// (synchronous POSTs), edit config (parent switches to the env editor) and
+// delete (confirm dialog with the volumes checkbox - volumes=1 runs compose
+// down -v, A7).
 //
 // Adopted (external) stacks: same card minus the edit button; their delete is
 // a synchronous UN-REGISTRATION (dialog says so, no volumes checkbox, no
@@ -28,13 +30,15 @@ const POLL_MS = 4000;
 
 interface Props {
   lang: Lang;
+  /** Switch to the workspace focused on this sandbox (进入, D2). */
+  onEnter: (name: string) => void;
   onCreate: () => void;
   onAdopt: () => void;
   onEdit: (name: string) => void;
   onJob: (jobId: number, flow: "create" | "recreate" | "delete") => void;
 }
 
-export function SandboxListPage({ lang, onCreate, onAdopt, onEdit, onJob }: Props): JSX.Element {
+export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJob }: Props): JSX.Element {
   const [sandboxes, setSandboxes] = useState<Sandbox[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(""); // sandbox name with an action in flight
@@ -132,6 +136,7 @@ export function SandboxListPage({ lang, onCreate, onAdopt, onEdit, onJob }: Prop
               sb={sb}
               lang={lang}
               busy={busy === sb.name}
+              onEnter={() => onEnter(sb.name)}
               onAction={(a) => void act(sb, a)}
               onEdit={() => onEdit(sb.name)}
               onDelete={() => {
@@ -198,6 +203,7 @@ function SandboxCard({
   sb,
   lang,
   busy,
+  onEnter,
   onAction,
   onEdit,
   onDelete,
@@ -205,6 +211,7 @@ function SandboxCard({
   sb: Sandbox;
   lang: Lang;
   busy: boolean;
+  onEnter: () => void;
   onAction: (a: "start" | "stop" | "restart") => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -220,9 +227,11 @@ function SandboxCard({
         <a
           className="sbx-entry"
           href={sb.entry_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={t(lang, "enterNewTab")}
+          title={t(lang, "enterWorkspace")}
+          onClick={(e) => {
+            e.preventDefault();
+            onEnter();
+          }}
         >
           <Icon name="dock" />
           {t(lang, "enter")}

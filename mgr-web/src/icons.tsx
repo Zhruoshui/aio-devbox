@@ -1,8 +1,9 @@
 // Icon sprite - inline SVG symbols, stroke style from the Kumo reference
-// (same pattern and glyph set as web/src/icons.tsx, minus the workspace-only
-// serviceIcon mapping). IconSprite is rendered once at the app root;
-// <Icon name> references a symbol via <use href="#i-...">, which inherits
-// `currentColor` so CSS owns the color per state.
+// (same pattern and glyph set as web/src/icons.tsx). IconSprite is rendered
+// once at the app root; <Icon name> references a symbol via
+// <use href="#i-...">, which inherits `currentColor` so CSS owns the color
+// per state. (The workspace's per-service glyph mapping lives in
+// pages/workspace/SandboxTree.tsx::serviceIcon.)
 
 export type IconName = keyof typeof PATHS;
 
@@ -38,6 +39,15 @@ const PATHS = {
     '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>',
   copy:
     '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  // Workspace glyphs (ported from web/src/icons.tsx for the golden-layout
+  // pane/tree service icons) + reset (layout) + grid (nav).
+  code: '<path d="m8 7-5 5 5 5"/><path d="m16 7 5 5-5 5"/>',
+  browser: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+  chat:
+    '<path d="M21 14a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9z"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 3v6h6"/>',
+  grid:
+    '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   // Model-config page port (web/src/panes/models): sliders is the models
   // pane's serviceIcon in the workbench, chart is the usage-page glyph.
   sliders:

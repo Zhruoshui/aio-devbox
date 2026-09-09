@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "sandbox-mgr management UI (React SPA served statically by aio-mgr; no golden-layout - pure admin pages).",
+  "description": "sandbox-mgr UI (React SPA served statically by aio-mgr): golden-layout workspace + admin pages.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "golden-layout": "^2.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

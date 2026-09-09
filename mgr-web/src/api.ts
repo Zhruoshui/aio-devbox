@@ -30,6 +30,7 @@ import {
   type TestResponse,
   type UsageFanout,
 } from "./pages/models/types";
+import { decodeManifest, type Manifest, type RegisterButtonInput } from "./pages/workspace/types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -142,4 +143,40 @@ export function getModelsCatalog(): Promise<CatalogResponse> {
 
 export function getUsage(window: "today" | "7d" | "all"): Promise<UsageFanout> {
   return get<unknown>(`/api/usage?window=${window}`).then(decodeUsageFanout);
+}
+
+// ── per-sandbox proxied endpoints (workspace, Phase 2) ─────────────
+//
+// These hit the SANDBOX APP's own handlers through mgr's /api/sbx/:name
+// proxy (mgr/src/proxy.rs, Phase 1) - NOT mgr routes. Payloads and status
+// codes pass through verbatim (the app's shapes, see
+// pages/workspace/types.ts): POST /api/buttons replies 201 + ButtonOut,
+// DELETE replies 204 with an EMPTY body (unlike mgr's JSON error shape -
+// hence the bespoke fetch below), and probe replies {listening}.
+//
+// Sandbox names are validated slugs on the backend; the proxy matches on
+// the raw path, so no escaping is needed (enc() would be an identity).
+
+export function getSandboxManifest(name: string): Promise<Manifest> {
+  return get<unknown>(`/api/sbx/${name}/api/manifest`).then(decodeManifest);
+}
+
+export function registerSandboxButton(name: string, body: RegisterButtonInput): Promise<unknown> {
+  return send(`/api/sbx/${name}/api/buttons`, "POST", body);
+}
+
+/** DELETE /api/buttons/:id replies 204 (empty body), so this bypasses
+ * send()'s r.json(); 404 is tolerated like the workbench did (the sandbox
+ * may have been deleted since the tree last refreshed). */
+export async function deleteSandboxButton(name: string, id: string): Promise<void> {
+  const r = await fetch(`/api/sbx/${name}/api/buttons/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404) throw new Error(await apiError(r));
+}
+
+/** TCP probe of a port on the sandbox's app netns (app's own
+ * /api/buttons/probe; 1-65535, 0/8088/non-numeric -> 400). */
+export function probeSandboxPort(name: string, port: number): Promise<{ listening: boolean }> {
+  return get(`/api/sbx/${name}/api/buttons/probe?port=${port}`);
 }
