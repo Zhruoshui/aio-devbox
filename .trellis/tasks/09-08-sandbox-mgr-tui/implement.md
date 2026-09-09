@@ -52,15 +52,24 @@
 
 ## Phase 3: mgr-web 管理界面
 
-- [ ] `mgr-web/` Vite+React+TS 骨架（复用 web/ token/i18n 模式，不引
+- [x] `mgr-web/` Vite+React+TS 骨架（复用 web/ token/i18n 模式，不引
       golden-layout）。
-- [ ] 沙箱列表页（卡片 + 操作 + 入口跳转新标签）。
-- [ ] 创建向导（场景勾选 + always_on 锁定 + 版本下拉 + 资源输入）+ job
+- [x] 沙箱列表页（卡片 + 操作 + 入口跳转新标签）。
+- [x] 创建向导（场景勾选 + always_on 锁定 + 版本下拉 + 资源输入）+ job
       进度页（构建日志尾部）。
-- [ ] 环境配置编辑页（PUT → 重建流程）+ 镜像列表页。
-- [ ] mgr-api 服务 mgr-web/dist。
-- [ ] 验证：A1/A2 浏览器全流程走通（含构建失败注入一次看错误展示）。
-- [ ] 回滚点：commit 4。
+- [x] 环境配置编辑页（PUT → 重建流程）+ 镜像列表页。
+- [x] mgr-api 服务 mgr-web/dist。
+- [x] 验证：A1/A2 浏览器全流程走通（含构建失败注入一次看错误展示）。
+      （09-09 API 等价验证全过：mgr.localhost 经总网关返回 index.html +
+      js/css/font 资源 200、/api 与静态共存；cargo test -p aio-mgr 13 过
+      （caddy render 增 mgr 站点块测试）；创建向导数据面全走——shell-utils
+      场景 + 默认版本 → job ok → 列表 running（A8: docker inspect
+      NanoCpus/Memory 与 cpus/mem 一致）；注入失败一次（node 20.18.0 过老
+      → pi npm install 挂）→ job error 带 docker build 尾部（A2 失败展示）；
+      PUT 编辑（+fonts 场景、cpus 1.5→2、mem 清除）→ 重建 job ok → 新
+      env-hash 镜像 + Memory=0（限制清除）；stop/start/restart + 删除
+      （volumes=1）后容器/卷/子域名全清。浏览器 A1/A2 人工验收留宿主机）
+- [x] 回滚点：commit 4。
 
 ## Phase 4: 模型配置上收
 
