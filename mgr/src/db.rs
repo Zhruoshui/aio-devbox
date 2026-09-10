@@ -1,7 +1,7 @@
 // SQLite state.db (sandbox-mgr Phase 1, design §3.3).
 //
 // Schema: sandboxes / images / jobs / kv. kv is created now but unused until
-// Phase 4 (models_config canonical store) - one migration-free schema from
+// Phase 4 (models_profiles canonical store) - one migration-free schema from
 // the start beats ALTER TABLE churn later. All helpers lock the connection
 // briefly (state.rs module comment) and return owned data.
 
@@ -131,6 +131,16 @@ pub fn list_sandboxes(conn: &Connection) -> Result<Vec<SandboxRow>> {
         .map_err(Into::into)
 }
 
+/// Just the names, sorted (the model-profile migration assigns every
+/// existing sandbox to the migrated "default" profile — it never needs the
+/// full rows).
+pub fn list_sandbox_names(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT name FROM sandboxes ORDER BY name")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 pub fn update_sandbox_status(conn: &Connection, name: &str, status: &str) -> Result<()> {
     conn.execute(
         "UPDATE sandboxes SET status = ?2 WHERE name = ?1",
@@ -236,7 +246,7 @@ pub fn fail_orphan_jobs(conn: &Connection) -> Result<usize> {
 
 /// Set a kv row (upsert). Currently: `gateway_reload` = outcome of the last
 /// total-gateway regeneration ("ok" or the reload error text, caddy.rs
-/// Phase 2; Phase 4 adds models_config). Keyed by literal call sites - no
+/// Phase 2; Phase 4 adds models_profiles). Keyed by literal call sites - no
 /// generic registry needed at this scale.
 pub fn kv_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute(
@@ -257,6 +267,15 @@ pub fn kv_get(conn: &Connection, key: &str) -> Result<Option<String>> {
         Some(r) => Ok(Some(r.get(0)?)),
         None => Ok(None),
     }
+}
+
+/// Delete a kv row. Used by the model-profile migration (models.rs): the
+/// legacy `models_config` row is removed only AFTER the new `models_profiles`
+/// row was written successfully, so a crash between the two writes leaves the
+/// old truth intact and the migration re-runs idempotently on next boot.
+pub fn kv_del(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM kv WHERE key = ?1", params![key])?;
+    Ok(())
 }
 
 /// Seconds since epoch. (mgr has no chrono dep; std::time is enough.)

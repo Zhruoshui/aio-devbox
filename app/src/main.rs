@@ -99,15 +99,25 @@ async fn main() {
     // model config is managed by mgr — resolved once at startup (env doesn't
     // change during the process lifetime, same rationale as PI_WEB_URL) and
     // carried on AppState so the write endpoints can 403 (managed_guard).
+    // MGR_SANDBOX_NAME (unified Phase 4/D8) rides along: the pull's ?name=
+    // identity for multi-profile assignment.
     let mgr_url = config::mgr_url();
-    let state = AppState::new(services, buttons_file, models_file, mgr_url.clone());
+    let mgr_sandbox_name = config::mgr_sandbox_name();
+    let state = AppState::new(
+        services,
+        buttons_file,
+        models_file,
+        mgr_url.clone(),
+        mgr_sandbox_name,
+    );
 
     // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
     spawn_stats_sampler(state.clone());
 
-    // Model-config pull task: GET {MGR_URL}/api/models/sync at startup +
-    // every 60s, overwrite the local canonical store + re-render when mgr's
-    // copy differs. Only under mgr; stock stacks never spawn it.
+    // Model-config pull task: GET {MGR_URL}/api/models/sync?name=<sandbox>
+    // at startup + every 60s, overwrite the local canonical store +
+    // re-render when mgr's copy differs. Only under mgr; stock stacks never
+    // spawn it.
     if mgr_url.is_some() {
         mgr_sync::spawn_mgr_sync(state.clone());
     }

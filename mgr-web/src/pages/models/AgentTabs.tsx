@@ -24,6 +24,7 @@ export function AgentTabs({
   saving,
   agentSaveMsg,
   sandboxLinks,
+  onGoWorkspace,
   onUpdateAssignment,
   onSaveAssignment,
   lang,
@@ -34,6 +35,7 @@ export function AgentTabs({
   saving: boolean;
   agentSaveMsg: { ok: boolean; text: string } | null;
   sandboxLinks: SandboxLink[];
+  onGoWorkspace?: (name: string) => void;
   onUpdateAssignment: (agent: IncrementalAgent, patch: Record<string, unknown>) => void;
   onSaveAssignment: (agent: IncrementalAgent) => void;
   lang: Lang;
@@ -60,7 +62,7 @@ export function AgentTabs({
         <span>{t(lang, "maParadigmIncremental")}</span>
       </div>
 
-      <MgrNotice links={sandboxLinks} lang={lang} />
+      <MgrNotice links={sandboxLinks} lang={lang} onGoWorkspace={onGoWorkspace} />
 
       {/* assignment card */}
       <div className="ml-form-card">

@@ -12,6 +12,10 @@
 //   pull task (mgr_sync.rs) overwrites the local canonical store from mgr,
 //   and every /api/models write endpoint returns 403 managed-by-mgr
 //   (routes/models::managed_guard). None = stock stack, zero behavior change.
+// - `mgr_sandbox_name`: this sandbox's mgr identity (`MGR_SANDBOX_NAME` env,
+//   unified Phase 4/D8) — the pull sends it as sync's ?name= so mgr answers
+//   with the ASSIGNED profile. None = compose predates per-profile pull (or
+//   stock stack); the pull goes out nameless and mgr 404s it (keep local).
 // - `path_cache`: cached login-shell PATH for command_exists (TTL-refreshed).
 // - `file_lock`: serializes read-modify-write on buttons.toml so concurrent
 //   POST/DELETE can't interleave.
@@ -35,6 +39,7 @@ pub struct AppState {
     pub buttons_file: PathBuf,
     pub models_file: PathBuf,
     pub mgr_url: Option<String>,
+    pub mgr_sandbox_name: Option<String>,
     pub path_cache: Arc<RwLock<PathCache>>,
     pub file_lock: Arc<Mutex<()>>,
     pub models_lock: Arc<Mutex<()>>,
@@ -48,6 +53,7 @@ impl AppState {
         buttons_file: PathBuf,
         models_file: PathBuf,
         mgr_url: Option<String>,
+        mgr_sandbox_name: Option<String>,
     ) -> Self {
         let http = reqwest::Client::builder()
             // No default timeout: each route sets its own via RequestBuilder::timeout.
@@ -60,6 +66,7 @@ impl AppState {
             buttons_file,
             models_file,
             mgr_url,
+            mgr_sandbox_name,
             path_cache: Arc::new(RwLock::new(PathCache::default())),
             file_lock: Arc::new(Mutex::new(())),
             models_lock: Arc::new(Mutex::new(())),

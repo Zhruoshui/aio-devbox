@@ -206,7 +206,7 @@ export function App(): JSX.Element {
         ) : page === "images" ? (
           <ImagesPage lang={lang} />
         ) : page === "models" ? (
-          <ModelsPage lang={lang} />
+          <ModelsPage lang={lang} onGoWorkspace={goWorkspace} />
         ) : (
           <UsagePage lang={lang} />
         )}

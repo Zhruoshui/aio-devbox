@@ -1,4 +1,5 @@
-// EditPage - environment-config editor for one sandbox (design §4 page 3).
+// EditPage - environment-config editor for one sandbox (design §4 page 3),
+// plus the model-profile ASSIGNMENT select (unified Phase 4, D8).
 //
 // Loads the sandbox (GET /api/sandboxes/:name), shows the same EnvPicker as
 // the create wizard seeded with the CURRENT env (so always_on versions and
@@ -6,12 +7,26 @@
 // PUT /api/sandboxes/:name -> recreate job (jobs.rs force-recreates with
 // volumes kept); the parent switches to the JobView.
 //
+// The profile select rides the same submit button but is a SEPARATE wire
+// call (PUT /api/sandboxes/:name/model_profile, a pure kv write the
+// sandbox's 60s pull picks up - never a recreate). A profile-ONLY change
+// skips the recreate entirely and returns to the list.
+//
 // Adopted sandboxes never reach this page (the card hides the edit button;
-// the backend would reject them anyway - routes.rs put_sandbox).
+// the backend would reject them anyway - routes.rs put_sandbox). The
+// assignment endpoint itself would accept an adopted row (inert without
+// MGR_URL), but there is no path to it from the UI.
 
 import { useEffect, useState } from "react";
 
-import { getSandbox, listScenarios, putSandbox } from "../api";
+import {
+  getSandbox,
+  listModelProfiles,
+  listScenarios,
+  putSandbox,
+  putSandboxModelProfile,
+  type ModelProfile,
+} from "../api";
 import { t, type Lang } from "../i18n";
 import type { SandboxEnv, Scenario } from "../types";
 import { EnvPicker } from "./EnvPicker";
@@ -43,6 +58,14 @@ export function EditPage({
   const [loadErr, setLoadErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Model-profile assignment (D8): tri-state on the wire - unchanged sends
+  // nothing, an id assigns, the explicit "" (unassigned option) sends null
+  // to UNBIND (sandbox keeps its local models.json). Same explicit-null
+  // discipline as the limits tri-state above.
+  const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
+  const [profileSel, setProfileSel] = useState<string | null>(null); // null = not loaded
+  const [origProfile, setOrigProfile] = useState<string | null>(null);
+
   // Load the sandbox + scenario catalog in parallel; seed the form from the
   // stored env (the API's env shape IS the picker's value shape - types.ts).
   useEffect(() => {
@@ -65,6 +88,15 @@ export function EditPage({
         setOrigMem(sb.mem_mb);
         setCpus(sb.cpus !== null ? String(sb.cpus) : "");
         setMemMb(sb.mem_mb !== null ? String(sb.mem_mb) : "");
+        setOrigProfile(sb.model_profile);
+        setProfileSel(sb.model_profile ?? "");
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
+      });
+    listModelProfiles()
+      .then((r) => {
+        if (!cancelled) setProfiles(r.profiles);
       })
       .catch((e) => {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
@@ -86,12 +118,15 @@ export function EditPage({
     (memIn !== null && (!Number.isFinite(memIn) || !Number.isInteger(memIn) || memIn < 128))
       ? t(lang, "wzResErr")
       : "";
-  const changed =
+  const envOrResChanged =
     env !== null &&
     origEnv !== null &&
     (JSON.stringify(sortEnv(env)) !== JSON.stringify(sortEnv(origEnv)) ||
       cpusOut !== origCpus ||
       memOut !== origMem);
+  const profileChanged =
+    profileSel !== null && profileSel !== (origProfile ?? "");
+  const changed = envOrResChanged || profileChanged;
   const canSubmit =
     scenarios !== null && env !== null && resErr === "" && changed && !submitting;
 
@@ -100,6 +135,17 @@ export function EditPage({
     setSubmitting(true);
     setMsg(null);
     try {
+      // Profile first (pure kv write): even when the recreate below fails,
+      // the assignment stands - it never needed the recreate anyway.
+      if (profileChanged) {
+        await putSandboxModelProfile(name, profileSel === "" ? null : profileSel);
+      }
+      if (!envOrResChanged) {
+        // Profile-only change: nothing to recreate - back to the list (it
+        // auto-refreshes and shows the new profile chip within 4s).
+        onCancel();
+        return;
+      }
       const r = await putSandbox(name, {
         env,
         cpus: cpusOut,
@@ -170,6 +216,26 @@ export function EditPage({
           </div>
         </div>
         {resErr && <span className="field-error">{resErr}</span>}
+
+        {/* Model-profile assignment (D8): a pure kv write on submit - the
+         * sandbox's 60s pull picks it up, NO recreate. "" = unassign (the
+         * sandbox keeps its local models.json untouched). */}
+        <div className="field">
+          <label>{t(lang, "mpAssignTo")}</label>
+          <span className="hint">{t(lang, "mpAssignHint")}</span>
+          <select
+            value={profileSel ?? ""}
+            disabled={profiles === null}
+            onChange={(e) => setProfileSel(e.target.value)}
+          >
+            <option value="">{t(lang, "mpUnassigned")}</option>
+            {(profiles ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="dialog-actions">
           <button className="btn btn-primary" disabled={!canSubmit} onClick={() => void submit()}>

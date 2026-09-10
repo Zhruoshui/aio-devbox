@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { deleteSandbox, listSandboxes, sandboxAction } from "../api";
+import { deleteSandbox, listModelProfiles, listSandboxes, sandboxAction } from "../api";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
 import { isJobReply, type Sandbox } from "../types";
@@ -45,6 +45,9 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
   const [confirm, setConfirm] = useState<Sandbox | null>(null);
   const [confirmVolumes, setConfirmVolumes] = useState(true);
   const [actionErr, setActionErr] = useState("");
+  // id -> display name for the cards' model-profile chip (D8); fetched once
+  // per mount - profile renames without a page visit are not a real case.
+  const [profileNames, setProfileNames] = useState<Record<string, string> | null>(null);
 
   const fetchList = useCallback(async () => {
     try {
@@ -61,6 +64,23 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
     const timer = setInterval(() => void fetchList(), POLL_MS);
     return () => clearInterval(timer);
   }, [fetchList]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listModelProfiles()
+      .then((r) => {
+        if (cancelled) return;
+        const names: Record<string, string> = {};
+        for (const p of r.profiles) names[p.id] = p.name;
+        setProfileNames(names);
+      })
+      .catch(() => {
+        /* advisory chip — an error surface here would be noise */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const act = async (sb: Sandbox, action: "start" | "stop" | "restart") => {
     if (busy !== "") return;
@@ -135,6 +155,7 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
               key={sb.name}
               sb={sb}
               lang={lang}
+              profileNames={profileNames}
               busy={busy === sb.name}
               onEnter={() => onEnter(sb.name)}
               onAction={(a) => void act(sb, a)}
@@ -202,6 +223,7 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
 function SandboxCard({
   sb,
   lang,
+  profileNames,
   busy,
   onEnter,
   onAction,
@@ -210,6 +232,8 @@ function SandboxCard({
 }: {
   sb: Sandbox;
   lang: Lang;
+  /** id -> display name for the model-profile chip; null = not loaded yet. */
+  profileNames: Record<string, string> | null;
   busy: boolean;
   onEnter: () => void;
   onAction: (a: "start" | "stop" | "restart") => void;
@@ -254,6 +278,14 @@ function SandboxCard({
         </span>
         <span>
           {t(lang, "sbCreated")}: <code>{created.toLocaleDateString()}</code>
+        </span>
+        <span>
+          {t(lang, "mpAssignTo")}:{" "}
+          <code>
+            {sb.model_profile === null
+              ? t(lang, "sbProfileNone")
+              : (profileNames?.[sb.model_profile] ?? sb.model_profile)}
+          </code>
         </span>
       </div>
 

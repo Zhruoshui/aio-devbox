@@ -895,6 +895,7 @@ mod tests {
             dir.join("buttons.toml"),
             models_file.clone(),
             mgr_url.map(str::to_string),
+            None, // mgr_sandbox_name: the guard keys off MGR_URL only
         );
         (state, models_file)
     }

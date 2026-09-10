@@ -1,20 +1,28 @@
-// Background model-config pull from sandbox-mgr (Phase 4b, design §3.7).
+// Background model-config pull from sandbox-mgr (Phase 4b, design §3.7;
+// unified Phase 4/D8: profile-scoped pull).
 //
 // When this sandbox is managed by sandbox-mgr (MGR_URL set in the
 // mgr-generated compose), mgr is the single source of truth for the model
-// config (D6). This task pulls `GET {MGR_URL}/api/models/sync` every 60s
-// (plus once at startup), deep-compares the payload against the local
-// canonical store, and on difference OVERWRITES the local store and
-// re-renders every assigned agent's native files through the same apply
-// pipeline a user-triggered apply uses (routes::models::apply_all_agents —
-// the pull path never owns a second render pipeline).
+// config (D6). This task pulls `GET {MGR_URL}/api/models/sync?name=<this
+// sandbox>` every 60s (plus once at startup) — mgr resolves the sandbox's
+// ASSIGNED profile (D8) and answers with that profile's config —
+// deep-compares the payload against the local canonical store, and on
+// difference OVERWRITES the local store and re-renders every assigned
+// agent's native files through the same apply pipeline a user-triggered
+// apply uses (routes::models::apply_all_agents — the pull path never owns
+// a second render pipeline).
 //
-// Failure semantics (mgr down / offline / non-200 / unparseable payload):
-// one tracing::warn per failure, then keep using the local cache — never
-// write, never panic, never exit the task. A CORRUPT local store is
-// overwritten by the mgr copy (whole-document override; mgr is the
-// authority, so the pull self-heals — unlike the PUT path, which moves a
-// corrupt file aside for a human to look at).
+// Failure semantics, two tiers (design §4.3):
+//   - 404 (sandbox unassigned / unknown / no name sent) = NOT an error:
+//     one tracing::debug per cycle, keep the local cache. This is the
+//     unbind contract — after unassignment the sandbox keeps whatever it
+//     last pulled, silently.
+//   - everything else (mgr down / offline / non-200 / unparseable payload):
+//     one tracing::warn per failure, then keep using the local cache —
+//     never write, never panic, never exit the task.
+// A CORRUPT local store is overwritten by the mgr copy (whole-document
+// override; mgr is the authority, so the pull self-heals — unlike the PUT
+// path, which moves a corrupt file aside for a human to look at).
 //
 // Concurrency: the compare+write+render pass holds `state.models_lock`,
 // the same lock every /api/models handler takes (design §3), so a pull can
@@ -42,13 +50,21 @@ const SYNC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// GET /api/models/sync payload shape (mgr/src/models.rs): the mgr-side kv
-/// version + the UNMASKED canonical config — the sandbox needs the real
-/// keys to render the agents' native files.
+/// version + the UNMASKED canonical config of the ASSIGNED profile — the
+/// sandbox needs the real keys to render the agents' native files.
 #[derive(Debug, Deserialize)]
 struct SyncPayload {
     #[serde(default)]
     version: u64,
     config: CanonicalConfig,
+}
+
+/// One pull cycle's fetch outcome: a payload to apply, or a "mgr says this
+/// sandbox has no assigned profile" marker (404 — deliberately distinct
+/// from Err so the loop can log it at debug, not warn).
+enum Fetched {
+    Payload(SyncPayload),
+    Unassigned,
 }
 
 /// Spawn the pull loop. Only called when MGR_URL is set (main.rs); runs
@@ -60,23 +76,30 @@ pub fn spawn_mgr_sync(state: AppState) {
             state.mgr_url.as_deref().unwrap_or_default()
         );
         loop {
-            if let Err(e) = sync_once(&state).await {
-                tracing::warn!("mgr sync: {e}; keeping local cache");
+            match fetch(&state).await {
+                Ok(Fetched::Unassigned) => {
+                    tracing::debug!(
+                        "mgr sync: no model profile assigned to this sandbox; keeping local cache"
+                    );
+                }
+                Ok(Fetched::Payload(payload)) => {
+                    if let Err(e) = apply(&state, payload).await {
+                        tracing::warn!("mgr sync: {e}; keeping local cache");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("mgr sync: {e}; keeping local cache");
+                }
             }
             tokio::time::sleep(SYNC_INTERVAL).await;
         }
     });
 }
 
-/// One pull-and-apply cycle. Ok(true) = the local store was overwritten and
-/// re-rendered; Ok(false) = no change; Err = fetch/local-read failure (the
-/// local cache is guaranteed untouched on Err).
-pub(crate) async fn sync_once(state: &AppState) -> Result<bool, String> {
-    let Some(mgr_url) = state.mgr_url.as_deref() else {
-        return Err("MGR_URL unset".to_string());
-    };
-    let payload = fetch(state, mgr_url).await?;
-
+/// One pull-and-apply cycle body. Ok(true) = the local store was
+/// overwritten and re-rendered; Ok(false) = no change; Err = local-read or
+/// write failure (the local cache is guaranteed untouched on Err).
+async fn apply(state: &AppState, payload: SyncPayload) -> Result<bool, String> {
     // Serialize with every other models.json reader/writer (same lock the
     // handlers take; see module doc on concurrency).
     let _guard = state.models_lock.lock().await;
@@ -103,10 +126,26 @@ pub(crate) async fn sync_once(state: &AppState) -> Result<bool, String> {
     Ok(true)
 }
 
-/// GET {mgr_url}/api/models/sync and decode. Transport / non-200 / parse
-/// failures are Err (the caller warns once and keeps the local cache).
-async fn fetch(state: &AppState, mgr_url: &str) -> Result<SyncPayload, String> {
-    let url = format!("{}/api/models/sync", mgr_url.trim_end_matches('/'));
+/// The sync pull URL: `{mgr}/api/models/sync[?name=<sandbox>]`. `?name=` is
+/// the pull's identity (design §4.3) — mgr resolves the ASSIGNED profile
+/// from it. No name (compose predating MGR_SANDBOX_NAME) keeps the legacy
+/// shape; mgr 404s it onto the same silent keep-local path.
+fn sync_url(mgr_url: &str, name: Option<&str>) -> String {
+    let base = format!("{}/api/models/sync", mgr_url.trim_end_matches('/'));
+    match name {
+        Some(n) => format!("{base}?name={}", urlencode(n)),
+        None => base,
+    }
+}
+
+/// GET the sync pull and decode. Transport / non-200 (except 404) / parse
+/// failures are Err (the caller warns once and keeps the local cache); 404
+/// maps to Fetched::Unassigned (debug log, keep local).
+async fn fetch(state: &AppState) -> Result<Fetched, String> {
+    let Some(mgr_url) = state.mgr_url.as_deref() else {
+        return Err("MGR_URL unset".to_string());
+    };
+    let url = sync_url(mgr_url, state.mgr_sandbox_name.as_deref());
     let resp = state
         .http
         .get(&url)
@@ -115,12 +154,32 @@ async fn fetch(state: &AppState, mgr_url: &str) -> Result<SyncPayload, String> {
         .await
         .map_err(|e| format!("GET {url}: {e}"))?;
     let status = resp.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Fetched::Unassigned);
+    }
     if !status.is_success() {
         return Err(format!("GET {url}: HTTP {status}"));
     }
     resp.json::<SyncPayload>()
         .await
+        .map(|payload| Fetched::Payload(payload))
         .map_err(|e| format!("GET {url}: decode response: {e}"))
+}
+
+/// Percent-encode a query value (mgr sandbox names are [a-z0-9-] slugs, so
+/// this is a formality — kept because the value comes from env, not from a
+/// validated route param).
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// Deep compare via serde_json values — faithful to the single-document
@@ -256,7 +315,8 @@ mod tests {
     fn sync_payload_decodes_mgr_wire_shape() {
         // Lock the wire contract with mgr/src/models.rs sync(): the payload is
         // exactly {version, config} — camelCase provider fields (aio-models
-        // serde), version defaults to 0 when absent.
+        // serde), version defaults to 0 when absent. The sandbox identity
+        // travels in the REQUEST (?name=, see sync_url below), not here.
         let j = serde_json::json!({
             "version": 3,
             "config": {
@@ -281,6 +341,29 @@ mod tests {
         let j = serde_json::json!({ "config": {} });
         let p: SyncPayload = serde_json::from_value(j).expect("version defaults");
         assert_eq!(p.version, 0);
+    }
+
+    #[test]
+    fn sync_url_carries_sandbox_name_query() {
+        // Request-side wire shape (unified Phase 4, design §4.3): the pull
+        // identifies the sandbox via ?name= so mgr resolves the ASSIGNED
+        // profile; a trailing slash on MGR_URL never doubles up.
+        assert_eq!(
+            sync_url("http://mgr-api:8089", Some("alpha")),
+            "http://mgr-api:8089/api/models/sync?name=alpha",
+        );
+        assert_eq!(
+            sync_url("http://mgr-api:8089/", Some("alpha")),
+            "http://mgr-api:8089/api/models/sync?name=alpha",
+        );
+        // No name (compose predating MGR_SANDBOX_NAME): legacy shape — the
+        // new mgr 404s it onto the silent keep-local path.
+        assert_eq!(
+            sync_url("http://mgr-api:8089", None),
+            "http://mgr-api:8089/api/models/sync",
+        );
+        // Non-slug bytes percent-encode (defensive; names are slugs).
+        assert!(sync_url("http://m", Some("a b")).ends_with("?name=a%20b"));
     }
 
     #[test]

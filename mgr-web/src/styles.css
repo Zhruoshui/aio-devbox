@@ -1044,6 +1044,28 @@ body {
  * ported (mgr has no sandbox-local agent APIs). z-order: scrim 30 < drawer
  * 31 < overlay 40 (discover modal above the drawer, same as the workbench). */
 
+/* ── profile bar (models page, unified Phase 4 / D8) ─────────────── */
+.ml-profile-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin: 0 0 var(--space-4);
+  background: var(--surface-warm);
+  border-radius: var(--radius-lg);
+}
+.ml-profile-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.ml-profile-label select {
+  min-width: 200px;
+}
+
 .ml-tabs {
   display: inline-flex;
   flex-wrap: wrap;

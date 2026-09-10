@@ -8,6 +8,8 @@
 //   GET  /api/sandboxes      routes.rs sandbox_json   (db::SandboxRow + ps)
 //   GET  /api/sandboxes/:n   same shape as the list item
 //   PUT  /api/sandboxes/:n   jobs.rs (async) -> {job, name}
+//   PUT  /api/sandboxes/:n/model_profile  routes.rs put_model_profile (sync
+//                            kv write, never a job - unified Phase 4, D8)
 //   POST /api/sandboxes      same -> {job, name}
 //   POST /api/sandboxes/adopt  routes.rs adopt_sandbox (sync) -> {name,
 //                            entry_url, piweb_url}
@@ -69,6 +71,9 @@ export interface Sandbox {
   image: string;
   entry_url: string;
   piweb_url: string;
+  /** Assigned model profile id, null = unassigned (the sandbox keeps its
+   * local models.json; mgr never overwrites it - unified Phase 4, D8). */
+  model_profile: string | null;
   services: SandboxService[];
 }
 

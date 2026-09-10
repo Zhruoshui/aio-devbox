@@ -82,6 +82,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     sbCpus: "CPU",
     sbMem: "内存",
     sbUnlimited: "未限制",
+    sbProfileNone: "未指派",
     sbImage: "镜像",
     sbCreated: "创建于",
     sbServices: "服务",
@@ -162,15 +163,34 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgEmpty: "暂无镜像记录。",
     imgNotBuilt: "未记录",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
-    // workbench names so the two SPAs stay diffable)
+    // workbench names so the two SPAs stay diffable; mp* = model profiles,
+    // unified Phase 4)
     modelsSub:
-      "统一管理所有沙箱共用的供应商、密钥与模型预设；保存后各沙箱自动拉取生效（最长约 1 分钟延迟）。",
+      "统一管理多套模型 profile（供应商、密钥与模型预设），并在每个沙箱的编辑页指派；所指派沙箱保存后自动拉取生效（最长约 1 分钟延迟）。",
+    mpProfile: "Profile",
+    mpNew: "新建 Profile",
+    mpNewName: "新 profile 名称：",
+    mpCreated: "已创建",
+    mpDeleted: "已删除",
+    mpRename: "重命名",
+    mpRenameTitle: "重命名当前 profile",
+    mpRenamePrompt: "profile 名称：",
+    mpDeleteTitle: "删除当前 profile",
+    mpDeleteConfirm: "删除这个 profile？不可恢复。",
+    mpDeleteConfirmAssigned:
+      "该 profile 正被 {n} 个沙箱使用，删除后这些沙箱将保持各自的本地模型配置。确认删除？",
+    mpAssignedCount: "（{n} 个沙箱）",
+    mpUnassigned: "未指派（保持沙箱本地配置）",
+    mpAssignTo: "模型 Profile",
+    mpAssignHint:
+      "指派后该沙箱定期拉取此 profile（约 1 分钟内生效），无需重建容器；解绑后沙箱保持本地模型配置。",
+    mpNoProfiles: "（无 profile）",
     mcProviders: "供应商库",
     mcProvidersSub: "统一管理各 agent 使用的 API 供应商、密钥与模型目录。",
     maParadigmIncremental: "增量式 agent —— 单一「供应商 + 模型」绑定，通过下拉直接选择。",
     maParadigmSwitcher: "切换式 agent —— 维护多个命名预设，恰好一个当前生效（cc-switch 风格）。",
     maMgrNotice:
-      "这里编辑的是 mgr 统一模型库，各沙箱定期拉取生效。agent 的安装状态与原生配置文件请在对应沙箱工作台的「模型配置」页查看：",
+      "这里编辑的是当前所选 profile，指派到它的沙箱会定期拉取生效。agent 的安装状态与原生配置文件请在工作区对应沙箱的终端里查看：",
     mcSelectedCount: "{n} 已选",
     mcNoBoundAgents: "未被任何 agent 绑定",
     mcBoundAgentsSub: "以下 agent 正在使用这个供应商：",
@@ -355,6 +375,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     sbCpus: "CPU",
     sbMem: "Memory",
     sbUnlimited: "unlimited",
+    sbProfileNone: "unassigned",
     sbImage: "Image",
     sbCreated: "Created",
     sbServices: "Services",
@@ -435,15 +456,34 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgEmpty: "No images recorded yet.",
     imgNotBuilt: "not recorded",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
-    // workbench names so the two SPAs stay diffable)
+    // workbench names so the two SPAs stay diffable; mp* = model profiles,
+    // unified Phase 4)
     modelsSub:
-      "Manage the providers, keys, and model presets shared by every sandbox; sandboxes pull changes automatically (up to ~1 min delay).",
+      "Manage multiple model profiles (providers, keys, presets) and assign one per sandbox in its edit page; assigned sandboxes pull changes automatically (up to ~1 min delay).",
+    mpProfile: "Profile",
+    mpNew: "New profile",
+    mpNewName: "New profile name:",
+    mpCreated: "Created",
+    mpDeleted: "Deleted",
+    mpRename: "Rename",
+    mpRenameTitle: "Rename the selected profile",
+    mpRenamePrompt: "Profile name:",
+    mpDeleteTitle: "Delete the selected profile",
+    mpDeleteConfirm: "Delete this profile? This cannot be undone.",
+    mpDeleteConfirmAssigned:
+      "{n} sandbox(es) are assigned to this profile; after deletion they keep their local model config. Delete?",
+    mpAssignedCount: " ({n} sandbox(es))",
+    mpUnassigned: "Unassigned (sandbox keeps local config)",
+    mpAssignTo: "Model profile",
+    mpAssignHint:
+      "The assigned sandbox pulls this profile periodically (effective within ~1 min), no container recreate; unassigning leaves the local model config untouched.",
+    mpNoProfiles: "(no profiles)",
     mcProviders: "Providers",
     mcProvidersSub: "Manage API providers, keys, and model catalogs shared across agents.",
     maParadigmIncremental: "Incremental agent — one provider + model binding, picked from dropdowns.",
     maParadigmSwitcher: "Switcher agent — multiple named presets, exactly one current (cc-switch style).",
     maMgrNotice:
-      "This edits the mgr-wide model library; sandboxes pull it periodically. Agent install status and native config files live in each sandbox workbench's Models page:",
+      "This edits the SELECTED model profile; sandboxes assigned to it pull it periodically. Agent install status and native config files live in each sandbox's workspace:",
     mcSelectedCount: "{n} selected",
     mcNoBoundAgents: "Not bound to any agent",
     mcBoundAgentsSub: "Agents currently using this provider:",

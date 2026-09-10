@@ -86,9 +86,13 @@ services:
       PI_WEB_ALLOWED_HOSTS: app,sbx-{name}-piweb.mgr.localhost
       # Phase 4 (app side wired): model-config pull endpoint (design §3.7).
       # mgr-api's alias on aio-mgr-net is `mgr-api` :8089; the app pulls
-      # GET /api/models/sync every 60s and flips its local /api/models
-      # write endpoints to 403 managed-by-mgr (app mgr_sync.rs).
+      # GET /api/models/sync?name=<this sandbox> every 60s and flips its
+      # local /api/models write endpoints to 403 managed-by-mgr (app
+      # mgr_sync.rs). MGR_SANDBOX_NAME (unified Phase 4, design §4.3) is
+      # the pull's identity: mgr resolves the ASSIGNED profile server-side
+      # and 404s when unassigned (app keeps local silently).
       MGR_URL: http://mgr-api:8089
+      MGR_SANDBOX_NAME: {name}
     volumes:
       - workspace:/root
     networks:
@@ -190,8 +194,10 @@ mod tests {
         assert!(gen.compose.contains("memory: 2048M"));
         assert!(gen.compose.contains("aliases:\n          - sbx-t1-piweb"));
         // Phase 4 model-config pull endpoint: mgr-api's aio-mgr-net alias,
-        // fixed :8089 (design §3.7).
+        // fixed :8089 (design §3.7), plus the pull's sandbox identity
+        // (unified Phase 4, design §4.3 — sync ?name= resolution).
         assert!(gen.compose.contains("MGR_URL: http://mgr-api:8089"));
+        assert!(gen.compose.contains("MGR_SANDBOX_NAME: t1"));
         // basicauth must never appear (D9)
         assert!(!gen.compose.contains("basicauth"));
         assert!(!gen.caddyfile.contains("basicauth"));

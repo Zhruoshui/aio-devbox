@@ -265,6 +265,19 @@ pub(crate) fn mgr_url() -> Option<String> {
     std::env::var("MGR_URL").ok().filter(|v| !v.is_empty())
 }
 
+/// MGR_SANDBOX_NAME (unified Phase 4, design §4.3): the sandbox's mgr-side
+/// identity for the model-config pull. The mgr-generated compose sets it
+/// alongside MGR_URL; the pull sends it as `GET /api/models/sync?name=<n>`
+/// so mgr can resolve the sandbox's ASSIGNED profile (multi-profile, D8).
+/// mgr answers 404 when the sandbox is unassigned (or unknown) — the pull
+/// treats that as "keep local" with a debug log, NOT a warn. Unset (older
+/// mgr compose / stock stack) => the pull sends no name; mgr 404s it the
+/// same way, so the local cache stays authoritative either way. Read once
+/// at startup like MGR_URL.
+pub(crate) fn mgr_sandbox_name() -> Option<String> {
+    std::env::var("MGR_SANDBOX_NAME").ok().filter(|v| !v.is_empty())
+}
+
 /// Expand a single `{...}` candidate: `{env:VAR:default}` on match, otherwise
 /// the braced original (e.g. piWeb's `{host}`, handled client-side).
 fn expand_one(candidate: &str) -> String {

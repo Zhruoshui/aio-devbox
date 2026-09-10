@@ -35,6 +35,7 @@ export function PresetList({
   saving,
   agentSaveMsg,
   sandboxLinks,
+  onGoWorkspace,
   onAddPreset,
   onUpdatePreset,
   onDeletePreset,
@@ -49,6 +50,7 @@ export function PresetList({
   saving: boolean;
   agentSaveMsg: { ok: boolean; text: string } | null;
   sandboxLinks: SandboxLink[];
+  onGoWorkspace?: (name: string) => void;
   onAddPreset: (agent: PresetAgent, preset: AnyPreset) => void;
   onUpdatePreset: (agent: PresetAgent, id: string, preset: AnyPreset) => void;
   onDeletePreset: (agent: PresetAgent, id: string) => void;
@@ -79,7 +81,7 @@ export function PresetList({
         <span>{t(lang, "maParadigmSwitcher")}</span>
       </div>
 
-      <MgrNotice links={sandboxLinks} lang={lang} />
+      <MgrNotice links={sandboxLinks} lang={lang} onGoWorkspace={onGoWorkspace} />
 
       {/* sec-head: preset count + new-preset entry */}
       <div className="ml-sec-head">

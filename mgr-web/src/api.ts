@@ -123,33 +123,109 @@ export function getJob(id: number): Promise<Job> {
 // Payloads whose shape the workbench also decoded (config / catalog / usage)
 // decode through pages/models/types.ts; the small literal replies (put /
 // import / discover / test) are typed casts, same as web's ModelsPane.
+//
+// Multi-profile (unified Phase 4, D8): the config/import/discover/test calls
+// take an OPTIONAL profile id -> ?profile= on the wire (models.rs
+// ProfileQuery; absent = the first profile). Callers that always know the
+// selection (ModelsPage) pass it explicitly once >1 profile exists.
 
-export function getModelsConfig(): Promise<CanonicalConfig> {
-  return get<unknown>("/api/models/config").then(decodeConfig);
+export function getModelsConfig(profile?: string): Promise<CanonicalConfig> {
+  return get<unknown>(`/api/models/config${profile ? `?profile=${enc(profile)}` : ""}`).then(
+    decodeConfig,
+  );
 }
 
-export function putModelsConfig(config: CanonicalConfig): Promise<PutResponse> {
-  return send("/api/models/config", "PUT", config);
+export function putModelsConfig(
+  config: CanonicalConfig,
+  profile?: string,
+): Promise<PutResponse> {
+  return send(
+    `/api/models/config${profile ? `?profile=${enc(profile)}` : ""}`,
+    "PUT",
+    config,
+  );
 }
 
-export function importPiModels(): Promise<ImportResponse> {
-  return send("/api/models/import/pi", "POST");
+export function importPiModels(profile?: string): Promise<ImportResponse> {
+  return send(`/api/models/import/pi${profile ? `?profile=${enc(profile)}` : ""}`, "POST");
 }
 
 /** Discover body: `{providerId}` resolves from the store; the literal form
  * probes a provider being edited (with a freshly typed key) before saving. */
 export function discoverModels(
   body: { providerId: string } | { baseUrl: string; api: string; apiKey?: string },
+  profile?: string,
 ): Promise<DiscoverResponse> {
-  return send("/api/models/discover", "POST", body);
+  return send(
+    `/api/models/discover${profile ? `?profile=${enc(profile)}` : ""}`,
+    "POST",
+    body,
+  );
 }
 
-export function testModel(providerId: string, modelId: string): Promise<TestResponse> {
-  return send("/api/models/test", "POST", { providerId, modelId });
+export function testModel(
+  providerId: string,
+  modelId: string,
+  profile?: string,
+): Promise<TestResponse> {
+  return send(
+    `/api/models/test${profile ? `?profile=${enc(profile)}` : ""}`,
+    "POST",
+    { providerId, modelId },
+  );
 }
 
 export function getModelsCatalog(): Promise<CatalogResponse> {
   return get<unknown>("/api/models/catalog").then(decodeCatalog);
+}
+
+// ── model profiles (unified Phase 4, D8; mirrors mgr/src/models.rs) ─
+
+/** One row of GET /api/models/profiles: identity + usage, NO config (the
+ * page fetches the selected profile's config separately). `assigned` is the
+ * list of sandbox names on this profile. */
+export interface ModelProfile {
+  id: string;
+  name: string;
+  version: number;
+  assigned: string[];
+}
+
+export interface ModelProfileList {
+  profiles: ModelProfile[];
+}
+
+export function listModelProfiles(): Promise<ModelProfileList> {
+  return get("/api/models/profiles");
+}
+
+/** POST /api/models/profiles {name} — the backend owns the id. */
+export function createModelProfile(name: string): Promise<{ id: string; name: string }> {
+  return send("/api/models/profiles", "POST", { name });
+}
+
+/** PUT /api/models/profiles/:id — rename and/or replace the config (the
+ * config branch is the same masked-echo merge pipeline as putModelsConfig;
+ * ModelsPage uses the dedicated putModelsConfig with ?profile= instead, so
+ * callers here only rename). */
+export function renameModelProfile(id: string, name: string): Promise<PutResponse> {
+  return send(`/api/models/profiles/${enc(id)}`, "PUT", { name });
+}
+
+/** DELETE refuses the last profile (backend 400s) and unassigns every
+ * sandbox pointing at the deleted one. */
+export function deleteModelProfile(id: string): Promise<{ ok: boolean; id: string }> {
+  return send(`/api/models/profiles/${enc(id)}`, "DELETE");
+}
+
+/** PUT /api/sandboxes/:name/model_profile — assign (`{profile: id}`) or
+ * UNassign (`{profile: null}`). A pure kv write on the backend: the
+ * sandbox's 60s pull picks it up, no recreate job. */
+export function putSandboxModelProfile(
+  name: string,
+  profile: string | null,
+): Promise<{ ok: boolean; name: string; model_profile: string | null }> {
+  return send(`/api/sandboxes/${enc(name)}/model_profile`, "PUT", { profile });
 }
 
 export function getUsage(window: "today" | "7d" | "all"): Promise<UsageFanout> {

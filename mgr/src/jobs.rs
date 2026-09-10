@@ -248,6 +248,13 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
             {
                 let conn = st.db.lock().unwrap();
                 db::delete_sandbox(&conn, &name)?;
+                // Drop the model-profile assignment too (D8): a lingering
+                // entry would be silently inherited by a future sandbox
+                // created under the same name. Best-effort — a failure here
+                // must not fail the teardown (log-and-continue).
+                if let Err(e) = crate::models::set_assignment(&conn, &name, None) {
+                    tracing::warn!(sandbox = %name, error = %e.message, "assignment cleanup failed");
+                }
             }
             // Remove the instance dir (generated artifacts, D2). Compose down
             // already took containers/networks/volumes; the dir is just files.

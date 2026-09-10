@@ -12,7 +12,7 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post};
+use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -40,6 +40,11 @@ pub fn router() -> Router<Arc<AppState>> {
         // profile-gated sidecar `up` deliberately does not carry. Synchronous
         // (container create+start of a pre-built image, seconds), so no job.
         .route("/api/sandboxes/:name/service/:service/start", post(service_start))
+        // Model-profile assignment (D8, unified Phase 4): a pure kv write
+        // the sandbox's 60s pull picks up — deliberately a SEPARATE route
+        // from PUT /api/sandboxes/:name, whose env changes run the recreate
+        // job (models.rs set_assignment).
+        .route("/api/sandboxes/:name/model_profile", put(put_model_profile))
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
         .route("/api/jobs/:id", get(get_job))
@@ -132,6 +137,14 @@ impl From<anyhow::Error> for ApiError {
 }
 
 type ApiResult<T> = Result<T, ApiError>;
+
+/// Bridge models.rs' local ApiError twin (the assignment helpers) into this
+/// module's type: same status + message, same JSON shape on the wire.
+impl From<crate::models::ApiError> for ApiError {
+    fn from(e: crate::models::ApiError) -> Self {
+        ApiError::with_status(e.status, e.message)
+    }
+}
 
 // ── scenarios ──────────────────────────────────────────────────────
 
@@ -441,7 +454,13 @@ async fn reconnect_adopted_aliases(name: &str, ps: &[docker::ComposePsEntry]) ->
 /// (creating/running/error); `live` reports what compose actually says:
 /// "running" / "stopped" / "gone" (no containers) / "unknown" (compose ps
 /// itself failed - docker down, stale compose file: shown, never hidden).
-async fn sandbox_json(state: &Arc<AppState>, row: &db::SandboxRow) -> serde_json::Value {
+/// `model_profile` is the assigned profile id or null (D8; caller resolves
+/// it once per list request — the store parse is not per-row free).
+async fn sandbox_json(
+    state: &Arc<AppState>,
+    row: &db::SandboxRow,
+    model_profile: Option<String>,
+) -> serde_json::Value {
     // ps target: the mgr-generated compose for native rows; for adopted rows
     // the REGISTERED external file - external_compose is the single truth for
     // where an adopted stack lives (nothing else records it), and a missing
@@ -496,6 +515,9 @@ async fn sandbox_json(state: &Arc<AppState>, row: &db::SandboxRow) -> serde_json
         // sbx-<name>-piweb (composegen), so the prefix is the shared identity.
         "entry_url": format!("http://sbx-{}.mgr.localhost/", row.name),
         "piweb_url": format!("http://sbx-{}-piweb.mgr.localhost/", row.name),
+        // Assigned model profile (D8): null = unassigned (sandbox keeps its
+        // local models.json untouched).
+        "model_profile": model_profile,
         "services": ps.iter().map(|e| json!({
             "service": e.service, "name": e.name, "state": e.state, "status": e.status,
         })).collect::<Vec<_>>(),
@@ -505,11 +527,21 @@ async fn sandbox_json(state: &Arc<AppState>, row: &db::SandboxRow) -> serde_json
 async fn list_sandboxes(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
     let rows = {
         let conn = state.db.lock().unwrap();
-        db::list_sandboxes(&conn)?
+        let rows = db::list_sandboxes(&conn)?;
+        // Profile assignments resolved in ONE store parse per list call (the
+        // models store can be sizeable; assigned_profile would re-parse it
+        // per row — models.rs read_assignments is the bulk form).
+        let stored = crate::models::read_assignments(&conn)?;
+        let assignments: std::collections::HashMap<String, String> = rows
+            .iter()
+            .filter_map(|r| stored.get(&r.name).cloned().map(|p| (r.name.clone(), p)))
+            .collect();
+        (rows, assignments)
     };
-    let mut out = Vec::with_capacity(rows.len());
-    for row in &rows {
-        out.push(sandbox_json(&state, row).await);
+    let mut out = Vec::with_capacity(rows.0.len());
+    for row in &rows.0 {
+        let profile = rows.1.get(&row.name).cloned();
+        out.push(sandbox_json(&state, row, profile).await);
     }
     Ok(Json(json!({ "sandboxes": out })))
 }
@@ -522,7 +554,11 @@ async fn get_sandbox(
         let conn = state.db.lock().unwrap();
         db::get_sandbox(&conn, &name)?.ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
     };
-    Ok(Json(sandbox_json(&state, &row).await))
+    let profile = {
+        let conn = state.db.lock().unwrap();
+        crate::models::assigned_profile(&conn, &name)?
+    };
+    Ok(Json(sandbox_json(&state, &row, profile).await))
 }
 
 #[derive(Deserialize)]
@@ -610,6 +646,12 @@ async fn unadopt_sandbox(
     {
         let conn = state.db.lock().unwrap();
         db::delete_sandbox(&conn, &row.name)?;
+        // Same assignment hygiene as the native delete path (jobs.rs): an
+        // adopted row's assignment is usually inert (no MGR_URL), but it is
+        // recorded and would be inherited by a same-name sandbox later.
+        if let Err(e) = crate::models::set_assignment(&conn, &row.name, None) {
+            tracing::warn!(sandbox = %row.name, error = %e.message, "assignment cleanup failed");
+        }
     }
     if let Some(file) = row.external_compose.as_deref().map(PathBuf::from).filter(|p| p.exists()) {
         match docker::compose_ps_file(&file).await {
@@ -787,6 +829,41 @@ async fn service_start(
         docker::compose_service_up(&project, &compose_file, profile, &service).await?
     };
     Ok(Json(json!({ "ok": true, "service": service, "output": out.trim() })))
+}
+
+/// PUT /api/sandboxes/:name/model_profile (D8): assign or unassign the
+/// sandbox's model profile. Body `{profile: "<id>"}` assigns; `{profile:
+/// null}` (or the field absent) UNASSIGNS — the same explicit-null-not-
+/// absence discipline as the limits tri-state (types.ts), because "keep
+/// current" has no meaning for a PUT that exists to change it.
+///
+/// Synchronous pure-kv write (models.rs set_assignment): the sandbox's 60s
+/// pull picks the change up — NO recreate job, containers keep running.
+/// Works for adopted rows too: the assignment is mgr-side state only (an
+/// adopted sandbox without MGR_URL never pulls, so the assignment is inert
+/// there — recorded anyway so re-registering the stack under a future
+/// managed compose is seamless).
+#[derive(Deserialize)]
+struct ModelProfileBody {
+    profile: Option<String>,
+}
+
+async fn put_model_profile(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(body): Json<ModelProfileBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // ONE db lock for check + write: two separate acquisitions would let a
+    // concurrent delete drop the sandbox between them, recording an
+    // assignment for a row that no longer exists.
+    {
+        let conn = state.db.lock().unwrap();
+        if db::get_sandbox(&conn, &name)?.is_none() {
+            return Err(ApiError::bad(format!("sandbox {name:?} not found")));
+        }
+        crate::models::set_assignment(&conn, &name, body.profile.as_deref())?;
+    }
+    Ok(Json(json!({ "ok": true, "name": name, "model_profile": body.profile })))
 }
 
 async fn entry_url(

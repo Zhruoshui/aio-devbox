@@ -1,11 +1,17 @@
 // ModelsPage — the mgr model-config page, ported from the workbench's
-// ModelsPane (web/src/panes/models/ModelsPane.tsx, Phase 4c).
+// ModelsPane (web/src/panes/models/ModelsPane.tsx, Phase 4c), extended to
+// multi-profile (unified Phase 4, prd D8 / design §4.4).
 //
 // Owns ALL state and /api/models/* handlers for this page and delegates each
 // tab's render to a focused sub-component (same split as the workbench):
 //   providers → ProviderGrid (card grid) + ProviderEditor drawer
 //   pi/opencode → AgentTabs (assignment editor; live parts trimmed)
 //   claude/codex → PresetList (preset CRUD; apply trimmed)
+//
+// EVERY tab edits the SELECTED profile (profileId state → ?profile= on every
+// config/import/discover/test call); the profile bar above the tabs owns
+// create/rename/delete (mgr/src/models.rs profile routes). Per-sandbox
+// ASSIGNMENT lives on EditPage, not here.
 //
 // Differences vs the workbench pane (mgr has no sandbox-local agent APIs):
 //   - no usage tab (usage is its own page over GET /api/usage);
@@ -14,20 +20,27 @@
 //     happens sandbox-side when the sandbox pulls the config;
 //   - lang arrives as a prop (App owns it) instead of localStorage.
 //
-// API contract: GET/PUT /api/models/config + POST /api/models/import/pi +
-// POST /api/models/discover + POST /api/models/test + GET /api/models/catalog
-// (mgr/src/models.rs). Responses decode once in ./types (or arrive as typed
-// api.ts results); all rendering consumes the typed CanonicalConfig.
+// API contract: GET/PUT /api/models/config(?profile=) + GET/POST
+// /api/models/profiles + PUT/DELETE /api/models/profiles/:id + POST
+// /api/models/import/pi + POST /api/models/discover + POST /api/models/test
+// + GET /api/models/catalog (mgr/src/models.rs). Responses decode once in
+// ./types (or arrive as typed api.ts results); all rendering consumes the
+// typed CanonicalConfig.
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  createModelProfile,
+  deleteModelProfile,
   discoverModels,
   getModelsCatalog,
   getModelsConfig,
   importPiModels,
+  listModelProfiles,
   listSandboxes,
   putModelsConfig,
+  renameModelProfile,
   testModel,
+  type ModelProfile,
 } from "../../api";
 import { t, type Lang } from "../../i18n";
 import { Icon } from "../../icons";
@@ -77,11 +90,28 @@ function tabLabel(lang: Lang, key: TabKey): string {
   }
 }
 
-export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
+export function ModelsPage({
+  lang,
+  onGoWorkspace,
+}: {
+  lang: Lang;
+  /** MgrNotice chip target (design §4.4): "去工作区" — navigates to the
+   * workspace page focused on that sandbox, replacing the old new-tab
+   * entry_url link. */
+  onGoWorkspace?: (name: string) => void;
+}): JSX.Element {
   const [tab, setTab] = useState<TabKey>("providers");
   const [config, setConfig] = useState<CanonicalConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  // Profile state (D8): the list, the selected id (undefined until the
+  // first list lands — then the backend's first profile), and a transient
+  // message from create/rename/delete. Switching profiles reloads the
+  // config; every save goes back with the SAME ?profile=.
+  const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
+  const [profileId, setProfileId] = useState<string | undefined>(undefined);
+  const [profileMsg, setProfileMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Editor drawer state: `selectedId` non-null opens the drawer for that
   // provider. It also carries the provider whose headers/compat textareas are
@@ -117,11 +147,42 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
   // running sandbox — that is where the live agent view lives).
   const [sandboxLinks, setSandboxLinks] = useState<SandboxLink[] | null>(null);
 
+  // ── profile list / selection (D8) ────────────────────────────────
+
+  const refreshProfiles = useCallback(async (): Promise<ModelProfile[]> => {
+    const r = await listModelProfiles();
+    setProfiles(r.profiles);
+    setProfileId((prev) => {
+      // Keep the selection when the profile still exists (rename/delete of
+      // another); else fall back to the first (backend order).
+      if (prev && r.profiles.some((p) => p.id === prev)) return prev;
+      return r.profiles[0]?.id;
+    });
+    return r.profiles;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    refreshProfiles()
+      .then((ps) => {
+        if (cancelled || ps.length === 0) return;
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshProfiles]);
+
   // ── config fetch / save ─────────────────────────────────────────
 
-  const fetchConfig = useCallback(async (): Promise<void> => {
+  const fetchConfig = useCallback(async (profile: string): Promise<void> => {
     try {
-      const cfg = decodeConfig(await getModelsConfig());
+      const cfg = decodeConfig(await getModelsConfig(profile));
       setConfig(cfg);
       setSelectedId((prev) =>
         prev && prev in cfg.providers ? prev : null,
@@ -134,9 +195,11 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
     }
   }, []);
 
+  // (Re)load the config whenever the selected profile resolves or changes.
   useEffect(() => {
-    void fetchConfig();
-  }, [fetchConfig]);
+    if (profileId === undefined) return;
+    void fetchConfig(profileId);
+  }, [profileId, fetchConfig]);
 
   // Sandbox links refresh whenever an agent tab is shown (cheap list call;
   // running state changes as sandboxes start/stop).
@@ -149,7 +212,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         setSandboxLinks(
           r.sandboxes
             .filter((s) => s.live === "running")
-            .map((s) => ({ name: s.name, entryUrl: s.entry_url })),
+            .map((s) => ({ name: s.name })),
         );
       })
       .catch(() => {
@@ -363,7 +426,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         },
       };
 
-      const resp: PutResponse = await putModelsConfig(body);
+      const resp: PutResponse = await putModelsConfig(body, profileId);
       setSaveMsg({
         ok: true,
         text:
@@ -371,32 +434,93 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
             ? resp.warnings.join("; ")
             : t(lang, "mcSaved"),
       });
-      await fetchConfig();
+      if (profileId !== undefined) await fetchConfig(profileId);
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
       setSaving(false);
       window.setTimeout(() => setSaveMsg(null), 3000);
     }
-  }, [config, selectedId, headersText, compatText, lang, fetchConfig]);
+  }, [config, selectedId, headersText, compatText, lang, fetchConfig, profileId]);
 
   const handleImport = useCallback(async (): Promise<void> => {
-    if (!confirm(t(lang, "mcImportConfirm"))) return;
+    if (!confirm(t(lang, "mcImportConfirm")) || profileId === undefined) return;
     try {
-      const resp = await importPiModels();
+      const resp = await importPiModels(profileId);
       setSaveMsg({
         ok: true,
         text: t(lang, "mcImportResult")
           .replace("{imported}", String(resp.imported.length))
           .replace("{skipped}", String(resp.skipped.length)),
       });
-      await fetchConfig();
+      await fetchConfig(profileId);
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
       window.setTimeout(() => setSaveMsg(null), 5000);
     }
-  }, [lang, fetchConfig]);
+  }, [lang, fetchConfig, profileId]);
+
+  // ── profile CRUD (D8) ────────────────────────────────────────────
+
+  const flashProfileMsg = (ok: boolean, text: string): void => {
+    setProfileMsg({ ok, text });
+    window.setTimeout(() => setProfileMsg(null), 3000);
+  };
+
+  const handleCreateProfile = useCallback(async (): Promise<void> => {
+    const name = prompt(t(lang, "mpNewName"));
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    try {
+      const created = await createModelProfile(trimmed);
+      const ps = await refreshProfiles();
+      // Select the new profile immediately (it is empty — the user just
+      // named it, editing it is the obvious next step).
+      setProfileId(ps.find((p) => p.id === created.id)?.id ?? ps[0]?.id);
+      flashProfileMsg(true, t(lang, "mpCreated"));
+    } catch (e) {
+      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
+    }
+  }, [lang, refreshProfiles]);
+
+  const handleRenameProfile = useCallback(async (): Promise<void> => {
+    if (!profileId || !profiles) return;
+    const current = profiles.find((p) => p.id === profileId);
+    if (!current) return;
+    const name = prompt(t(lang, "mpRenamePrompt"), current.name);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (trimmed === "" || trimmed === current.name) return;
+    try {
+      await renameModelProfile(profileId, trimmed);
+      await refreshProfiles();
+      flashProfileMsg(true, t(lang, "mcSaved"));
+    } catch (e) {
+      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
+    }
+  }, [lang, profileId, profiles, refreshProfiles]);
+
+  const handleDeleteProfile = useCallback(async (): Promise<void> => {
+    if (!profileId || !profiles) return;
+    const current = profiles.find((p) => p.id === profileId);
+    if (!current) return;
+    const usage = current.assigned.length;
+    const confirmText =
+      usage > 0
+        ? t(lang, "mpDeleteConfirmAssigned").replace("{n}", String(usage))
+        : t(lang, "mpDeleteConfirm");
+    if (!confirm(confirmText)) return;
+    try {
+      await deleteModelProfile(profileId);
+      await refreshProfiles();
+      flashProfileMsg(true, t(lang, "mpDeleted"));
+    } catch (e) {
+      // The backend refuses the last profile (400) — surfaced as-is.
+      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
+    }
+  }, [lang, profileId, profiles, refreshProfiles]);
 
   // ── test + discover ─────────────────────────────────────────────
 
@@ -407,7 +531,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       setTestState((prev) => ({ ...prev, [key]: { status: "testing" } }));
       const t0 = performance.now();
       try {
-        const resp = await testModel(providerId, modelId);
+        const resp = await testModel(providerId, modelId, profileId);
         setTestState((prev) => ({
           ...prev,
           [key]: {
@@ -430,7 +554,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         }));
       }
     },
-    [],
+    [profileId],
   );
 
   const resetTest = useCallback((providerId: string, modelId: string): void => {
@@ -460,6 +584,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         apiKeyDirty(provider)
           ? { baseUrl: provider.baseUrl, api: provider.api, apiKey: provider.apiKey }
           : { providerId: selectedId },
+        profileId,
       );
       setDiscover({
         loading: false,
@@ -473,7 +598,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       const msg = e instanceof Error ? e.message : String(e);
       setDiscover((d) => (d ? { ...d, loading: false, error: msg } : d));
     }
-  }, [selectedId, config, apiKeyDirty]);
+  }, [selectedId, config, apiKeyDirty, profileId]);
 
   // Merge the discover-selected models into the selected provider.
   const handleDiscoverAddSelected = useCallback((): void => {
@@ -681,8 +806,8 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       setSaving(true);
       setAgentSaveMsg(null);
       try {
-        await putModelsConfig(next);
-        await fetchConfig();
+        await putModelsConfig(next, profileId);
+        if (profileId !== undefined) await fetchConfig(profileId);
         setAgentDirty((prev) => {
           const n = new Set(prev);
           n.delete(agent);
@@ -698,7 +823,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, fetchConfig],
+    [config, fetchConfig, profileId],
   );
 
   const handleSaveAssignment = useCallback(
@@ -707,14 +832,14 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       setSaving(true);
       setAgentSaveMsg(null);
       try {
-        await putModelsConfig(config);
+        await putModelsConfig(config, profileId);
         setAgentDirty((prev) => {
           const n = new Set(prev);
           n.delete(agent);
           return n;
         });
         setAgentSaveMsg({ ok: true, text: t(lang, "mcSaved") });
-        await fetchConfig();
+        if (profileId !== undefined) await fetchConfig(profileId);
       } catch (e) {
         setAgentSaveMsg({
           ok: false,
@@ -725,7 +850,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
         window.setTimeout(() => setAgentSaveMsg(null), 3000);
       }
     },
-    [config, lang, fetchConfig],
+    [config, lang, fetchConfig, profileId],
   );
 
   // ── render ──────────────────────────────────────────────────────
@@ -742,6 +867,54 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       <div className="page-head">
         <h1>{t(lang, "navModels")}</h1>
         <p className="sub">{t(lang, "modelsSub")}</p>
+      </div>
+
+      {/* Profile bar (D8): every tab below edits the selected profile.
+       * The selector is disabled while the list loads (first render);
+       * rename/delete act on the selected profile only. */}
+      <div className="ml-profile-bar">
+        <label className="ml-profile-label">
+          {t(lang, "mpProfile")}
+          <select
+            value={profileId ?? ""}
+            disabled={profiles === null || profiles.length === 0}
+            onChange={(e) => setProfileId(e.target.value)}
+          >
+            {(profiles ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.assigned.length > 0
+                  ? t(lang, "mpAssignedCount").replace("{n}", String(p.assigned.length))
+                  : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="ml-sec-actions">
+          <button
+            className="btn btn-secondary btn-sm"
+            title={t(lang, "mpRenameTitle")}
+            disabled={!profileId}
+            onClick={() => void handleRenameProfile()}
+          >
+            {t(lang, "mpRename")}
+          </button>
+          <button
+            className="btn btn-danger-text btn-sm"
+            title={t(lang, "mpDeleteTitle")}
+            disabled={!profileId || (profiles?.length ?? 0) <= 1}
+            onClick={() => void handleDeleteProfile()}
+          >
+            {t(lang, "delete")}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => void handleCreateProfile()}>
+            <Icon name="plus" />
+            {t(lang, "mpNew")}
+          </button>
+        </div>
+        {profileMsg && (
+          <span className={`wizard-msg ${profileMsg.ok ? "ok" : "err"}`}>{profileMsg.text}</span>
+        )}
       </div>
 
       <div className="ml-tabs">
@@ -768,6 +941,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
           saving={saving}
           agentSaveMsg={agentSaveMsg}
           sandboxLinks={sandboxLinks ?? []}
+          onGoWorkspace={onGoWorkspace}
           onAddPreset={addPreset}
           onUpdatePreset={updatePreset}
           onDeletePreset={deletePreset}
@@ -784,6 +958,7 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
           saving={saving}
           agentSaveMsg={agentSaveMsg}
           sandboxLinks={sandboxLinks ?? []}
+          onGoWorkspace={onGoWorkspace}
           onUpdateAssignment={updateAgentAssignment}
           onSaveAssignment={(a) => void handleSaveAssignment(a)}
           lang={lang}

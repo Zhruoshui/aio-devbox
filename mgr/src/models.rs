@@ -1,40 +1,55 @@
 // Model-config routes — the mgr side of the config up-lift (sandbox-mgr
-// Phase 4a, prd D6 / design §3.7).
+// Phase 4a, prd D6 / design §3.7), extended to multi-profile + per-sandbox
+// assignment (unified Phase 4, prd D8 / design §4).
 //
-// mgr is the SINGLE source of truth for the canonical model config. The
-// stored artifact is a kv row (`models_config`) shaped
-//   {"version": <u64, starts at 1, +1 per write>,
-//    "config": <CanonicalConfig>}
-// where `version` drives the sandbox-side pull (Phase 4b: the app compares
-// versions before re-rendering agent configs; a plain ETag surrogate).
+// mgr is the SINGLE source of truth for the canonical model config, per
+// PROFILE. The stored artifact is a kv row (`models_profiles`) shaped
+//   {"version": <u64, GLOBAL, +1 per write>,
+//    "profiles": [ {"id": <slug>, "name": <display>, "config": <CanonicalConfig>} ],
+//    "assignments": { "<sandbox-name>": "<profile-id>" }}
+// A profile IS a whole CanonicalConfig (aio-models is untouched); the wrapper
+// adds the identity + assignment dimensions. `version` is a plain ETag
+// surrogate — the sandbox pull deep-compares content, so a global bump that
+// touches an unrelated profile costs nothing but a skipped compare.
 //
-// Routes (contract-locked to app/src/routes/models/* — the mgr-web model page
-// is a direct port of web/src/panes/models/, so any response-shape drift is
-// a cross-layer break):
-//   GET  /api/models/config    — masked CanonicalConfig (app get_config)
-//   PUT  /api/models/config    — masked-echo merge + validate + version bump
-//   GET  /api/models/sync      — {version, config} UNMASKED, sandbox pull
-//   POST /api/models/import/pi — absorb ~/.pi/agent/models.json providers
-//   POST /api/models/discover  — /v1/models endpoint probe (multi-shape)
-//   POST /api/models/test      — minimal completion availability probe
-//   GET  /api/models/catalog   — models.dev metadata proxy (1h cache)
+// Migration (design §4.1): a legacy `models_config` row (single global
+// config, Phase 4a) becomes profile id "default" with EVERY existing sandbox
+// assigned to it — behavior-identical for all pre-upgrade sandboxes. The old
+// row survives until the new row is written; a rolled-back mgr (new key
+// missing, old key present) reads the old key back. Both directions are
+// therefore safe across an upgrade/downgrade cycle.
 //
-// NOT ported (mgr semantics don't exist for them; Phase 4c adapts the UI):
-// /api/models/agents, apply/:agent, live-provider edit/delete/sync, usage —
-// those read/write files INSIDE one sandbox; mgr has no agent installs.
+// Routes (contract-locked to app/src/mgr_sync.rs + mgr-web):
+//   GET  /api/models/profiles            — [{id, name, version, assigned[]}]
+//   POST /api/models/profiles            — {name} -> new empty profile
+//   PUT  /api/models/profiles/:id        — masked-echo merge + validate
+//   DEL  /api/models/profiles/:id        — refuse the last one; unassign
+//   GET  /api/models/sync?name=<sbx>     — {version, config} UNMASKED for the
+//                                           sandbox's ASSIGNED profile; 404
+//                                           when the sandbox is unassigned or
+//                                           unknown (app keeps local silently)
+//   GET/PUT /api/models/config           — profile-scoped (?profile=, default
+//                                           = first profile) legacy pair
+//   POST /api/models/import/pi           — absorb ~/.pi/agent/models.json (?profile=)
+//   POST /api/models/discover | /test    — provider probe (?profile= scoping)
+//   GET  /api/models/catalog             — models.dev proxy (global, 1h cache)
+// PUT /api/sandboxes/:name/model_profile lives in routes.rs (sandbox-scoped).
+//
+// NOT ported (mgr semantics don't exist for them): /api/models/agents,
+// apply/:agent, live-provider edit/delete/sync, usage — those read/write
+// files INSIDE one sandbox; mgr has no agent installs.
 //
 // Error shape: app answers `(StatusCode, String)` (plain-text bodies);
 // mgr's house style is `{"error": "<msg>"}` JSON (routes.rs ApiError). The
-// mgr-web api client decodes both shapes through apiError(), and the models
-// page only checks r.ok + r.json()/r.text(), so the semantic contract
-// (status code + human-readable message) is preserved either way.
+// mgr-web api client decodes both shapes through apiError(), so the semantic
+// contract (status code + human-readable message) is preserved either way.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -50,35 +65,131 @@ use aio_models::store::{
 use crate::db;
 use crate::state::AppState;
 
-/// kv row key holding the versioned canonical config (design §3.7).
-const KV_MODELS: &str = "models_config";
+/// kv row key holding the multi-profile store (unified Phase 4, design §4.1).
+const KV_MODELS: &str = "models_profiles";
+/// The LEGACY Phase-4a single-config key. Read-only (migration input); never
+/// written once the new key exists.
+const KV_MODELS_LEGACY: &str = "models_config";
+/// Profile id the legacy config migrates into (design §4.1: "default", with
+/// every existing sandbox assigned — zero behavior change).
+const DEFAULT_PROFILE_ID: &str = "default";
 
 // ── stored payload ────────────────────────────────────────────────
 
-/// The kv row payload. `version` starts at 1 on the first write and grows
-/// by one on every successful mutation (PUT config / import pi) so the
-/// sandbox pull loop (Phase 4b) can skip no-op downloads.
+/// One named profile: a whole CanonicalConfig plus display metadata.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Profile {
+    pub id: String,
+    pub name: String,
+    pub config: CanonicalConfig,
+}
+
+/// The kv row payload. `version` is GLOBAL (bumped on every successful
+/// mutation of any profile — the sandbox pull's deep compare makes per-profile
+/// versioning an unnecessary cost). `assignments` maps sandbox name → profile
+/// id; an unassigned sandbox pulls nothing (sync 404s, app keeps local).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StoredModels {
     version: u64,
-    config: CanonicalConfig,
+    #[serde(default)]
+    profiles: Vec<Profile>,
+    #[serde(default)]
+    assignments: BTreeMap<String, String>,
 }
 
-/// Read the stored config; a missing kv row means "never configured" and
-/// yields the default (app's read_config on a missing file behaves the
-/// same). A row that fails to parse is an internal error, not a reset —
-/// unlike a corrupt file this cannot happen through the write path (every
-/// write serializes a CanonicalConfig we just validated), so surfacing it
-/// loudly beats silently rewriting the user's config away.
-fn read_stored(conn: &rusqlite::Connection) -> Result<StoredModels, ApiError> {
-    match db::kv_get(conn, KV_MODELS)? {
-        None => Ok(StoredModels { version: 0, config: CanonicalConfig::default() }),
-        Some(text) => serde_json::from_str(&text).map_err(|e| {
-            ApiError::internal(format!(
-                "stored models_config is corrupt ({e}); kv key {KV_MODELS:?} in state.db"
-            ))
-        }),
+impl StoredModels {
+    /// The fresh store: one empty "default" profile, no assignments (the
+    /// migration fills the config + assignments when a legacy row exists).
+    fn fresh() -> Self {
+        StoredModels {
+            version: 0,
+            profiles: vec![Profile {
+                id: DEFAULT_PROFILE_ID.into(),
+                name: "Default".into(),
+                config: CanonicalConfig::default(),
+            }],
+            assignments: BTreeMap::new(),
+        }
     }
+
+    fn profile(&self, id: &str) -> Option<&Profile> {
+        self.profiles.iter().find(|p| p.id == id)
+    }
+
+    fn profile_mut(&mut self, id: &str) -> Option<&mut Profile> {
+        self.profiles.iter_mut().find(|p| p.id == id)
+    }
+
+    /// The profile a ?profile= query selects: the given id, else the FIRST
+    /// profile (insertion order is kept; "default" leads unless deleted).
+    fn selected(&self, want: Option<&str>) -> Result<&Profile, ApiError> {
+        match want {
+            Some(id) => self.profile(id).ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("model profile {id:?} not found"),
+            }),
+            None => self
+                .profiles
+                .first()
+                .ok_or_else(|| ApiError::internal("no model profiles exist (store is corrupt?)")),
+        }
+    }
+}
+
+/// Read the stored profiles, running the legacy migration when needed.
+///
+/// - new key present → parse it (corrupt = internal error, never a reset —
+///   every write serialized a validated store, so corruption means something
+///   external touched the db);
+/// - new key missing + legacy key present → MIGRATE: legacy config becomes
+///   the "default" profile, every existing sandbox row is assigned to it,
+///   write the new key, delete the old one (old content survives until the
+///   new write succeeded — a crash in between just re-runs this next boot);
+/// - neither key → fresh default store (in-memory only; nothing is written
+///   until a mutation happens, same laziness as Phase 4a).
+fn read_stored(conn: &rusqlite::Connection) -> Result<StoredModels, ApiError> {
+    if let Some(text) = db::kv_get(conn, KV_MODELS)? {
+        return serde_json::from_str(&text).map_err(|e| {
+            ApiError::internal(format!(
+                "stored {KV_MODELS} is corrupt ({e}); kv key {KV_MODELS:?} in state.db"
+            ))
+        });
+    }
+    let Some(legacy) = db::kv_get(conn, KV_MODELS_LEGACY)? else {
+        return Ok(StoredModels::fresh());
+    };
+    // Legacy row: {"version": u64, "config": CanonicalConfig}.
+    #[derive(serde::Deserialize)]
+    struct LegacyRow {
+        #[serde(default)]
+        version: u64,
+        config: CanonicalConfig,
+    }
+    let legacy: LegacyRow = serde_json::from_str(&legacy).map_err(|e| {
+        ApiError::internal(format!(
+            "stored {KV_MODELS_LEGACY} is corrupt ({e}); kv key {KV_MODELS_LEGACY:?} in state.db"
+        ))
+    })?;
+    let mut stored = StoredModels {
+        version: legacy.version.max(1),
+        profiles: vec![Profile {
+            id: DEFAULT_PROFILE_ID.into(),
+            name: "Default".into(),
+            config: legacy.config,
+        }],
+        assignments: BTreeMap::new(),
+    };
+    // Every existing sandbox keeps pulling exactly what it pulled before.
+    for name in db::list_sandbox_names(conn)? {
+        stored.assignments.insert(name, DEFAULT_PROFILE_ID.into());
+    }
+    write_stored(conn, &stored)?;
+    db::kv_del(conn, KV_MODELS_LEGACY)?;
+    tracing::info!(
+        "migrated legacy {KV_MODELS_LEGACY} -> {KV_MODELS} (default profile, {} sandbox(s) assigned)",
+        stored.assignments.len()
+    );
+    Ok(stored)
 }
 
 /// Serialize + write the kv row. Called with the db Mutex already held (the
@@ -87,9 +198,76 @@ fn read_stored(conn: &rusqlite::Connection) -> Result<StoredModels, ApiError> {
 /// serialize naturally, replacing app's models_lock).
 fn write_stored(conn: &rusqlite::Connection, stored: &StoredModels) -> Result<(), ApiError> {
     let text = serde_json::to_string(stored)
-        .map_err(|e| ApiError::internal(format!("serialize models_config: {e}")))?;
+        .map_err(|e| ApiError::internal(format!("serialize {KV_MODELS}: {e}")))?;
     db::kv_set(conn, KV_MODELS, &text)?;
     Ok(())
+}
+
+// ── cross-module assignment surface (routes.rs PUT /:name/model_profile) ──
+
+/// The profile id a sandbox is assigned to, for sandbox_json's
+/// `model_profile` field (None = unassigned; the JSON carries null then).
+/// Runs the legacy migration lazily like every other read path.
+pub fn assigned_profile(conn: &rusqlite::Connection, sandbox: &str) -> Result<Option<String>, ApiError> {
+    Ok(read_stored(conn)?
+        .assignments
+        .get(sandbox)
+        .cloned())
+}
+
+/// The WHOLE assignment map, for the sandbox list (one store parse instead
+/// of one per row — routes.rs list_sandboxes). Like every read path, runs
+/// the legacy migration lazily.
+pub fn read_assignments(
+    conn: &rusqlite::Connection,
+) -> Result<std::collections::BTreeMap<String, String>, ApiError> {
+    Ok(read_stored(conn)?.assignments)
+}
+
+/// Assign (`Some(id)`) or unassign (`None`) a sandbox's model profile.
+/// Pure kv write — NEVER triggers a recreate (design §4.2: env changes go
+/// through the recreate job; the assignment lands on the sandbox's next
+/// 60s pull). Unknown profile id = 404.
+pub fn set_assignment(
+    conn: &rusqlite::Connection,
+    sandbox: &str,
+    profile: Option<&str>,
+) -> Result<(), ApiError> {
+    let mut stored = read_stored(conn)?;
+    match profile {
+        Some(id) => {
+            if stored.profile(id).is_none() {
+                return Err(ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: format!("model profile {id:?} not found"),
+                });
+            }
+            stored.assignments.insert(sandbox.to_string(), id.to_string());
+        }
+        None => {
+            stored.assignments.remove(sandbox);
+        }
+    }
+    stored.version += 1;
+    write_stored(conn, &stored)
+}
+
+/// Generate a profile id: `profile-<5 hex>` splitmix64 (the same shape as
+/// aio-models' gen_preset_id — kept local because that one is preset-scoped
+/// and profile ids are a different domain).
+fn gen_profile_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut z = nanos ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    format!("profile-{z:05x}")
 }
 
 // ── error type (house style; mirrors routes.rs but local to keep the
@@ -98,10 +276,14 @@ fn write_stored(conn: &rusqlite::Connection, stored: &StoredModels) -> Result<()
 /// Handler error: status + `{"error": msg}` JSON (routes.rs ApiError shape).
 /// Validation failures map to 400, upstream probe failures to 502/404 —
 /// the same codes the app handlers emit for the same conditions.
+///
+/// `pub(crate)` fields: routes.rs consumes the assignment helpers (which
+/// return this type) through `ApiError::with_status` — same JSON shape on
+/// the wire either way.
 #[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    message: String,
+pub(crate) struct ApiError {
+    pub(crate) status: StatusCode,
+    pub(crate) message: String,
 }
 
 impl ApiError {
@@ -133,6 +315,8 @@ impl From<anyhow::Error> for ApiError {
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/models/config", get(get_config).put(put_config))
+        .route("/api/models/profiles", get(list_profiles).post(create_profile))
+        .route("/api/models/profiles/:id", get(get_profile).put(put_profile).delete(delete_profile))
         .route("/api/models/sync", get(sync))
         .route("/api/models/import/pi", post(import_pi))
         .route("/api/models/discover", post(discover))
@@ -140,37 +324,55 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/models/catalog", get(get_catalog))
 }
 
-// ── GET/PUT /api/models/config ────────────────────────────────────
+// ── profile scoping (?profile=) ────────────────────────────────────
 
-/// GET /api/models/config — masked canonical config (app get_config: read
-/// the store, mask every apiKey, return; never errors on missing config).
-async fn get_config(State(state): State<Arc<AppState>>) -> Result<Json<CanonicalConfig>, ApiError> {
+/// Query param shared by the profile-scoped routes: which profile a GET/PUT
+/// config / import / discover / test call operates on. Absent = the first
+/// profile (the models page always sends it explicitly once >1 exist).
+#[derive(Debug, Clone, Deserialize, Default)]
+struct ProfileQuery {
+    profile: Option<String>,
+}
+
+// ── GET/PUT /api/models/config (profile-scoped) ────────────────────
+
+/// GET /api/models/config — masked canonical config of the selected profile
+/// (app get_config: read, mask every apiKey, return; never errors on a
+/// missing store).
+async fn get_config(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ProfileQuery>,
+) -> Result<Json<CanonicalConfig>, ApiError> {
     let mut config = {
         let conn = state.db.lock().unwrap();
-        read_stored(&conn)?.config
+        read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone()
     };
     mask_config(&mut config);
     Ok(Json(config))
 }
 
 /// PUT /api/models/config — masked-echo merge + ensure_preset_ids +
-/// validate + write + version bump (app put_config, step for step).
+/// validate + write + version bump (app put_config, step for step) into the
+/// selected profile.
 ///
 /// Serialization: the read-merge-write happens inside one db Mutex
 /// acquisition with no await in between, so concurrent PUTs are naturally
 /// serialized — the kv row replaces app's models.json + models_lock pair.
 async fn put_config(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<ProfileQuery>,
     Json(mut incoming): Json<CanonicalConfig>,
 ) -> Result<Json<PutResponse>, ApiError> {
     let guard = state.db.lock().unwrap();
 
-    let stored = read_stored(&guard)?;
+    let mut stored = read_stored(&guard)?;
+    let profile_id = stored.selected(q.profile.as_deref())?.id.clone();
+    let stored_config = stored.profile(&profile_id).unwrap().config.clone();
     let next_version = stored.version + 1;
 
     // Masked-echo merge: the frontend sends the mask back when a key is
     // unchanged ("" clears, absent keeps, other replaces — store.rs).
-    merge_api_keys(&stored.config, &mut incoming);
+    merge_api_keys(&stored_config, &mut incoming);
 
     // Backend owns preset ids: backfill ones the frontend created blank.
     ensure_preset_ids(&mut incoming);
@@ -182,18 +384,170 @@ async fn put_config(
     // the STORE-level version lives in the kv wrapper.
     incoming.version = 1;
 
-    write_stored(&guard, &StoredModels { version: next_version, config: incoming })?;
+    stored.profile_mut(&profile_id).unwrap().config = incoming;
+    stored.version = next_version;
+    write_stored(&guard, &stored)?;
     drop(guard); // explicit: nothing below may run under the db lock
 
     Ok(Json(PutResponse { ok: true, warnings: vec![] }))
 }
 
-// ── GET /api/models/sync ──────────────────────────────────────────
+// ── GET/POST /api/models/profiles, GET/PUT/DELETE /:id ────────────
 
-/// GET /api/models/sync — the sandbox pull endpoint (Phase 4b consumer).
-/// Returns the UNMASKED `{version, config}`: the sandbox app writes the
-/// plaintext config to its local canonical store and re-renders agent
-/// files, which requires the real keys.
+/// GET /api/models/profiles — the profile LIST (no configs; the page fetches
+/// the selected profile's config separately). `assigned` carries the sandbox
+/// names so the UI can show usage without a second call.
+async fn list_profiles(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let stored = {
+        let conn = state.db.lock().unwrap();
+        read_stored(&conn)?
+    };
+    let profiles: Vec<serde_json::Value> = stored
+        .profiles
+        .iter()
+        .map(|p| {
+            let assigned: Vec<&String> = stored
+                .assignments
+                .iter()
+                .filter(|(_, id)| id.as_str() == p.id)
+                .map(|(name, _)| name)
+                .collect();
+            json!({ "id": p.id, "name": p.name, "version": stored.version, "assigned": assigned })
+        })
+        .collect();
+    Ok(Json(json!({ "profiles": profiles })))
+}
+
+/// One profile's masked config + name (id in the path).
+async fn get_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut profile = {
+        let conn = state.db.lock().unwrap();
+        read_stored(&conn)?.profile(&id).cloned().ok_or_else(|| ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("model profile {id:?} not found"),
+        })?
+    };
+    mask_config(&mut profile.config);
+    Ok(Json(json!({ "id": profile.id, "name": profile.name, "config": profile.config })))
+}
+
+/// POST /api/models/profiles {name} — create an empty profile. The id is
+/// backend-owned (gen_profile_id), same split as preset ids.
+#[derive(Debug, Deserialize)]
+struct CreateProfileBody {
+    name: String,
+}
+
+async fn create_profile(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateProfileBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad("profile name must not be empty"));
+    }
+    let conn = state.db.lock().unwrap();
+    let mut stored = read_stored(&conn)?;
+    let id = gen_profile_id();
+    stored.profiles.push(Profile {
+        id: id.clone(),
+        name: name.to_string(),
+        config: CanonicalConfig::default(),
+    });
+    stored.version += 1;
+    write_stored(&conn, &stored)?;
+    Ok(Json(json!({ "id": id, "name": name })))
+}
+
+/// PUT /api/models/profiles/:id — replace a profile's config (masked-echo
+/// merge + validate pipeline, same as PUT /api/models/config) and/or rename
+/// it (`name` in the body is optional metadata; absent = keep).
+#[derive(Debug, Deserialize)]
+struct PutProfileBody {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    config: Option<CanonicalConfig>,
+}
+
+async fn put_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<PutProfileBody>,
+) -> Result<Json<PutResponse>, ApiError> {
+    let guard = state.db.lock().unwrap();
+    let mut stored = read_stored(&guard)?;
+    let stored_config = stored.profile(&id).cloned().ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("model profile {id:?} not found"),
+    })?.config;
+
+    if let Some(ref new_name) = body.name {
+        let trimmed = new_name.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::bad("profile name must not be empty"));
+        }
+        stored.profile_mut(&id).unwrap().name = trimmed.to_string();
+    }
+    if let Some(mut incoming) = body.config {
+        merge_api_keys(&stored_config, &mut incoming);
+        ensure_preset_ids(&mut incoming);
+        validate(&incoming).map_err(|errs| ApiError::bad(errs.join("; ")))?;
+        incoming.version = 1;
+        stored.profile_mut(&id).unwrap().config = incoming;
+    }
+    stored.version += 1;
+    write_stored(&guard, &stored)?;
+    drop(guard);
+    Ok(Json(PutResponse { ok: true, warnings: vec![] }))
+}
+
+/// DELETE /api/models/profiles/:id — refuse the LAST profile (mgr must
+/// always have at least one; the models page would have nothing to render)
+/// and unassign every sandbox pointing at the deleted one (they fall back to
+/// local config: sync 404s, app keeps local — the unbind semantics).
+async fn delete_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let guard = state.db.lock().unwrap();
+    let mut stored = read_stored(&guard)?;
+    if stored.profile(&id).is_none() {
+        return Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("model profile {id:?} not found"),
+        });
+    }
+    if stored.profiles.len() == 1 {
+        return Err(ApiError::bad("cannot delete the last model profile"));
+    }
+    stored.profiles.retain(|p| p.id != id);
+    stored.assignments.retain(|_, pid| pid != &id);
+    stored.version += 1;
+    write_stored(&guard, &stored)?;
+    drop(guard);
+    Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+// ── GET /api/models/sync?name=<sandbox> ────────────────────────────
+
+/// GET /api/models/sync — the sandbox pull endpoint (Phase 4b consumer,
+/// unified Phase 4: now sandbox-scoped). Returns the UNMASKED
+/// `{version, config}` of the sandbox's ASSIGNED profile: the sandbox app
+/// writes the plaintext config to its local canonical store and re-renders
+/// agent files, which requires the real keys.
+///
+/// 404 matrix (design §4.2 — the app treats 404 as "unassigned, keep local"
+/// with a debug log, NOT a warn):
+///   - `name` absent → 404 (the pull MUST identify itself; pre-upgrade apps
+///     that send no name keep their local cache, they never break);
+///   - unknown sandbox → 404;
+///   - unassigned sandbox → 404.
 ///
 /// SECURITY BOUNDARY (D6/D9, deliberately accepted): this hands out
 /// plaintext API keys without authentication. The trust boundary is the
@@ -202,30 +556,61 @@ async fn put_config(
 /// pull uses, via the `mgr-api` alias) is a host-local docker network
 /// that never leaves the machine. Same reasoning as the auth-free
 /// gateways (D9): personal single-host deployment.
-async fn sync(State(state): State<Arc<AppState>>) -> Result<Json<Value>, ApiError> {
+#[derive(Debug, Deserialize)]
+struct SyncQuery {
+    name: Option<String>,
+}
+
+async fn sync(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SyncQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let unassigned = || ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: "no model profile assigned (or unknown sandbox)".into(),
+    };
+    let Some(name) = q.name.as_deref() else {
+        return Err(unassigned());
+    };
     let stored = {
         let conn = state.db.lock().unwrap();
+        // The sandbox must be REGISTERED — an arbitrary caller must not be
+        // able to probe names. This also runs the legacy migration lazily
+        // (a fresh mgr that never opened the models page still answers the
+        // first pull correctly).
+        if db::get_sandbox(&conn, name)?.is_none() {
+            return Err(unassigned());
+        }
         read_stored(&conn)?
     };
+    let Some(profile_id) = stored.assignments.get(name) else {
+        return Err(unassigned());
+    };
+    let profile = stored.profile(profile_id).ok_or_else(unassigned)?;
     Ok(Json(json!({
         "version": stored.version,
-        "config": stored.config,
+        "config": profile.config,
     })))
 }
 
-// ── POST /api/models/import/pi ────────────────────────────────────
+// ── POST /api/models/import/pi (profile-scoped) ────────────────────
 
 /// POST /api/models/import/pi — absorb pi's own models.json into the
-/// canonical library (app import_pi). Path: `MGR_PI_MODELS_FILE` env, else
-/// `$HOME/.pi/agent/models.json` (in the containerized form mgr has no
-/// ~/.pi — that is EXPECTED; the route is useful in the bare-metal form
-/// where mgr runs on the same host as the sandbox user).
-async fn import_pi(State(state): State<Arc<AppState>>) -> Result<Json<ImportResponse>, ApiError> {
+/// selected profile's canonical library (app import_pi). Path:
+/// `MGR_PI_MODELS_FILE` env, else `$HOME/.pi/agent/models.json` (in the
+/// containerized form mgr has no ~/.pi — that is EXPECTED; the route is
+/// useful in the bare-metal form where mgr runs on the same host as the
+/// sandbox user).
+async fn import_pi(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ProfileQuery>,
+) -> Result<Json<ImportResponse>, ApiError> {
     let pi_path = pi_models_path();
 
     let guard = state.db.lock().unwrap();
-    let stored = read_stored(&guard)?;
-    let mut config = stored.config;
+    let mut stored = read_stored(&guard)?;
+    let profile_id = stored.selected(q.profile.as_deref())?.id.clone();
+    let mut config = stored.profile(&profile_id).unwrap().config.clone();
 
     let result = import_from_pi(&pi_path, &config).map_err(|e| match e {
         StoreError::Io(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -251,7 +636,9 @@ async fn import_pi(State(state): State<Arc<AppState>>) -> Result<Json<ImportResp
         config.providers.insert(id, provider);
     }
 
-    write_stored(&guard, &StoredModels { version: stored.version + 1, config })?;
+    stored.profile_mut(&profile_id).unwrap().config = config;
+    stored.version += 1;
+    write_stored(&guard, &stored)?;
     drop(guard);
 
     Ok(Json(ImportResponse {
@@ -286,16 +673,16 @@ struct ResolvedProvider {
     headers: BTreeMap<String, String>,
 }
 
-/// Resolve a provider by id from the kv store, or accept literal fields.
-/// `baseUrl` is validated non-empty on the literal branch exactly like
-/// app's discover (test resolves by id only and 404s an unknown id).
+/// Resolve a provider by id from the selected profile's config, or accept
+/// literal fields. `baseUrl` is validated non-empty on the literal branch
+/// exactly like app's discover (test resolves by id only and 404s an unknown
+/// id).
 fn resolve_provider(
-    conn: &rusqlite::Connection,
+    config: &CanonicalConfig,
     req: &DiscoverRequest,
 ) -> Result<ResolvedProvider, ApiError> {
     match req {
         DiscoverRequest::ById { providerId } => {
-            let config = read_stored(conn)?.config;
             let p = config.providers.get(providerId).ok_or_else(|| ApiError {
                 status: StatusCode::NOT_FOUND,
                 message: format!("provider '{providerId}' not found"),
@@ -373,13 +760,15 @@ struct DiscoverResponse {
 /// (they are pure functions - unit tests live here).
 async fn discover(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<ProfileQuery>,
     Json(req): Json<DiscoverRequest>,
 ) -> Result<Json<DiscoverResponse>, ApiError> {
     let resolved = {
         let conn = state.db.lock().unwrap();
+        let config = read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone();
         // The literal branch validates baseUrl inside (blank -> 400),
         // exactly like the app handler's resolve_provider.
-        resolve_provider(&conn, &req)?
+        resolve_provider(&config, &req)?
     };
 
     let candidates = candidate_urls(&resolved.base_url, &resolved.api);
@@ -754,6 +1143,7 @@ struct TestResponse {
 /// test.rs; the provider lookup reads the kv store instead of models.json.
 async fn test(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<ProfileQuery>,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResponse>, ApiError> {
     if req.providerId.trim().is_empty() || req.modelId.trim().is_empty() {
@@ -762,7 +1152,7 @@ async fn test(
 
     let (provider, protocol) = {
         let conn = state.db.lock().unwrap();
-        let config = read_stored(&conn)?.config;
+        let config = read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone();
         let provider = config.providers.get(&req.providerId).cloned().ok_or_else(|| {
             ApiError {
                 status: StatusCode::NOT_FOUND,
@@ -1132,12 +1522,66 @@ mod tests {
     use serde_json::json;
 
     fn mem_db() -> rusqlite::Connection {
+        // Full schema (not just kv): the migration + assignment tests need
+        // the sandboxes table through the real db helpers.
         let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .expect("init kv schema");
+        db::init_schema(&conn).expect("init schema");
         conn
+    }
+
+    /// A single-profile store: the pre-unified shape wrapped as the
+    /// "default" profile, no assignments.
+    fn single(key: &str) -> StoredModels {
+        StoredModels {
+            version: 1,
+            profiles: vec![Profile {
+                id: DEFAULT_PROFILE_ID.into(),
+                name: "Default".into(),
+                config: sample_config(key),
+            }],
+            assignments: BTreeMap::new(),
+        }
+    }
+
+    /// Two profiles with DIFFERENT keys, so sync-resolution tests can tell
+    /// them apart on the wire. "default" leads (insertion order).
+    fn two_profiles() -> StoredModels {
+        StoredModels {
+            version: 1,
+            profiles: vec![
+                Profile {
+                    id: DEFAULT_PROFILE_ID.into(),
+                    name: "Default".into(),
+                    config: sample_config("sk-default-key"),
+                },
+                Profile {
+                    id: "profile-second".into(),
+                    name: "Second".into(),
+                    config: sample_config("sk-second-key"),
+                },
+            ],
+            assignments: BTreeMap::new(),
+        }
+    }
+
+    /// Register a sandbox row (sync requires the name to exist in the
+    /// sandboxes table; only name + the NOT NULL columns matter here).
+    fn register_sandbox(conn: &rusqlite::Connection, name: &str) {
+        db::insert_sandbox(
+            conn,
+            &db::SandboxRow {
+                name: name.into(),
+                created_at: 0,
+                env_json: "{}".into(),
+                env_hash: "h".into(),
+                cpus: None,
+                mem_mb: None,
+                status: "running".into(),
+                adopted: false,
+                external_compose: None,
+            },
+        )
+        .expect("insert sandbox row");
     }
 
     fn sample_provider(key: &str) -> ProviderEntry {
@@ -1161,17 +1605,22 @@ mod tests {
     #[test]
     fn stored_roundtrip_preserves_plaintext_key() {
         let conn = mem_db();
-        // First read on an empty db: default config, version 0 (never written).
+        // First read on an empty db: fresh store (one empty "default"
+        // profile, version 0 — nothing written until a mutation).
         let first = read_stored(&conn).unwrap();
         assert_eq!(first.version, 0);
-        assert!(first.config.providers.is_empty());
+        assert_eq!(first.profiles.len(), 1);
+        assert_eq!(first.profiles[0].id, DEFAULT_PROFILE_ID);
+        assert!(first.profiles[0].config.providers.is_empty());
+        assert!(first.assignments.is_empty());
 
-        write_stored(&conn, &StoredModels { version: 3, config: sample_config("sk-plaintext-secret") })
-            .unwrap();
+        let mut stored = single("sk-plaintext-secret");
+        stored.version = 3;
+        write_stored(&conn, &stored).unwrap();
         let back = read_stored(&conn).unwrap();
         assert_eq!(back.version, 3);
         assert_eq!(
-            back.config.providers.get("sample").unwrap().api_key.as_deref(),
+            back.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
             Some("sk-plaintext-secret"),
             "kv stores the plaintext; masking happens only on the GET path"
         );
@@ -1179,33 +1628,33 @@ mod tests {
 
     #[test]
     fn put_semantics_version_increments_each_write() {
-        // put_config writes `stored.version + 1`; first write lands at 1.
-        // (The handler itself is async/axum-bound; the store-level version
-        // arithmetic is the invariant under test.)
+        // put_config / put_profile / set_assignment all write
+        // `stored.version + 1`; first write lands at 1. (The handlers are
+        // async/axum-bound; the store-level version arithmetic is the
+        // invariant under test.)
         let conn = mem_db();
-        let mut v = 0;
-        let mut config = sample_config("sk-key-12345678");
-        for _ in 0..3 {
-            v += 1;
-            write_stored(&conn, &StoredModels { version: v, config: config.clone() }).unwrap();
+        let mut stored = single("sk-key-12345678");
+        for v in 1..=3 {
+            stored.version = v;
+            write_stored(&conn, &stored).unwrap();
         }
         assert_eq!(read_stored(&conn).unwrap().version, 3);
-        v += 1;
-        config.providers.remove("sample");
-        write_stored(&conn, &StoredModels { version: v, config }).unwrap();
+        stored.version = 4;
+        stored.profiles[0].config.providers.remove("sample");
+        write_stored(&conn, &stored).unwrap();
         let back = read_stored(&conn).unwrap();
         assert_eq!(back.version, 4);
-        assert!(back.config.providers.is_empty());
+        assert!(back.profiles[0].config.providers.is_empty());
     }
 
     #[test]
     fn put_masked_echo_merge_keeps_plaintext_in_store() {
         // The masked-echo contract: the frontend echoes the mask back; the
         // STORED key must remain the plaintext (merge_api_keys, ported
-        // semantics - the mgr PUT handler runs the same three calls).
+        // semantics - the mgr PUT handlers run the same three calls).
         let conn = mem_db();
         let stored = sample_config("sk-key-12345678");
-        write_stored(&conn, &StoredModels { version: 1, config: stored.clone() }).unwrap();
+        write_stored(&conn, &single("sk-key-12345678")).unwrap();
 
         // Incoming: same provider, apiKey = the MASK (frontend echo).
         let mut incoming = sample_config(&mask_key("sk-key-12345678"));
@@ -1287,57 +1736,112 @@ mod tests {
     #[tokio::test]
     async fn get_config_handler_returns_masked_keys() {
         // GET /api/models/config mask contract (app get_config parity): the
-        // stored plaintext never reaches the wire on this route.
+        // stored plaintext never reaches the wire on this route. Profile
+        // scoping: absent ?profile= selects the FIRST profile; an explicit
+        // ?profile= selects that one; an unknown id 404s.
         let state = mgr_state();
         {
             let conn = state.db.lock().unwrap();
-            write_stored(
-                &conn,
-                &StoredModels { version: 2, config: sample_config("sk-plaintext-secret") },
-            )
-            .unwrap();
+            write_stored(&conn, &two_profiles()).unwrap();
         }
-        let Json(cfg) = get_config(State(state)).await.unwrap();
+        let Json(cfg) = get_config(State(state.clone()), Query(Default::default())).await.unwrap();
         let key = cfg.providers.get("sample").unwrap().api_key.clone().unwrap();
-        assert_ne!(key, "sk-plaintext-secret");
+        assert_ne!(key, "sk-default-key");
         assert!(key.contains("****"), "masked shape, got {key}");
+
+        let Json(cfg) = get_config(
+            State(state.clone()),
+            Query(ProfileQuery { profile: Some("profile-second".into()) }),
+        )
+        .await
+        .unwrap();
+        assert_ne!(cfg.providers.get("sample").unwrap().api_key.as_deref(), Some("sk-second-key"));
+
+        let err = get_config(
+            State(state.clone()),
+            Query(ProfileQuery { profile: Some("nope".into()) }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn sync_handler_shape_is_version_plus_unmasked_config() {
         // Wire contract with app/src/mgr_sync.rs SyncPayload {version,
         // config}: exactly these two fields, camelCase provider fields, and
-        // the REAL key — the sandbox renders native files from this payload.
+        // the REAL key of the ASSIGNED profile — the sandbox renders native
+        // files from this payload.
         let state = mgr_state();
         {
             let conn = state.db.lock().unwrap();
-            write_stored(
-                &conn,
-                &StoredModels { version: 7, config: sample_config("sk-real-key") },
-            )
-            .unwrap();
+            let mut stored = two_profiles();
+            stored.version = 7;
+            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
+            stored.assignments.insert("beta".into(), "profile-second".into());
+            register_sandbox(&conn, "alpha");
+            register_sandbox(&conn, "beta");
+            write_stored(&conn, &stored).unwrap();
         }
-        let Json(v) = sync(State(state)).await.unwrap();
+        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
+            .await
+            .unwrap();
         let obj = v.as_object().expect("sync payload is an object");
         assert_eq!(obj.len(), 2, "exactly {{version, config}}: {obj:?}");
         assert_eq!(v["version"], 7);
-        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-real-key");
+        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-default-key");
+
+        // A different sandbox gets a different profile's config — the
+        // per-sandbox resolution is the whole point of D8.
+        let Json(v) = sync(State(state), Query(SyncQuery { name: Some("beta".into()) }))
+            .await
+            .unwrap();
+        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-second-key");
+    }
+
+    #[tokio::test]
+    async fn sync_404_matrix_nameless_unknown_and_unassigned() {
+        // The 404 contract (design §4.2/§4.3 — the app's keep-local path):
+        // no name, unknown sandbox, and unassigned sandbox all 404. The
+        // responses are indistinguishable BY DESIGN — sync must not leak
+        // which sandbox names exist to an arbitrary network caller.
+        let state = mgr_state();
+        {
+            let conn = state.db.lock().unwrap();
+            let mut stored = two_profiles();
+            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
+            register_sandbox(&conn, "alpha");
+            register_sandbox(&conn, "beta"); // registered but UNassigned
+            write_stored(&conn, &stored).unwrap();
+        }
+        for (label, query) in [
+            ("no name (pre-MGR_SANDBOX_NAME app)", SyncQuery { name: None }),
+            ("unknown sandbox", SyncQuery { name: Some("ghost".into()) }),
+            ("registered, unassigned", SyncQuery { name: Some("beta".into()) }),
+        ] {
+            let err = sync(State(state.clone()), Query(query)).await.unwrap_err();
+            assert_eq!(err.status, StatusCode::NOT_FOUND, "{label}");
+        }
+        // The one non-404: assigned and registered.
+        assert!(sync(State(state), Query(SyncQuery { name: Some("alpha".into()) }))
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn put_config_handler_merge_validate_and_version_bump() {
         // Handler assembly (app put_config parity): masked-echo merge keeps
         // the stored plaintext, validate gates the write, and the kv version
-        // bumps only on success.
+        // bumps only on success. The edit lands in the SELECTED profile;
+        // the other profile is untouched (per-profile isolation).
         let state = mgr_state();
         {
             let conn = state.db.lock().unwrap();
-            write_stored(
-                &conn,
-                &StoredModels { version: 4, config: sample_config("sk-key-12345678") },
-            )
-            .unwrap();
+            let mut stored = two_profiles();
+            stored.version = 4;
+            write_stored(&conn, &stored).unwrap();
         }
+        let second = ProfileQuery { profile: Some("profile-second".into()) };
 
         // Invalid PUT (assignment references an unknown provider): 400, and
         // the stored version/config are untouched.
@@ -1346,7 +1850,9 @@ mod tests {
             provider: "nope".into(),
             model: "m".into(),
         });
-        let err = put_config(State(state.clone()), Json(bad)).await.unwrap_err();
+        let err = put_config(State(state.clone()), Query(second.clone()), Json(bad))
+            .await
+            .unwrap_err();
         assert_eq!(err.status, StatusCode::BAD_REQUEST);
         assert!(
             err.message.contains("unknown provider"),
@@ -1359,20 +1865,275 @@ mod tests {
                 "failed PUT must not bump the version");
         }
 
-        // Valid masked-echo PUT: plaintext survives the merge, version 4→5.
-        let incoming = sample_config(&mask_key("sk-key-12345678"));
-        let Json(resp) = put_config(State(state.clone()), Json(incoming)).await.unwrap();
+        // Valid masked-echo PUT: plaintext survives the merge, version 4→5,
+        // and the OTHER profile's key is untouched.
+        let incoming = sample_config(&mask_key("sk-second-key"));
+        let Json(resp) = put_config(State(state.clone()), Query(second), Json(incoming))
+            .await
+            .unwrap();
         assert!(resp.ok);
         {
             let conn = state.db.lock().unwrap();
             let stored = read_stored(&conn).unwrap();
             assert_eq!(stored.version, 5);
             assert_eq!(
-                stored.config.providers.get("sample").unwrap().api_key.as_deref(),
-                Some("sk-key-12345678"),
+                stored.profile("profile-second").unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                Some("sk-second-key"),
                 "mask echo restores the plaintext on the handler path"
             );
+            assert_eq!(
+                stored.profile(DEFAULT_PROFILE_ID).unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                Some("sk-default-key"),
+                "a profile edit never bleeds into the other profiles"
+            );
         }
+    }
+
+    // --- unified Phase 4: migration, profiles CRUD, assignment (D8) ---
+
+    #[test]
+    fn legacy_models_config_migrates_to_default_profile_with_all_sandboxes_assigned() {
+        // Design §4.1: legacy single-config row becomes the "default"
+        // profile, EVERY existing sandbox is assigned to it, the new key is
+        // written, and the old key is deleted — behavior-identical for all
+        // pre-upgrade sandboxes.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        register_sandbox(&conn, "beta");
+        db::kv_set(
+            &conn,
+            KV_MODELS_LEGACY,
+            &serde_json::to_string(&json!({
+                "version": 5,
+                "config": sample_config("sk-legacy-key"),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let stored = read_stored(&conn).unwrap();
+        assert_eq!(stored.version, 5, "version carries over (deep compare tolerates drift)");
+        assert_eq!(stored.profiles.len(), 1);
+        assert_eq!(stored.profiles[0].id, DEFAULT_PROFILE_ID);
+        assert_eq!(
+            stored.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            Some("sk-legacy-key"),
+            "the legacy config IS the default profile's config"
+        );
+        assert_eq!(
+            stored.assignments,
+            BTreeMap::from([
+                ("alpha".to_string(), DEFAULT_PROFILE_ID.to_string()),
+                ("beta".to_string(), DEFAULT_PROFILE_ID.to_string()),
+            ]),
+            "every pre-existing sandbox keeps pulling exactly what it pulled before"
+        );
+        assert!(db::kv_get(&conn, KV_MODELS_LEGACY).unwrap().is_none(), "old key deleted");
+        assert!(db::kv_get(&conn, KV_MODELS).unwrap().is_some(), "new key persisted");
+    }
+
+    #[test]
+    fn legacy_migration_crash_between_writes_is_idempotent() {
+        // The rollback story (design §4.1): if the process dies after
+        // write_stored but before kv_del, the next read sees the NEW key and
+        // returns it directly — never re-migrating, never double-assigning.
+        // And a rolled-back mgr (new key missing, old key present) reads
+        // the old key back: both directions safe across an upgrade cycle.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        let legacy = serde_json::to_string(&json!({
+            "version": 2,
+            "config": sample_config("sk-legacy-key"),
+        }))
+        .unwrap();
+        db::kv_set(&conn, KV_MODELS_LEGACY, &legacy).unwrap();
+
+        // First read migrates.
+        let migrated = read_stored(&conn).unwrap();
+        assert_eq!(migrated.assignments.len(), 1);
+
+        // Simulate a crash-before-del by restoring the old key ALONGSIDE
+        // the new one; the new key wins (read path short-circuits).
+        db::kv_set(&conn, KV_MODELS_LEGACY, &legacy).unwrap();
+        let again = read_stored(&conn).unwrap();
+        assert_eq!(again.assignments.len(), 1, "no double-assignment on re-run");
+        assert_eq!(
+            again.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            Some("sk-legacy-key")
+        );
+
+        // Downgrade direction: new key gone, old key present → old truth.
+        db::kv_del(&conn, KV_MODELS).unwrap();
+        let rolled_back = read_stored(&conn).unwrap();
+        assert_eq!(rolled_back.profiles.len(), 1);
+        assert_eq!(
+            rolled_back.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            Some("sk-legacy-key")
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_crud_assign_and_unassign() {
+        let state = mgr_state();
+        register_sandbox(&state.db.lock().unwrap(), "alpha");
+
+        // POST create: backend-owned id, version bump.
+        let Json(created) = create_profile(
+            State(state.clone()),
+            Json(CreateProfileBody { name: "Second".into() }),
+        )
+        .await
+        .unwrap();
+        let second_id = created["id"].as_str().unwrap().to_string();
+        assert!(!second_id.is_empty(), "backend owns the profile id");
+        {
+            let conn = state.db.lock().unwrap();
+            let stored = read_stored(&conn).unwrap();
+            assert_eq!(stored.profiles.len(), 2);
+            assert_eq!(stored.profile(&second_id).unwrap().name, "Second");
+            assert_eq!(stored.version, 1, "creation bumps the global version");
+        }
+
+        // PUT rename + config replace on the new profile.
+        let err = put_profile(
+            State(state.clone()),
+            Path("nope".into()),
+            Json(PutProfileBody { name: None, config: None }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND, "unknown profile id");
+
+        let Json(resp) = put_profile(
+            State(state.clone()),
+            Path(second_id.clone()),
+            Json(PutProfileBody {
+                name: Some("Renamed".into()),
+                config: Some(sample_config("sk-second-key")),
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(resp.ok);
+        {
+            let conn = state.db.lock().unwrap();
+            let stored = read_stored(&conn).unwrap();
+            assert_eq!(stored.profile(&second_id).unwrap().name, "Renamed");
+            assert_eq!(
+                stored.profile(&second_id).unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                Some("sk-second-key")
+            );
+        }
+
+        // DELETE: unassigns sandboxes pointing at it (they fall to local).
+        let Json(_) = delete_profile(State(state.clone()), Path(second_id.clone()))
+            .await
+            .unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            let stored = read_stored(&conn).unwrap();
+            assert!(stored.profile(&second_id).is_none());
+        }
+        // DELETE the last one: refused.
+        let err = delete_profile(
+            State(state.clone()),
+            Path(DEFAULT_PROFILE_ID.into()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(err.message.contains("last"), "refusal message: {}", err.message);
+    }
+
+    #[tokio::test]
+    async fn set_assignment_assign_reassign_unassign_and_unknown_profile() {
+        let state = mgr_state();
+        register_sandbox(&state.db.lock().unwrap(), "alpha");
+        {
+            let conn = state.db.lock().unwrap();
+            let mut stored = two_profiles();
+            write_stored(&conn, &stored).unwrap();
+        }
+
+        // Unassigned sandbox: assigned_profile is None.
+        {
+            let conn = state.db.lock().unwrap();
+            assert_eq!(assigned_profile(&conn, "alpha").unwrap(), None);
+        }
+
+        // Assign to the second profile; sync resolves THAT config.
+        {
+            let conn = state.db.lock().unwrap();
+            set_assignment(&conn, "alpha", Some("profile-second")).unwrap();
+        }
+        {
+            let conn = state.db.lock().unwrap();
+            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some("profile-second"));
+        }
+        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
+            .await
+            .unwrap();
+        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-second-key");
+
+        // Reassign to default: the next pull gets the default config.
+        {
+            let conn = state.db.lock().unwrap();
+            set_assignment(&conn, "alpha", Some(DEFAULT_PROFILE_ID)).unwrap();
+        }
+        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
+            .await
+            .unwrap();
+        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-default-key");
+
+        // Unknown profile: 404, assignment unchanged.
+        let err = {
+            let conn = state.db.lock().unwrap();
+            set_assignment(&conn, "alpha", Some("nope")).unwrap_err()
+        };
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+        {
+            let conn = state.db.lock().unwrap();
+            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some(DEFAULT_PROFILE_ID));
+        }
+
+        // Unassign: assigned_profile is None again and sync 404s.
+        {
+            let conn = state.db.lock().unwrap();
+            set_assignment(&conn, "alpha", None).unwrap();
+        }
+        let err = sync(State(state), Query(SyncQuery { name: Some("alpha".into()) }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND, "unassigned = keep-local 404");
+    }
+
+    #[tokio::test]
+    async fn read_assignments_bulk_form_matches_single_lookups() {
+        // routes.rs list_sandboxes consumes the bulk form — it must agree
+        // with assigned_profile (both run the lazy migration, so a migrated
+        // store and a fresh one land the same).
+        let state = mgr_state();
+        {
+            let conn = state.db.lock().unwrap();
+            register_sandbox(&conn, "alpha");
+            register_sandbox(&conn, "beta");
+            let mut stored = two_profiles();
+            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
+            stored.assignments.insert("beta".into(), "profile-second".into());
+            write_stored(&conn, &stored).unwrap();
+        }
+        let bulk = {
+            let conn = state.db.lock().unwrap();
+            read_assignments(&conn).unwrap()
+        };
+        assert_eq!(bulk.len(), 2);
+        {
+            let conn = state.db.lock().unwrap();
+            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some(DEFAULT_PROFILE_ID));
+            assert_eq!(assigned_profile(&conn, "beta").unwrap().as_deref(), Some("profile-second"));
+        }
+        assert_eq!(bulk.get("alpha").map(String::as_str), Some(DEFAULT_PROFILE_ID));
+        assert_eq!(bulk.get("beta").map(String::as_str), Some("profile-second"));
     }
 
     // --- discover pure helpers (app parity) ---
