@@ -730,3 +730,62 @@ URL 完全一致,移除过滤,adopted 沙箱进入 usage 汇总)。
 
 [OK] Phase 5 完成,PR #14 已开。留宿主机: 浏览器 A1/A2/A9 人工目视验收
 (mgr-web 导入向导交互、adopted 卡片徽标、删除确认交互)。
+
+## Session 5: S1 创建向导重构——服务四开关 + 场景四层分组
+
+**Date**: 2026-09-10
+**Task**: 09-10-mgr-create-services (S1,父 09-10-mgr-web-ux-batch2 D1/D2)
+
+### Summary
+
+S1 完成: create/edit API + 前端向导新增服务四开关(code-server/vnc/pi/
+pi-web),场景选择按 L1-L4 四层分组 + description;jobs/composegen 按开关
+条件化构建。关键设计修正: pi/pi-web 原本是 always_on(issue #8 必装基线),
+父 PRD D1 授权翻转为可选场景,否则默认全开创建直接 400。AC1-AC5 全过:
+向导形态/徽章列表(puppeteer 实机)、无服务组合 compose+镜像省略、pi-web
+依赖联动+400、旧沙箱 sbx-111 回归、361 测试全绿。
+
+### Main Changes
+
+- mgr/src/db.rs: sandboxes.services_json 列(code_server/vnc 两布尔 + 迁移
+  守卫);NULL→全开读取;Services 逐字段 serde default(部分 JSON 不全 false)
+- mgr/src/routes.rs: normalize_services 折叠 pi/pi-web 进 env.scenarios
+  (单源真值),pi_web 强制依赖 pi+vnc(两者缺一 400,R1/AC3);PUT 用当前行
+  形状重折叠(installed_services_of,NULL→四键全开)保 pre-S1 行不静默剥
+  服务;service_start 未装→400
+- mgr/src/{jobs,docker,composegen}.rs: code_server=false 跳过 cs 镜像与
+  compose 段;vnc=false 不进 compose/up profiles;UP_PROFILES const →
+  up_profiles(include_vnc);修 code_server_block {short} 字面量 bug
+  (原 const 永不替换 → docker invalid reference format)
+- scenarios/{pi,pi-web}: always_on true→false;config/src 注释同步
+  (现存 always_on 仅 node/python)
+- mgr-web: ServicesPicker 新组件(四开关+pi-web 联动+只读徽章)、EnvPicker
+  四层分组+description、列表/编辑服务徽章、12 个 i18n 键
+
+### Review Gate (trellis-check)
+
+step5 后 review: 18 文件对 5 spec,10 处问题全修。P0: ①向导复选框失效
+(标签当 key 传 set);②PUT 静默掉 pi/pi-web(pre-S1 行推导成未装→重建丢
+服务,AC4 回归);③列表/详情 pre-S1 显 false;④pi_web 校验不对称
+(只查 vnc 不查 pi)→ !b.pi || !b.vnc。修复后单测 358→361。实机复核:
+sbx-111 installed_services 四键全开、向导复选框翻转/pi-web 联动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e519a91` | feat(mgr): 创建向导服务四开关 + 场景四层分组 (S1) |
+| `87eaae9` | docs(spec): S1 服务开关契约落 spec 三份 |
+
+### Testing
+
+- [OK] cargo test --workspace: 361 绿(aio-mgr 215 含 9 个 S1 单测)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [OK] 实机(重建部署后): AC1 向导/徽章结构 + 复选框交互 + pi-web 联动;
+  AC2 svcoff/svcfresh compose 无服务段+无 cs 镜像;AC3 400;AC4 sbx-111
+  列表/installed_services 全开
+- [留宿主机] 浏览器目视: 新建向导整体观感、列表徽章视觉
+
+### Status
+
+[OK] S1 完成归档。旁支 S3(images-manage)/模型指派/usage 图表等仍在规划。
