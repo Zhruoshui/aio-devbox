@@ -235,13 +235,23 @@ mgr-web 列表页数据源;DB status 是"意图"(creating/running/error),`live`
 
 ### 3. Contracts
 
-列表项字段(13): `name/status/live/adopted/created_at/cpus/mem_mb/env/
-image/entry_url/piweb_url/model_profile/services[]`。URL 字段在 payload 里
-内联生成(`http://sbx-<name>.mgr.localhost/`),sbx- 前缀与 caddy.rs render
-及 composegen 网络别名三方共享同一身份——改前缀必须三处同改。
+列表项字段(14, S1 起): `name/status/live/adopted/created_at/cpus/mem_mb/
+env/image/entry_url/piweb_url/model_profile/services[]/installed_services`。
+URL 字段在 payload 里内联生成(`http://sbx-<name>.mgr.localhost/`),sbx-
+前缀与 caddy.rs render 及 composegen 网络别名三方共享同一身份——改前缀
+必须三处同改。
 `model_profile`: 所指派 profile id 或 `null`(未指派 = 沙箱保持本地
 models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** store
 (一次解析,非每行——models store 可能不小),详情逐行读。
+`services[]`: compose ps 的**运行时容器**列表(字段 13,命名被占用,所以
+服务开关字段不得叫 `services`——见下)。
+`installed_services`: **装了什么服务**的只读四开关
+`{code_server, vnc, pi, pi_web}`(S1,任务 09-10-mgr-create-services),
+由 `mgr/src/routes.rs::installed_services_of` 折叠:code_server/vnc 读
+`services_json` 列;pi/pi_web 由 `env.scenarios` 推导。**S1 之前的行
+(`services_json` NULL)→ 四开关全 true**——pre-S1 原生沙箱按"服务无条件"
+构建(pi/pi-web 当时是 always_on 场景,从不进 scenarios),推导自空集合
+会错误报告"未装";adopt 行同样保持 NULL→全开(adopt 流程的既定选择)。
 
 ### 4. Validation & Error Matrix
 
@@ -252,6 +262,31 @@ models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** st
 ### 5. Tests Required
 
 - `caddy.rs` render 单测(站点块存在/删除消失/mgr 静态站优先)锁 URL 形状。
+
+## POST/PUT sandboxes — services 四开关(S1,09-10-mgr-create-services)
+
+create 请求体与 PUT 请求体均可选带 `services: {code_server, vnc, pi,
+pi_web}`,**四键缺省全 true**(`ServicesBody` 手写 `Default`,防 derive 全
+false 把旧客户端无 services 字段的请求译成"全关")。归一化
+(`routes.rs::normalize_services`,create 与 PUT 同一 helper):
+
+- pi/pi_web 是**场景**(单源真值在 `env.scenarios`):开关先剔除再按结果
+  写回——`pi=true` 推 `"pi"`,`pi_web=true` 推 `"pi"` + `"pi-web"`;关掉
+  则从 scenarios 剔除。
+- **pi_web=true 时 `pi` 与 `vnc` 都不得为 false,否则 400**(错误
+  "pi-web 依赖 pi 与 vnc…")——pi-web 的配置挂在 pi 安装下、其 Chromium
+  由 vnc 侧车承载,两者缺一即矛盾(R1/AC3;前端联动是客户端一半,后端
+  校验兜底)。
+- code_server/vnc 原样写 `services_json` 列(只存这两个布尔;pi/pi_web
+  存两份即双源真值)。
+- 归一化**先于** `to_manifest_checked`:场景集进 manifest 校验。
+
+**PUT 的 services 字段刻意忽略**(声明并注释,不是 serde 静默跳过):安装
+集由镜像内容在 create 时定死,不可改。但 PUT 的 env 换血不能把隐藏在
+env.scenarios 里的 pi/pi-web 弄丢——PUT 侧用**当前行的四开关形状**
+(`installed_services_of`)重归一化:pre-S1 行读成全开 → 首次 PUT-recreate
+把 pi/pi-web 重新烘焙进场景 → 装配字节与 always_on 时代逐字节一致 →
+同 hash、复用镜像,不会静默剥掉已装服务(AC4 回归门)。
 
 ## PUT /api/sandboxes/:name — limits 三态语义
 

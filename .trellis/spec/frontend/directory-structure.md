@@ -48,6 +48,13 @@ mgr-web/src/
   指派 select 三态(未变不发/id 指派/显式空解绑,对齐 limits 三态)。
 - always_on 场景在 EnvPicker 锁定显示(不可取消),且其 id **永远不进**
   `env.scenarios`(后端会拒,canonical env 契约)。
+- **S1 服务区(09-10-mgr-create-services)**: pi/pi-web 已从 always_on
+  翻转成**可选场景**(`scenarios/{pi,pi-web}/scenario.toml` 均
+  `always_on = false`),且在 EnvPicker 隐藏、改由 `ServicesPicker` 服务
+  开关区接管(四开关 code-server/vnc/pi/pi-web,pi-web 联动 pi+vnc)。
+  现存 always_on 场景仅 node/python——继续在 EnvPicker 锁定显示;服务
+  区四开关与后端 `normalize_services` 是同一条校验链(前端联动、后端
+  400 兜底),后端 400 文案中文。
 - 构建门: `npm run build` = `tsc --noEmit && vite build`;镜像经
   mgr/Dockerfile web-builder 阶段(node:20),由 mgr-api 静态服务。
 

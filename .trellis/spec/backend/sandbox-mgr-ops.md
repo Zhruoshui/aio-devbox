@@ -109,27 +109,39 @@ http://sbx-<name>-piweb.mgr.localhost {
 
 ---
 
-## 契约 4: mgr 生命周期命令的 profile 分裂——up 只带 vnc,其余全量
+## 契约 4: mgr 生命周期命令的 profile 分裂——up 只带 vnc(按沙箱可选),其余全量
 
 mgr 沙箱的 code-server/vnc 在生成的 compose 里是 profile 门控服务(与 repo
 compose 同构,design §3.5)。unified Phase 3(D4,code-server 按需实例)把
-原"全量 profile"契约分裂为两半:
+原"全量 profile"契约分裂为两半;S1(09-10-mgr-create-services)再把 vnc
+从"up 必带"改成**按沙箱是否安装可选用**:
 
 ```rust
 // mgr/src/docker.rs
-/// up 专用: 仅 vnc
-const UP_PROFILES: [&str; 2] = ["--profile", "vnc"];
+/// up 专用: 仅 vnc,且按沙箱服务开关条件化(装了才带)
+fn up_profiles(include_vnc: bool) -> Vec<&'static str> {
+    if include_vnc { vec!["--profile", "vnc"] } else { Vec::new() }
+}
 /// 非 up 生命周期(stop/restart/down/rm): 全量
 const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
 /// 单服务按需拉起(code-server): 仅其自身 profile
 pub const CODE_SERVER_PROFILE: [&str; 2] = ["--profile", "code-server"];
 ```
 
+`compose_up` 增 `with_vnc: bool` 参:create/restart 传 `services.vnc`,
+start handler 同;adopt 走 `compose_up_file` 变体**保持无条件 vnc 标志**
+(外部 compose 未知,无 vnc 服务的 compose 不受未匹配 profile 影响)。
+
 **为什么 up 不带 code-server**: vnc 是常驻依赖(pi agent-browser 硬依赖
 其中的 CDP Chromium),code-server 是纯编辑面、无任何东西依赖其常驻。
 工作区 code-server pane 打开时经 `POST /api/sandboxes/:name/service/
 code-server/start`(`compose_service_up`)按需拉起。实测(compose 5.2.0)
 不带 code-server profile 的 `up` 不会启动它、也**不触碰**已启动的实例。
+
+**S1 的 vnc 条件化**: 无 vnc 服务的沙箱 compose 压根没有 vnc 段,带
+`--profile vnc` 静默匹配不到任何服务——harmless 但产生噪音日志,故
+S1 改为不传。**up 后码容器数随开关变**:全开沙箱仍是 3 容器
+(app/gateway/vnc),无 vnc 沙箱是 2(app/gateway)。
 
 **为什么其余命令必须全量**: stop/restart/down 必须能**看见** code-server
 才能停它/拆干净(已拉起的 code-server 随沙箱一起死,绝不残留)。实测
