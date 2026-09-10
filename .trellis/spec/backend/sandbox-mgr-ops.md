@@ -2,7 +2,8 @@
 
 > **Purpose**: sandbox-mgr(aio-mgr)在 DooD 形态下驱动宿主 docker 的硬约束。
 > 来源任务: 09-08-sandbox-mgr-tui Phase 2(2026-09-08)+ 09-09-sandbox-mgr-
-> unified(契约 4 改写/契约 7 多 profile/契约 9 第四处/契约 10 新增,2026-09-10)。
+> unified(契约 4 改写/契约 7 多 profile/契约 9 第四处/契约 10 新增,2026-09-10)
+> + 09-10-mgr-subdomain-port-follow(契约 3 改写: Host 透传禁改写,2026-09-10)。
 > 这些是实测踩坑沉淀的可执行契约,不是建议——违反任何一条都会以"看起来
 > 成功"的方式失败(reload 报 ok、compose up 正常,但路由不通/挂载为空)。
 > 代码锚点: `mgr/src/{caddy.rs,docker.rs,composegen.rs,proxy.rs,models.rs}`、
@@ -69,7 +70,7 @@ std::fs::write(&path, render(&rows))?;                          // 原地写
 
 ---
 
-## 契约 3: 总网关 Host 重写必须用公共子域名
+## 契约 3: 总网关到 pi-web 禁止改写 Host——透传浏览器原始 Host
 
 **Trigger**: 任何反向代理到 pi-web(`sbx-<name>-piweb:30141`)的网关配置。
 
@@ -81,19 +82,30 @@ pi-web 的 request-security 中间件(middleware.js)对 Host 的实际匹配规�
 3. 其余一律 403 `Untrusted request`(页面路径)或 403
    `Untrusted API request`(/api)。
 
-**规则**: 总网关重写 Host 时写**公共子域名**,不是上游 alias:
+**规则**: 总网关**不改写 Host**(无 `header_up Host`),让浏览器的原始
+Host(含宿主发布端口,如 `sbx-<name>-piweb.mgr.localhost:8081`)原样透传:
 
 ```caddyfile
-# 正确 (mgr/src/caddy.rs render): *.localhost 后缀命中规则 2
-header_up Host sbx-<name>-piweb.mgr.localhost
+# 正确 (mgr/src/caddy.rs render, 09-10 定稿):
+http://sbx-<name>-piweb.mgr.localhost {
+    reverse_proxy http://sbx-<name>-piweb:30141
+}
 
-# 错误: 裸 alias 不以 .localhost 结尾、不在 ALLOWED_HOSTS → 403
+# 错误 1: 重写成无端口子域字面量——pi-web 对 /api/* 要求
+# Origin == 由 Host 推导的 origin;宿主非 80 端口(如 8081)发布时浏览器
+# Origin 带 :8081 而改写后的 Host 不带 → 403 "Untrusted API request"
+# (09-10 实测, mgr-subdomain-port-follow R7)。
+# header_up Host sbx-<name>-piweb.mgr.localhost
+# 错误 2: 裸 alias 不以 .localhost 结尾、不在 ALLOWED_HOSTS → 403。
 # header_up Host sbx-<name>-piweb:30141
 ```
 
-注意与 `PI_WEB_ALLOWED_HOSTS`(compose 里 `app,sbx-<name>-piweb.mgr.localhost`)
-是双保险关系:即使 env 丢失,`*.localhost` 后缀仍放行。design.md §2 早期版本
-写的是 alias 形式,已于 09-08 更正——以本文为准。
+浏览器经总网关访问时 Host 恒为公共子域名(可带端口),规则 1 的剥端口 +
+规则 2 的 `*.localhost` 后缀天然放行;`PI_WEB_ALLOWED_HOSTS`(compose 里
+`app,sbx-<name>-piweb.mgr.localhost`)是沙箱网内部直连 `http://app:30141`
+的第二保险。历史上曾要求重写为公共子域名(09-08)——那是为了避开裸 alias
+403;在宿主端口跟随上线后,改写本身成了 403 根源,故改为透传(09-10)。
+单测锚定: `!out.contains("header_up Host")`(caddy.rs render)。
 
 ---
 

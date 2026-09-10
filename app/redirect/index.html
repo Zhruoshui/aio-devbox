@@ -60,9 +60,26 @@
 		"use strict";
 		// MGR_PLACEHOLDER_URL is replaced at container boot by the
 		// entrypoint when MGR_URL is set (stock stacks keep the literal,
-		// which is never a valid URL => plain page stays).
+		// which is never a valid URL => plain page stays). NOTE: the sed is
+		// GLOBAL, so after substitution this comment's placeholder literal
+		// changes too — the gate must NOT compare against the placeholder
+		// string. `indexOf("://")` alone is the gate: the placeholder never
+		// contains it, a substituted URL always does.
 		var target = "MGR_PLACEHOLDER_URL";
-		if (target.indexOf("://") !== -1 && target !== "MGR_PLACEHOLDER_URL") {
+		if (target.indexOf("://") !== -1) {
+			// Port-following (09-10-mgr-subdomain-port-follow): the user
+			// reached this page through the sandbox's own subdomain
+			// (sbx-<name>.mgr.localhost) carrying the host-published port
+			// (e.g. 8081). The mgr UI lives on mgr.localhost through the
+			// same host publish, so the target must carry the same port —
+			// port-less it would hit host :80, which may not be published.
+			// Same rule as mgr-web's withMgrPort: only when this page was
+			// NOT served on the default port, and the target itself has no
+			// explicit port.
+			var port = window.location.port;
+			if (port && port !== "80") {
+				target = target.replace(/^(https?:\/\/[^/:?#]+)(?=$|[/?#])/, "$1:" + port);
+			}
 			document.getElementById("plain").style.display = "none";
 			document.getElementById("mgr").style.display = "block";
 			document.getElementById("mgr-link").href = target;

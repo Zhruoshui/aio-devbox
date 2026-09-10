@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { deleteSandbox, listModelProfiles, listSandboxes, sandboxAction } from "../api";
+import { withMgrPort } from "./workspace/paneUrl";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
 import { isJobReply, type Sandbox } from "../types";
@@ -250,7 +251,7 @@ function SandboxCard({
         <StatusBadges sb={sb} lang={lang} />
         <a
           className="sbx-entry"
-          href={sb.entry_url}
+          href={withMgrPort(sb.entry_url)}
           title={t(lang, "enterWorkspace")}
           onClick={(e) => {
             e.preventDefault();

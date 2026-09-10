@@ -93,6 +93,14 @@ services:
       # and 404s when unassigned (app keeps local silently).
       MGR_URL: http://mgr-api:8089
       MGR_SANDBOX_NAME: {name}
+      # Browser-facing redirect target for the app's "/" landing page
+      # (entrypoint.sh MGR_PLACEHOLDER_URL substitution). Kept separate from
+      # MGR_URL — that value is container-internal and never
+      # browser-reachable. Port-less on purpose: the redirect page's JS
+      # re-attaches the host port the browser actually used
+      # (09-10-mgr-subdomain-port-follow), so this stays valid whatever
+      # host port the total gateway is published under.
+      MGR_REDIRECT_URL: http://mgr.localhost/
     volumes:
       - workspace:/root
     networks:
@@ -198,6 +206,10 @@ mod tests {
         // (unified Phase 4, design §4.3 — sync ?name= resolution).
         assert!(gen.compose.contains("MGR_URL: http://mgr-api:8089"));
         assert!(gen.compose.contains("MGR_SANDBOX_NAME: t1"));
+        // Browser redirect target (entrypoint MGR_PLACEHOLDER_URL): separate
+        // env from MGR_URL, port-less — the redirect page's JS re-attaches
+        // the browser's port (09-10-mgr-subdomain-port-follow).
+        assert!(gen.compose.contains("MGR_REDIRECT_URL: http://mgr.localhost/"));
         // basicauth must never appear (D9)
         assert!(!gen.compose.contains("basicauth"));
         assert!(!gen.caddyfile.contains("basicauth"));

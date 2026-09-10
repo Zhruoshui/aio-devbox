@@ -421,6 +421,13 @@ async fn adopt_sandbox(
     }
     caddy::regenerate(&state).await.map_err(ApiError::from)?;
 
+    // entry_url/piweb_url are deliberately PORT-LESS: the canonical
+    // container-network form (caddy Host matching ignores ports; a host
+    // publish on :80 needs no port). The browser-facing port — when the mgr
+    // UI is reached through a non-default host port like 8081 — is
+    // re-attached client-side by mgr-web's withMgrPort
+    // (09-10-mgr-subdomain-port-follow). Do not bake a port in here: the
+    // backend cannot know which host port the browser used.
     Ok(Json(json!({
         "name": body.name,
         "entry_url": format!("http://sbx-{}.mgr.localhost/", body.name),
@@ -513,6 +520,8 @@ async fn sandbox_json(
         // The sbx- prefix must mirror the total-gateway site blocks exactly
         // (caddy.rs render) - the sandbox-net alias is also sbx-<name>/
         // sbx-<name>-piweb (composegen), so the prefix is the shared identity.
+        // Port-less on purpose - see the adopt handler's note above: the
+        // browser port is re-attached client-side by mgr-web's withMgrPort.
         "entry_url": format!("http://sbx-{}.mgr.localhost/", row.name),
         "piweb_url": format!("http://sbx-{}-piweb.mgr.localhost/", row.name),
         // Assigned model profile (D8): null = unassigned (sandbox keeps its
@@ -877,6 +886,8 @@ async fn entry_url(
         }
     }
     // sbx- prefix: mirrors the total-gateway site blocks (caddy.rs render).
+    // Port-less on purpose - see the adopt handler's note above: the browser
+    // port is re-attached client-side by mgr-web's withMgrPort.
     Ok(Json(json!({
         "entry": format!("http://sbx-{name}.mgr.localhost/"),
         "piweb": format!("http://sbx-{name}-piweb.mgr.localhost/"),
