@@ -53,7 +53,16 @@ RUN curl -fsSL "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mi
 # 会丢 clippy/rustfmt —— 对齐原 scenarios/rust 的 --profile default。
 # rust-analyzer 不在任何 profile 里,单独 component add(缺组件时 rustup
 # 代理沿 PATH fallback 撞 shim,shim 再指回代理 → 死循环,PoC 实测)。
-RUN mkdir -p /opt/mise \
+#
+# GitHub token 走 BuildKit secret(id=github-token, 可选注入): mise 装
+# aqua:opencode 等要查 GitHub API,未认证限额 60 次/小时/IP——CI runner
+# 是共享出口 IP,额度常被耗尽(mise 报 403 rate limit,实测 2026-09-10)。
+# local 构建不传 --secret 时 mount 落空,导出空串,mise 行为与之前完全
+# 一致(secret 不进镜像层,也不进 build cache)。
+RUN --mount=type=secret,id=github-token \
+    mkdir -p /opt/mise \
+ && token="$(cat /run/secrets/github-token 2>/dev/null || true)" \
+ && if [ -n "$token" ]; then export GITHUB_TOKEN="$token"; fi \
  && printf '[settings]\nauto_install = false\n\n[tools]\nrust = { version = "%s", profile = "default" }\ngo = "%s"\nuv = "%s"\nruff = "%s"\nopencode = "%s"\n' \
       "${RUST_VERSION}" "${GO_VERSION}" "${UV_VERSION}" "${RUFF_VERSION}" "${OPENCODE_VERSION}" \
       > /opt/mise/config.toml \

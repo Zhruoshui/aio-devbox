@@ -201,9 +201,16 @@ jobs:
           echo "scenario fragments in Dockerfile.base: $(grep -c '^# >>> scenario:' Dockerfile.base || true)"
 
       - name: 构建 sandbox-base（buildx --load + gha cache mode=min）
+        # GITHUB_TOKEN 经 BuildKit secret 注入(mise 场景的 fragment 挂载
+        # id=github-token): mise 安装 aqua:opencode 等要查 GitHub API,
+        # 未认证限额 60 次/小时/IP,共享 runner 出口 IP 常被耗尽(2026-09-10
+        # 实测 403)。token 只存在于该 RUN 进程,不进镜像层/build cache。
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           docker buildx build --load \
             -t sandbox-base \
+            --secret "id=github-token,env=GITHUB_TOKEN" \
             --cache-from "type=gha,scope=sandbox-base-${VARIANT}" \
             --cache-to "type=gha,scope=sandbox-base-${VARIANT}" \
             -f Dockerfile.base .
@@ -239,11 +246,14 @@ jobs:
 
       - name: （push 路径）先推 sandbox-base 供派生镜像 buildx FROM 解析
         if: needs.prepare.outputs.push == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # docker-container 驱动的 buildx 看不见 daemon 本地镜像，派生镜像必须经
           # GHCR 全限定名解析父镜像 -> 先把 base 的 ref 固定标签推上去（层全命中，秒级）
           docker buildx build --push \
             -t "${PREFIX}/sandbox-base:${VARIANT}-${REF}" \
+            --secret "id=github-token,env=GITHUB_TOKEN" \
             --cache-from "type=gha,scope=sandbox-base-${VARIANT}" \
             -f Dockerfile.base .
 
