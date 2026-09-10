@@ -16,6 +16,7 @@ import { createSandbox, listScenarios } from "../api";
 import { t, type Lang } from "../i18n";
 import type { SandboxEnv, Scenario } from "../types";
 import { defaultEnv, EnvPicker } from "./EnvPicker";
+import { defaultServices, ServicesPicker } from "./ServicesPicker";
 
 /** Sandbox-name slug contract, mirroring routes.rs validate_name. Exported
  * for AdoptPage (the adopt wizard registers a row under the same rules). */
@@ -38,6 +39,7 @@ export function CreatePage({
 }: Props): JSX.Element {
   const [name, setName] = useState("");
   const [env, setEnv] = useState<SandboxEnv | null>(null);
+  const [services, setServices] = useState(defaultServices());
   const [cpus, setCpus] = useState("");
   const [memMb, setMemMb] = useState("");
   const [msg, setMsg] = useState<{ kind: "err" | "ok"; text: string } | null>(null);
@@ -86,6 +88,7 @@ export function CreatePage({
       const r = await createSandbox({
         name,
         env,
+        services,
         cpus: cpusVal,
         mem_mb: memVal,
       });
@@ -129,7 +132,10 @@ export function CreatePage({
         {scenarios === null || env === null ? (
           <div className="status">{t(lang, "loading")}</div>
         ) : (
-          <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          <>
+            <ServicesPicker lang={lang} services={services} onChange={setServices} />
+            <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          </>
         )}
 
         <div className="field">

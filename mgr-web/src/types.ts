@@ -74,7 +74,26 @@ export interface Sandbox {
   /** Assigned model profile id, null = unassigned (the sandbox keeps its
    * local models.json; mgr never overwrites it - unified Phase 4, D8). */
   model_profile: string | null;
+  /** Runtime container states (compose ps per service). */
   services: SandboxService[];
+  /** S1: services installed at create time (read-only — fixed by the image
+   * content). pi/pi_web are derived from env.scenarios by the backend. */
+  installed_services: {
+    code_server: boolean;
+    vnc: boolean;
+    pi: boolean;
+    pi_web: boolean;
+  };
+}
+
+/** S1: the four-switch services request shape. All `true` by default (the
+ * UI sends the full set; absent = server-side default all-on for old
+ * clients). pi_web forces pi + vnc on the backend. */
+export interface ServicesInput {
+  code_server: boolean;
+  vnc: boolean;
+  pi: boolean;
+  pi_web: boolean;
 }
 
 export interface SandboxList {
@@ -82,10 +101,12 @@ export interface SandboxList {
 }
 
 /** POST /api/sandboxes. `cpus`/`mem_mb`: null/absent/0 = no limit
- * (normalized server-side to null). */
+ * (normalized server-side to null). `services` absent = all-on (old clients;
+ * the create page always sends it). */
 export interface CreateBody {
   name: string;
   env: SandboxEnv;
+  services?: ServicesInput;
   cpus?: number | null;
   mem_mb?: number | null;
 }

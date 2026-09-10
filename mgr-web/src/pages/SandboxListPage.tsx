@@ -288,6 +288,30 @@ function SandboxCard({
               : (profileNames?.[sb.model_profile] ?? sb.model_profile)}
           </code>
         </span>
+        {sb.installed_services && (
+          <span className="sbx-svc-badges">
+            {(
+              [
+                ["code_server", t(lang, "svcCode_server")],
+                ["vnc", t(lang, "svcVnc")],
+                ["pi", t(lang, "svcPi")],
+                ["pi_web", t(lang, "svcPi_web")],
+              ] as const
+            ).map(([key, label]) => (
+              <span
+                key={key}
+                title={
+                  sb.installed_services[key]
+                    ? label + " · " + t(lang, "svcOn")
+                    : label + " · " + t(lang, "svcOff")
+                }
+              >
+                <span className={`svc-dot${sb.installed_services[key] ? " on" : " off"}`} />
+                {label}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
 
       {sb.adopted && (

@@ -28,8 +28,9 @@ import {
   type ModelProfile,
 } from "../api";
 import { t, type Lang } from "../i18n";
-import type { SandboxEnv, Scenario } from "../types";
+import type { SandboxEnv, Scenario, ServicesInput } from "../types";
 import { EnvPicker } from "./EnvPicker";
+import { ServicesPicker } from "./ServicesPicker";
 
 interface Props {
   name: string;
@@ -57,6 +58,11 @@ export function EditPage({
   const [msg, setMsg] = useState<{ kind: "err" | "ok"; text: string } | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** S1: installed services read back from the sandbox (read-only display —
+   * fixed by the image content at create time). null = payload without the
+   * field (defensive against an older backend); the current API always
+   * sends it, with pre-S1 rows reading all-on server-side. */
+  const [installed, setInstalled] = useState<ServicesInput | null>(null);
 
   // Model-profile assignment (D8): tri-state on the wire - unchanged sends
   // nothing, an id assigns, the explicit "" (unassigned option) sends null
@@ -90,6 +96,9 @@ export function EditPage({
         setMemMb(sb.mem_mb !== null ? String(sb.mem_mb) : "");
         setOrigProfile(sb.model_profile);
         setProfileSel(sb.model_profile ?? "");
+        // S1: installed services are read-only here (immutable since
+        // create; pre-S1 rows read back all-on server-side).
+        void setInstalled(sb.installed_services ?? null);
       })
       .catch((e) => {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
@@ -186,7 +195,17 @@ export function EditPage({
         {scenarios === null || env === null ? (
           <div className="status">{t(lang, "loading")}</div>
         ) : (
-          <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          <>
+            {installed !== null && (
+              <ServicesPicker
+                lang={lang}
+                services={installed}
+                onChange={() => {}}
+                readonly
+              />
+            )}
+            <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          </>
         )}
 
         <div className="field">

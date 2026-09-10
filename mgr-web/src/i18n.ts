@@ -9,6 +9,10 @@ export const LANGS: readonly Lang[] = ["zh-CN", "en"];
 
 type Strings = typeof STRINGS["zh-CN"];
 
+/** A valid i18n key (for consts/maps that reference strings dynamically —
+ * keeps `t` calls type-checked instead of falling back to the raw key). */
+export type StringKey = keyof Strings;
+
 const STRINGS: Record<Lang, Record<string, string>> = {
   "zh-CN": {
     brand: "Sandbox 管理器",
@@ -105,9 +109,23 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzNameErr: "名称需为 [a-z0-9-]，以字母或数字开头，最长 32 字符。",
     wzNameTaken: "该名称已被占用。",
     wzScenarios: "场景",
-    wzScenariosHint: "always_on 场景（node / python / pi / pi-web）固定烘焙，不可取消，只能选版本。",
+    wzScenariosHint: "按层级分列；always_on 场景固定烘焙，不可取消，只能选版本。",
     wzLocked: "必装",
     wzVersion: "版本",
+    wzServices: "服务",
+    wzServicesHint: "创建时决定是否安装；已建的沙箱不可更改。pi-web 依赖 pi 与 VNC（Chromium 由 VNC 侧车承载）。",
+    svcPiWebDep: "依赖 pi + VNC",
+    svcCode_server: "code-server",
+    svcVnc: "VNC",
+    svcPi: "pi agent",
+    svcPi_web: "pi Web",
+    svcOn: "已安装",
+    svcOff: "未安装",
+    layL1: "系统 (L1)",
+    layL2: "Shell (L2)",
+    layL3: "语言 (L3)",
+    layL4: "应用 (L4)",
+    layOther: "其他",
     wzResources: "资源限制",
     wzCpus: "CPU 核数",
     wzCpusPh: "例如：4",
@@ -398,9 +416,23 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzNameErr: "Name must be [a-z0-9-], start with a letter or digit, max 32 chars.",
     wzNameTaken: "That name is already taken.",
     wzScenarios: "Scenarios",
-    wzScenariosHint: "always_on scenarios (node / python / pi / pi-web) are baked unconditionally - only their version is selectable.",
+    wzScenariosHint: "Grouped by layer; always-on scenarios are baked unconditionally - only their version is selectable.",
     wzLocked: "always-on",
     wzVersion: "Version",
+    wzServices: "Services",
+    wzServicesHint: "Chosen at create time; cannot be changed afterwards. pi-web depends on pi and VNC (its Chromium runs in the VNC sidecar).",
+    svcPiWebDep: "needs pi + VNC",
+    svcCode_server: "code-server",
+    svcVnc: "VNC",
+    svcPi: "pi agent",
+    svcPi_web: "pi Web",
+    svcOn: "installed",
+    svcOff: "not installed",
+    layL1: "System (L1)",
+    layL2: "Shell (L2)",
+    layL3: "Languages (L3)",
+    layL4: "Apps (L4)",
+    layOther: "Other",
     wzResources: "Resource limits",
     wzCpus: "CPUs",
     wzCpusPh: "e.g. 4",

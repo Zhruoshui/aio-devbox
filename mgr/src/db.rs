@@ -9,6 +9,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 
 use crate::state::JobShared;
 
@@ -16,11 +17,9 @@ use crate::state::JobShared;
 /// CREATE is IF NOT EXISTS - so mgr restarts are safe.
 pub fn open(db_path: &Path) -> Result<Connection> {
     if let Some(dir) = db_path.parent() {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
-    let conn = Connection::open(db_path)
-        .with_context(|| format!("open {}", db_path.display()))?;
+    let conn = Connection::open(db_path).with_context(|| format!("open {}", db_path.display()))?;
     init_schema(&conn)?;
     Ok(conn)
 }
@@ -31,6 +30,20 @@ pub fn open(db_path: &Path) -> Result<Connection> {
 /// read the sandboxes table through it.
 pub fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA)?;
+    // Column migrations for schemas created before the column existed.
+    // ALTER TABLE ADD COLUMN has no IF NOT EXISTS, so probe first (the
+    // SCHEMA above already creates the column on fresh databases; this
+    // branch only fires on pre-existing state.db files).
+    let has_services: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('sandboxes') WHERE name = 'services_json'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_services == 0 {
+        // NULL = pre-S1 row: read back as all-on (the then-unconditional
+        // behavior: code-server/vnc always built), see services_of().
+        conn.execute_batch("ALTER TABLE sandboxes ADD COLUMN services_json TEXT")?;
+    }
     Ok(())
 }
 
@@ -44,7 +57,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   mem_mb INTEGER,
   status TEXT NOT NULL,             -- running|stopped|creating|error
   adopted INTEGER DEFAULT 0,        -- 1 = imported external stack (Phase 5)
-  external_compose TEXT
+  external_compose TEXT,
+  services_json TEXT                -- Services {code_server, vnc}; NULL = pre-S1 (all on)
 );
 CREATE TABLE IF NOT EXISTS images (
   env_hash TEXT PRIMARY KEY,
@@ -76,6 +90,54 @@ pub struct SandboxRow {
     pub status: String,
     pub adopted: bool,
     pub external_compose: Option<String>,
+    /// Services {code_server, vnc} canonical JSON; None = pre-S1 row (all on).
+    pub services_json: Option<String>,
+}
+
+/// Compose-level service switches (S1, parent D1). Only code_server/vnc live
+/// here: pi/pi-web are scenarios (env_json), the single source of truth —
+/// the API's four-switch shape is normalized into env.scenarios before
+/// storage (routes.rs normalize_services).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Services {
+    // Field defaults are TRUE (not serde's implicit bool false): the only
+    // writer (canonical_json) always emits both keys, so a MISSING key means
+    // a hand-edited/partial row — read it back all-on, the same fallback as
+    // NULL in services_of, never a silent off.
+    #[serde(default = "default_true")]
+    pub code_server: bool,
+    #[serde(default = "default_true")]
+    pub vnc: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for Services {
+    fn default() -> Self {
+        Services {
+            code_server: true,
+            vnc: true,
+        }
+    }
+}
+
+impl Services {
+    pub fn canonical_json(self) -> String {
+        serde_json::to_string(&self).expect("Services serializes")
+    }
+}
+
+/// Parse a row's services_json, defaulting to all-on for NULL/invalid values
+/// (pre-S1 rows, and defensive against hand-edited DBs): the pre-S1 build
+/// pipeline built code-server/vnc unconditionally, so all-on is the
+/// behavior-compatible read.
+pub fn services_of(row: &SandboxRow) -> Services {
+    row.services_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default()
 }
 
 fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<SandboxRow> {
@@ -89,15 +151,16 @@ fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<SandboxRow> {
         status: row.get(6)?,
         adopted: row.get::<_, i64>(7)? != 0,
         external_compose: row.get(8)?,
+        services_json: row.get(9)?,
     })
 }
 
 const SANDBOX_COLS: &str =
-    "name, created_at, env_json, env_hash, cpus, mem_mb, status, adopted, external_compose";
+    "name, created_at, env_json, env_hash, cpus, mem_mb, status, adopted, external_compose, services_json";
 
 pub fn insert_sandbox(conn: &Connection, row: &SandboxRow) -> Result<()> {
     conn.execute(
-        &format!("INSERT INTO sandboxes ({SANDBOX_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"),
+        &format!("INSERT INTO sandboxes ({SANDBOX_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"),
         params![
             row.name,
             row.created_at,
@@ -108,6 +171,7 @@ pub fn insert_sandbox(conn: &Connection, row: &SandboxRow) -> Result<()> {
             row.status,
             row.adopted as i64,
             row.external_compose,
+            row.services_json,
         ],
     )?;
     Ok(())
@@ -158,10 +222,12 @@ pub fn update_sandbox_config(
     env_hash: &str,
     cpus: Option<f64>,
     mem_mb: Option<i64>,
+    services_json: &str,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE sandboxes SET env_json = ?2, env_hash = ?3, cpus = ?4, mem_mb = ?5 WHERE name = ?1",
-        params![name, env_json, env_hash, cpus, mem_mb],
+        "UPDATE sandboxes SET env_json = ?2, env_hash = ?3, cpus = ?4, mem_mb = ?5, \
+         services_json = ?6 WHERE name = ?1",
+        params![name, env_json, env_hash, cpus, mem_mb, services_json],
     )?;
     Ok(())
 }
@@ -176,31 +242,23 @@ pub fn delete_sandbox(conn: &Connection, name: &str) -> Result<()> {
 /// upserts so a row exists for an image whose record predates the DB): in
 /// that case the original build's built_at/build_log MUST survive; a real
 /// rebuild (non-empty log) replaces both.
-pub fn upsert_image(
-    conn: &Connection,
-    env_hash: &str,
-    tag: &str,
-    build_log: &str,
-) -> Result<()> {
+pub fn upsert_image(conn: &Connection, env_hash: &str, tag: &str, build_log: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO images (env_hash, tag, built_at, build_log) VALUES (?1,?2,?3,?4)
          ON CONFLICT(env_hash) DO UPDATE SET
            built_at = CASE WHEN ?4 = '' THEN images.built_at ELSE ?3 END,
            build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END",
-        params![
-            env_hash,
-            tag,
-            chrono_now_secs(),
-            build_log,
-        ],
+        params![env_hash, tag, chrono_now_secs(), build_log,],
     )?;
     Ok(())
 }
 
 pub fn list_images(conn: &Connection) -> Result<Vec<(String, String, i64, String)>> {
-    let mut stmt = conn.prepare("SELECT env_hash, tag, built_at, build_log FROM images ORDER BY built_at DESC")?;
+    let mut stmt = conn
+        .prepare("SELECT env_hash, tag, built_at, build_log FROM images ORDER BY built_at DESC")?;
     let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 /// How many sandboxes currently reference this env (design §3.3: no separate
@@ -292,8 +350,74 @@ mod tests {
 
     fn mem_db() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
-        conn.execute_batch(SCHEMA).expect("init schema");
+        init_schema(&conn).expect("init schema");
         conn
+    }
+
+    #[test]
+    fn init_schema_is_idempotent_and_migrates_services_column() {
+        // init_schema must be safe to run repeatedly (mgr restarts) AND
+        // migrate a pre-S1 database: a db created WITHOUT services_json
+        // (the old SCHEMA) gains the column, NULL, on the first run —
+        // and the second run is a no-op.
+        let conn = Connection::open_in_memory().expect("open");
+        // Pre-S1 schema (no services_json).
+        conn.execute_batch(
+            "CREATE TABLE sandboxes (name TEXT PRIMARY KEY, created_at INTEGER NOT NULL,
+             env_json TEXT NOT NULL, env_hash TEXT NOT NULL, cpus REAL, mem_mb INTEGER,
+             status TEXT NOT NULL, adopted INTEGER DEFAULT 0, external_compose TEXT);",
+        )
+        .expect("old schema");
+        init_schema(&conn).expect("migrate");
+        init_schema(&conn).expect("idempotent");
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sandboxes') WHERE name = 'services_json'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "services_json column must exist exactly once");
+    }
+
+    #[test]
+    fn services_of_defaults_all_on_for_null_and_invalid() {
+        // Pre-S1 rows (NULL) and hand-corrupted values both read back as
+        // all-on: the pre-S1 pipeline built code-server/vnc unconditionally.
+        let mut row = crate::db::SandboxRow {
+            name: "t".into(),
+            created_at: 0,
+            env_json: "{}".into(),
+            env_hash: "h".into(),
+            cpus: None,
+            mem_mb: None,
+            status: "stopped".into(),
+            adopted: false,
+            external_compose: None,
+            services_json: None,
+        };
+        assert!(services_of(&row) == Services::default());
+        row.services_json = Some("not json".into());
+        assert!(services_of(&row) == Services::default());
+        row.services_json = Some(
+            Services {
+                code_server: false,
+                vnc: true,
+            }
+            .canonical_json(),
+        );
+        let s = services_of(&row);
+        assert!(!s.code_server && s.vnc);
+    }
+
+    #[test]
+    fn services_partial_json_defaults_missing_keys_on() {
+        // A hand-edited partial row (one key dropped) reads the missing
+        // switch as ON, never as a silent off — matching the NULL/invalid
+        // fallback above (the implicit serde bool default is false; the
+        // explicit default = true is the compat contract).
+        let s: Services = serde_json::from_str(r#"{"vnc": false}"#).unwrap();
+        assert!(s.code_server && !s.vnc);
     }
 
     #[test]
@@ -321,7 +445,11 @@ mod tests {
         upsert_image(&conn, "h2", "sandbox-base-h2", "old").unwrap();
         upsert_image(&conn, "h2", "sandbox-base-h2", "new log").unwrap();
         let build_log: String = conn
-            .query_row("SELECT build_log FROM images WHERE env_hash = 'h2'", [], |r| r.get(0))
+            .query_row(
+                "SELECT build_log FROM images WHERE env_hash = 'h2'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(build_log, "new log");
     }
@@ -333,9 +461,11 @@ mod tests {
         let conn = mem_db();
         upsert_image(&conn, "h3", "sandbox-base-h3", "").unwrap();
         let (tag, build_log): (String, String) = conn
-            .query_row("SELECT tag, build_log FROM images WHERE env_hash = 'h3'", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT tag, build_log FROM images WHERE env_hash = 'h3'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!(tag, "sandbox-base-h3");
         assert_eq!(build_log, "");

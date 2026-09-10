@@ -98,8 +98,7 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
     };
     let path = caddyfile_path(&state.data);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     // Back up the previous file, then write the new content IN PLACE.
     //
@@ -114,8 +113,7 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
         let bak = path.with_extension("bak");
         let _ = std::fs::copy(&path, &bak);
     }
-    std::fs::write(&path, render(&rows))
-        .with_context(|| format!("write {}", path.display()))?;
+    std::fs::write(&path, render(&rows)).with_context(|| format!("write {}", path.display()))?;
 
     // Reload through the selected channel; map the outcome into a short
     // human line for the job log.
@@ -126,7 +124,10 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
                 db::kv_set(&conn, "gateway_reload", "ok")
             };
             let hint = tail_hint(&out);
-            Ok(format!("gateway Caddyfile regenerated ({} sandboxes); reload ok{hint}", rows.len()))
+            Ok(format!(
+                "gateway Caddyfile regenerated ({} sandboxes); reload ok{hint}",
+                rows.len()
+            ))
         }
         Err(e) => {
             let msg = format!("{e:#}");
@@ -173,7 +174,9 @@ async fn reload(data: &Path) -> Result<String> {
         }
         None => {
             tracing::warn!("no caddy on PATH; Caddyfile written but not reloaded");
-            anyhow::bail!("no caddy binary on PATH (bare-metal form) - Caddyfile written, reload skipped")
+            anyhow::bail!(
+                "no caddy binary on PATH (bare-metal form) - Caddyfile written, reload skipped"
+            )
         }
     }
 }
@@ -228,6 +231,7 @@ mod tests {
             status: "running".into(),
             adopted: false,
             external_compose: None,
+            services_json: None,
         }
     }
 

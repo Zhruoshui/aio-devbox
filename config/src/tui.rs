@@ -4,9 +4,10 @@
 // selectable parts (node, python) are `always_on` scenarios shown as locked
 // rows `[*]` with a version [label] cyclable via Left/Right; the non-versioned
 // L1 infra stays in Dockerfile.base.head and never appears here. Space toggles
-// selectable items (no-op on headers and always_on rows; the locked L4 pi/
-// pi-web rows have no version dropdown - no-op is still correct for them); `s` saves the
-// selection to .aio/enabled.toml and quits, `q` quits without saving.
+// selectable items (no-op on headers and always_on rows; since S1 the L4 pi/
+// pi-web rows are ordinary selectable scenarios - the mgr wizard's services
+// switches are their higher-level UI, the TUI stays the full-preset editor);
+// `s` saves the selection to .aio/enabled.toml and quits, `q` quits without saving.
 // Pre-checks the ids already in the manifest; a `scenarios = ["*"]` entry (the
 // full preset) is expanded to every selectable scenario so all boxes pre-check,
 // and saving writes back the concrete explicit list.

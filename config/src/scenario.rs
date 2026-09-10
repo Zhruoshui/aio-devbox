@@ -30,10 +30,13 @@ pub struct ScenarioMeta {
 
     /// Always-on scenarios are baked into sandbox-base by `gen` regardless of
     /// the selection manifest, and the TUI renders them as non-toggleable
-    /// (locked) rows. Used by L1 node/python (they MUST be present:
-    /// code-server and the app web-builder depend on node) and by the L4 pi/
-    /// pi-web AI-workbench stack (the app depends on pi's data formats at
-    /// runtime, issue #8). Defaults to false (normal selectable scenario).
+    /// (locked) rows. Since S1 (09-10) only the L1 node/python pair is
+    /// always-on (they MUST be present: code-server and the app web-builder
+    /// depend on node; python is the second runtime); the L4 pi/pi-web
+    /// workbench stack became OPTIONAL scenarios - the mgr create-wizard's
+    /// services switches own them, folded into `manifest.scenarios` on the
+    /// wire (routes.rs normalize_services). Defaults to false (normal
+    /// selectable scenario).
     #[serde(default)]
     pub always_on: bool,
 

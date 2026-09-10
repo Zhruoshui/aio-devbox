@@ -35,12 +35,17 @@ pub async fn spawn_create(
     cpus: Option<f64>,
     mem_mb: Option<i64>,
     recreate: bool,
+    services_json: String,
 ) -> Result<i64> {
     // Durable job row first so a crash between spawn and first update still
     // leaves a traceable job.
     let job_id = {
         let conn = state.db.lock().unwrap();
-        db::insert_job(&conn, if recreate { "recreate" } else { "create" }, Some(&name))?
+        db::insert_job(
+            &conn,
+            if recreate { "recreate" } else { "create" },
+            Some(&name),
+        )?
     };
 
     let shared = Arc::new(TokioMutex::new(JobShared {
@@ -58,7 +63,17 @@ pub async fn spawn_create(
 
     let st = state.clone();
     tokio::spawn(async move {
-        let result = run_create(st.clone(), name.clone(), env, cpus, mem_mb, recreate, shared.clone()).await;
+        let result = run_create(
+            st.clone(),
+            name.clone(),
+            env,
+            cpus,
+            mem_mb,
+            recreate,
+            services_json,
+            shared.clone(),
+        )
+        .await;
         let mut job = shared.lock().await;
         match result {
             Ok(()) => {
@@ -86,25 +101,30 @@ async fn run_create(
     cpus: Option<f64>,
     mem_mb: Option<i64>,
     recreate: bool,
+    services_json: String,
     log: Arc<TokioMutex<JobShared>>,
 ) -> Result<()> {
     let repo = state.repo.clone();
     let instance = state.instance_dir(&name);
-    std::fs::create_dir_all(&instance)
-        .with_context(|| format!("create {}", instance.display()))?;
+    std::fs::create_dir_all(&instance).with_context(|| format!("create {}", instance.display()))?;
+    // S1: the create-time service set drives image builds (code-server), the
+    // compose file's service blocks, and the up profiles (vnc). Parsed once;
+    // invalid values (hand-rolled job replay) fall back to all-on.
+    let services: db::Services = serde_json::from_str(&services_json).unwrap_or_default();
 
     // 1. env -> manifest -> assembled Dockerfile.base content -> env_hash.
     //    Validation happens here (not just in the API) so a job replay from
     //    a stale DB still fails safely.
     let manifest = env.to_manifest_checked(&repo)?;
-    let (dockerfile_base, _display) =
-        aio_config::gen::assemble_for(&repo, &manifest)?;
+    let (dockerfile_base, _display) = aio_config::gen::assemble_for(&repo, &manifest)?;
     let hash = envhash::env_hash(&dockerfile_base);
     let (base_tag, app_tag, cs_tag) = envhash::image_tags(&hash);
 
-    append_log(&log, &format!(
-        "env_hash {hash}\nbase assembly ok, images: {base_tag} / {app_tag} / {cs_tag}\n"
-    )).await;
+    append_log(
+        &log,
+        &format!("env_hash {hash}\nbase assembly ok, images: {base_tag} / {app_tag} / {cs_tag}\n"),
+    )
+    .await;
 
     // 2. Shared network (idempotent) - required by the generated compose.
     docker::ensure_network("aio-mgr-net").await?;
@@ -129,23 +149,49 @@ async fn run_create(
     } else {
         append_log(&log, &format!("{base_tag} exists, skip\n")).await;
     }
-    for (tag, dockerfile) in [
-        (&app_tag, "app/Dockerfile"),
-        (&cs_tag, "code-server/Dockerfile"),
-    ] {
-        if !docker::image_exists(tag).await? {
-            append_log(&log, &format!("building {tag} ...\n")).await;
-            let out = docker::build(&repo, &repo.join(dockerfile), tag, &[("BASE_IMAGE", &base_tag)])
-                .await?;
-            append_log(&log, &out).await;
-        } else {
-            append_log(&log, &format!("{tag} exists, skip\n")).await;
-        }
+    // S1 build switches: app is ALWAYS built (it IS the sandbox);
+    // code-server's image only when the sandbox has the service (cs_tag is
+    // otherwise dead weight — 4.5GB per combo); vnc's image is GLOBAL (one
+    // sandbox-vnc shared by every sandbox) and keyed on the shared tag, so
+    // it is built below only when THIS sandbox has vnc and the shared image
+    // is missing — later vnc sandboxes hit the image_exists short-circuit.
+    if !docker::image_exists(&app_tag).await? {
+        append_log(&log, &format!("building {app_tag} ...\n")).await;
+        let out = docker::build(
+            &repo,
+            &repo.join("app/Dockerfile"),
+            &app_tag,
+            &[("BASE_IMAGE", &base_tag)],
+        )
+        .await?;
+        append_log(&log, &out).await;
+    } else {
+        append_log(&log, &format!("{app_tag} exists, skip\n")).await;
     }
-    if !docker::image_exists(envhash::VNC_TAG).await? {
+    if services.code_server && !docker::image_exists(&cs_tag).await? {
+        append_log(&log, &format!("building {cs_tag} ...\n")).await;
+        let out = docker::build(
+            &repo,
+            &repo.join("code-server/Dockerfile"),
+            &cs_tag,
+            &[("BASE_IMAGE", &base_tag)],
+        )
+        .await?;
+        append_log(&log, &out).await;
+    } else if services.code_server {
+        append_log(&log, &format!("{cs_tag} exists, skip\n")).await;
+    } else {
+        append_log(&log, &format!("code-server not installed, skip image\n")).await;
+    }
+    // vnc (see the build-switch comment above): global image, built only
+    // when THIS sandbox has the vnc service and the shared tag is missing.
+    if services.vnc && !docker::image_exists(envhash::VNC_TAG).await? {
         append_log(&log, &format!("building {} ...\n", envhash::VNC_TAG)).await;
         let out = docker::build(&repo, &repo.join("vnc/Dockerfile"), envhash::VNC_TAG, &[]).await?;
         append_log(&log, &out).await;
+    }
+    if !services.vnc {
+        append_log(&log, &format!("vnc not installed, skip vnc image\n")).await;
     }
 
     {
@@ -155,12 +201,13 @@ async fn run_create(
     }
 
     // 4. Compose + Caddyfile.
-    let gen = composegen::generate(&name, &hash, cpus, mem_mb)?;
+    let gen = composegen::generate(&name, &hash, cpus, mem_mb, services)?;
     composegen::write(&instance, &gen)?;
     append_log(&log, "compose.yml + gateway/Caddyfile written\n").await;
 
     // 5. up -d (force-recreate on env change keeps volumes - design §3.6).
-    //    D4: up carries only the vnc profile (docker.rs UP_PROFILES), so the
+    //    D4+D1: up carries the vnc profile only when the sandbox has vnc
+    //    (docker.rs up_profiles - S1 per-sandbox switch), so the
     //    force-recreate below REPLACES the app container without touching a
     //    leftover code-server container from an earlier on-demand start -
     //    which would keep "running" attached to the REMOVED app's netns
@@ -170,9 +217,12 @@ async fn run_create(
     //    no container exists (fresh create never has one); best-effort, since
     //    a failed rm only leaves the self-healing zombie that the next
     //    code-server pane start repairs (compose recreates stale services).
+    //    S1: skipped for code-server-less sandboxes — their compose never
+    //    carried the service block, so no zombie can exist (and `rm` against
+    //    a service absent from the file is a guaranteed noisy error).
     let project = envhash::project_name(&name);
     let compose_file = instance.join("compose.yml");
-    if recreate {
+    if recreate && services.code_server {
         match docker::compose_service_rm(
             &project,
             &compose_file,
@@ -183,11 +233,15 @@ async fn run_create(
         {
             Ok(out) => append_log(&log, &out).await,
             Err(e) => {
-                append_log(&log, &format!("code-server pre-clean failed (continuing): {e:#}\n")).await
+                append_log(
+                    &log,
+                    &format!("code-server pre-clean failed (continuing): {e:#}\n"),
+                )
+                .await
             }
         }
     }
-    let out = docker::compose_up(&project, &compose_file, recreate).await?;
+    let out = docker::compose_up(&project, &compose_file, recreate, services.vnc).await?;
     append_log(&log, &out).await;
 
     // 6. Persist the env/config on success (A5 correctness: a failed create
@@ -196,7 +250,15 @@ async fn run_create(
     //    put_sandbox, and both flows own the row from here on.
     {
         let conn = state.db.lock().unwrap();
-        db::update_sandbox_config(&conn, &name, &env.canonical_json(), &hash, cpus, mem_mb)?;
+        db::update_sandbox_config(
+            &conn,
+            &name,
+            &env.canonical_json(),
+            &hash,
+            cpus,
+            mem_mb,
+            &services_json,
+        )?;
     }
 
     // 7. Total gateway: regenerate the Caddyfile with this sandbox's site

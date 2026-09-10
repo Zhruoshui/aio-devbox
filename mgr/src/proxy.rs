@@ -105,8 +105,14 @@ fn upstream_url(scheme: &str, name: &str, path_and_query: &str) -> String {
 fn is_hop_by_hop(name: &header::HeaderName) -> bool {
     matches!(
         name.as_str(),
-        "connection" | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te"
-            | "trailer" | "transfer-encoding" | "upgrade"
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
     )
 }
 
@@ -122,11 +128,8 @@ async fn proxy(
     body: Bytes,
 ) -> Response {
     let Some((name, path)) = split_proxy_path(uri.path()) else {
-        return ApiError::with_status(
-            StatusCode::NOT_FOUND,
-            "no such API route".to_string(),
-        )
-        .into_response();
+        return ApiError::with_status(StatusCode::NOT_FOUND, "no such API route".to_string())
+            .into_response();
     };
     if let Err(msg) = crate::routes::validate_name(&name) {
         return ApiError::with_status(StatusCode::BAD_REQUEST, msg).into_response();
@@ -245,7 +248,9 @@ async fn proxy_ws(
         }
     };
     if let Some(proto) = headers.get(header::SEC_WEBSOCKET_PROTOCOL) {
-        request.headers_mut().insert(header::SEC_WEBSOCKET_PROTOCOL, proto.clone());
+        request
+            .headers_mut()
+            .insert(header::SEC_WEBSOCKET_PROTOCOL, proto.clone());
     }
 
     let upstream = match tokio::time::timeout(
@@ -301,16 +306,26 @@ async fn proxy_ws(
         let to_upstream = async move {
             while let Some(Ok(msg)) = cl_stream.next().await {
                 let msg = match msg {
-                    axum::extract::ws::Message::Text(t) => tokio_tungstenite::tungstenite::Message::Text(t),
-                    axum::extract::ws::Message::Binary(b) => tokio_tungstenite::tungstenite::Message::Binary(b.to_vec()),
-                    axum::extract::ws::Message::Ping(p) => tokio_tungstenite::tungstenite::Message::Ping(p.to_vec()),
-                    axum::extract::ws::Message::Pong(p) => tokio_tungstenite::tungstenite::Message::Pong(p.to_vec()),
-                    axum::extract::ws::Message::Close(c) => tokio_tungstenite::tungstenite::Message::Close(c.map(|f| {
-                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                            code: f.code.into(),
-                            reason: f.reason,
-                        }
-                    })),
+                    axum::extract::ws::Message::Text(t) => {
+                        tokio_tungstenite::tungstenite::Message::Text(t)
+                    }
+                    axum::extract::ws::Message::Binary(b) => {
+                        tokio_tungstenite::tungstenite::Message::Binary(b.to_vec())
+                    }
+                    axum::extract::ws::Message::Ping(p) => {
+                        tokio_tungstenite::tungstenite::Message::Ping(p.to_vec())
+                    }
+                    axum::extract::ws::Message::Pong(p) => {
+                        tokio_tungstenite::tungstenite::Message::Pong(p.to_vec())
+                    }
+                    axum::extract::ws::Message::Close(c) => {
+                        tokio_tungstenite::tungstenite::Message::Close(c.map(|f| {
+                            tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                code: f.code.into(),
+                                reason: f.reason,
+                            }
+                        }))
+                    }
                 };
                 if up_sink.send(msg).await.is_err() {
                     break;
@@ -322,16 +337,26 @@ async fn proxy_ws(
         let to_client = async move {
             while let Some(Ok(msg)) = up_stream.next().await {
                 let msg = match msg {
-                    tokio_tungstenite::tungstenite::Message::Text(t) => axum::extract::ws::Message::Text(t),
-                    tokio_tungstenite::tungstenite::Message::Binary(b) => axum::extract::ws::Message::Binary(b),
-                    tokio_tungstenite::tungstenite::Message::Ping(p) => axum::extract::ws::Message::Ping(p),
-                    tokio_tungstenite::tungstenite::Message::Pong(p) => axum::extract::ws::Message::Pong(p),
-                    tokio_tungstenite::tungstenite::Message::Close(c) => axum::extract::ws::Message::Close(c.map(|f| {
-                        axum::extract::ws::CloseFrame {
-                            code: f.code.into(),
-                            reason: f.reason,
-                        }
-                    })),
+                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                        axum::extract::ws::Message::Text(t)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Binary(b) => {
+                        axum::extract::ws::Message::Binary(b)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Ping(p) => {
+                        axum::extract::ws::Message::Ping(p)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Pong(p) => {
+                        axum::extract::ws::Message::Pong(p)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Close(c) => {
+                        axum::extract::ws::Message::Close(c.map(|f| {
+                            axum::extract::ws::CloseFrame {
+                                code: f.code.into(),
+                                reason: f.reason,
+                            }
+                        }))
+                    }
                     // Raw frames carry extensions this proxy does not
                     // negotiate - drop them silently.
                     tokio_tungstenite::tungstenite::Message::Frame(_) => continue,
@@ -367,6 +392,7 @@ mod tests {
                 status: "running".into(),
                 adopted,
                 external_compose: None,
+                services_json: None,
             },
         )
         .expect("insert test sandbox");
@@ -424,12 +450,25 @@ mod tests {
         let state = Arc::new(AppState::new_for_test());
         let base = serve(&state).await;
 
-        let r = state.http.get(format!("{base}/api/sbx/ghost/api/manifest")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/sbx/ghost/api/manifest"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
-        assert_eq!(v["error"], "sandbox \"ghost\" not found", "proxy answered, not the seam");
+        assert_eq!(
+            v["error"], "sandbox \"ghost\" not found",
+            "proxy answered, not the seam"
+        );
 
-        let r = state.http.get(format!("{base}/api/nonexistent")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/nonexistent"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["error"], "no such API route", "seam behavior unchanged");
@@ -442,7 +481,12 @@ mod tests {
         let state = Arc::new(AppState::new_for_test());
         let base = serve(&state).await;
 
-        let r = state.http.get(format!("{base}/api/sbx/ghost/api/manifest")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/sbx/ghost/api/manifest"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["error"], "sandbox \"ghost\" not found");
@@ -489,14 +533,24 @@ mod tests {
         let base = serve(&state).await;
 
         // Bare form: the seam answers.
-        let r = state.http.get(format!("{base}/api/sbx/alpha")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/sbx/alpha"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["error"], "no such API route");
 
         // Trailing-slash form: matches nothing; the default fallback answers
         // in the same JSON shape (routes.rs, verified in its own tests).
-        let r = state.http.get(format!("{base}/api/sbx/alpha/")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/sbx/alpha/"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v["error"], "no such API route");
@@ -504,7 +558,12 @@ mod tests {
         // Deep trailing-slash DOES route (catch-all tail "x/"): the proxy
         // answers (registered + unreachable -> 502), proving the fallback
         // does not over-capture real proxy paths.
-        let r = state.http.get(format!("{base}/api/sbx/alpha/x/")).send().await.unwrap();
+        let r = state
+            .http
+            .get(format!("{base}/api/sbx/alpha/x/"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), StatusCode::BAD_GATEWAY);
         let v: serde_json::Value = r.json().await.unwrap();
         assert!(v["error"].as_str().unwrap().contains("unreachable"));
