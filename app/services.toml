@@ -102,7 +102,7 @@ target = "app:30141"
 url = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/"
 label = "pi Web"
 
-[[service]]
-id = "modelsConfig"
-type = "page"
-label = "模型配置"
+# modelsConfig (type=page) REMOVED (unified Phase 6, D1/D8): the per-sandbox
+# model-config UI is gone — mgr owns model config per-profile and the mgr-web
+# Models page is the only editor. The `"page"` ServiceType is retired; do not
+# re-add type=page entries.

@@ -317,9 +317,13 @@ make mgr-down    # stop it (sandbox containers may keep running)
 ```
 
 - **Admin UI**: open `http://mgr.localhost/` — sandbox list, creation wizard
-  (scenarios + versions + CPU/memory), env editing, model config, usage, images.
+  (scenarios + versions + CPU/memory), env editing + model-profile assignment,
+  usage, images, AND the unified golden-layout **workspace** (the single UI:
+  terminals, agents, code-server, VNC, pi-web panes from every sandbox mixed
+  in one tiling layout).
 - **Per-sandbox entry**: each sandbox gets its own subdomain,
-  `http://sbx-<name>.mgr.localhost/` (workbench SPA) and
+  `http://sbx-<name>.mgr.localhost/` (now a redirect to mgr.localhost — the
+  per-sandbox workbench SPA is retired) and
   `http://sbx-<name>-piweb.mgr.localhost/` (pi-web), routed by the mgr total
   gateway over a shared Docker network — no published host ports per sandbox.
 - **Dual form** (D3): containerized (the compose form above, mounts
@@ -346,7 +350,8 @@ scenarios/               scenario library, layered by category; <id>/{scenario.t
 config/                  aio-config crate (Rust): TUI picker + Dockerfile.base generator
 app/                     axum app (Cargo.toml, src/, Dockerfile, services.toml)
   └ services.toml        built-in workspace buttons (id/type/target/url/label/cmd)
-web/                     React SPA (Vite + TS + sidebar/tab-stack + xterm.js), baked into the app image
+  └ redirect/            static page served at "/" (bounces to mgr.localhost; the
+                         old per-sandbox workbench SPA is retired — UI lives in mgr-web)
 gateway/                 Caddyfile (reverse proxy; no auth)
 mgr/ + mgr-web/          sandbox-mgr control plane (axum API + admin SPA; state in mgr-data/, gitignored)
 vnc/                     Xvnc + Chromium + noVNC (FROM debian:bookworm-slim)
@@ -362,12 +367,14 @@ aio-offline-bundle/      output of `make save` (gitignored)
 
 ## Status
 
-Built phase by phase. The MVP is complete: gateway + app (axum + React SPA) +
-code-server + vnc, the scenario-preset system with four layers and versioned L1
-runtimes, offline support, the sidebar-button workspace (auto-detected
-web/agent/page buttons, user-registered agent and web buttons with dev-server
-port preview, unified model config), the pi / pi-web agent stack, and the
-sandbox-mgr multi-sandbox control plane (see
+Built phase by phase. The MVP is complete: gateway + app (axum + static
+redirect page) + code-server + vnc, the scenario-preset system with four
+layers and versioned L1 runtimes, offline support, the unified Sandbox
+manager UI in mgr-web (golden-layout workspace mixing panes from every
+sandbox — terminals, agents, code-server, VNC, pi-web — plus admin pages;
+auto-detected web/agent buttons, user-registered agent and web buttons with
+dev-server port preview, per-sandbox model-profile assignment), the pi /
+pi-web agent stack, and the sandbox-mgr multi-sandbox control plane (see
 [Multi-sandbox management](#multi-sandbox-management-sandbox-mgr)). Not yet
 done: L5 external services beyond on-demand TUI buttons, and multi-instance
 terminals.

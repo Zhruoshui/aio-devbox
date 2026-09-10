@@ -46,4 +46,21 @@ if command -v pi-web >/dev/null 2>&1; then
 	echo "pi-web autostarted on 0.0.0.0:30141 (log: ~/.aio/pi-web.log)"
 fi
 
+# Redirect page target (unified Phase 6, D1): when MGR_URL is set this
+# sandbox is managed by sandbox-mgr, so the static "/" page bounces the
+# browser to the manager UI. mgr.localhost resolves inside aio-mgr-net
+# (total gateway); the browser, however, reaches the manager from the HOST,
+# so the literal public origin is substituted — the same URL the user types.
+# Unset (stock / pre-adopt stack): the placeholder stays and the page shows
+# its static explanation instead of bouncing. sed -i on /app/static (not a
+# bind mount; inode churn is irrelevant here, unlike caddy's Caddyfile).
+if [ -n "${MGR_URL:-}" ] && [ -f /app/static/index.html ]; then
+	if sed -i "s|MGR_PLACEHOLDER_URL|http://mgr.localhost/|g" \
+		/app/static/index.html 2>/dev/null; then
+		echo "static / redirects to http://mgr.localhost/ (MGR_URL set)"
+	else
+		echo "warn: could not patch /app/static/index.html redirect target"
+	fi
+fi
+
 exec "$@"

@@ -266,9 +266,12 @@ make mgr-down    # 停掉(已运行的沙箱容器不受影响)
 ```
 
 - **管理界面**:打开 `http://mgr.localhost/`——沙箱列表、创建向导(场景 +
-  版本 + CPU/内存)、环境配置编辑、模型配置、用量汇总、镜像列表。
+  版本 + CPU/内存)、环境配置编辑 + 模型 profile 指派、用量汇总、镜像列表,
+  以及统一的 golden-layout **工作区**(唯一 UI:多沙箱的终端、agent、
+  code-server、VNC、pi-web pane 混排在一个平铺布局里)。
 - **每沙箱独立入口**:每个沙箱有自己的子域名
-  `http://sbx-<name>.mgr.localhost/`(工作台 SPA)与
+  `http://sbx-<name>.mgr.localhost/`(现为跳转到 mgr.localhost 的指路页——
+  每沙箱工作台 SPA 已退役)与
   `http://sbx-<name>-piweb.mgr.localhost/`(pi-web),由 mgr 总网关经共享 Docker
   网络路由——每个沙箱**不发布任何宿主端口**。
 - **双形态**(D3):容器化(上面的 compose 形态,挂 `/var/run/docker.sock`)
@@ -291,7 +294,8 @@ scenarios/               场景库,按 category 分层;<id>/{scenario.toml,fragm
 config/                  aio-config crate(Rust):TUI 勾选器 + Dockerfile.base 生成器
 app/                     axum 应用(Cargo.toml、src/、Dockerfile、services.toml)
   └ services.toml        内置工作区按钮(id/type/target/url/label/cmd)
-web/                     React SPA(Vite + TS + 侧边栏/标签栈 + xterm.js),烘进 app 镜像
+  └ redirect/            "/" 静态指路页(跳 mgr.localhost;每沙箱工作台 SPA 已
+                         退役——UI 统一在 mgr-web)
 gateway/                 Caddyfile(反向代理;无认证)
 mgr/ + mgr-web/          sandbox-mgr 控制面(axum API + 管理 SPA;状态在 mgr-data/,gitignored)
 vnc/                     Xvnc + Chromium + noVNC(FROM debian:bookworm-slim)
@@ -307,10 +311,12 @@ aio-offline-bundle/      `make save` 的输出(gitignored)
 
 ## 状态
 
-分阶段构建。MVP 已完成:gateway + app(axum + React SPA)+ code-server + vnc,带四
-层与版本化 L1 运行时的场景预置系统、离线支持,侧边栏按钮化工作区(web/agent/page
-三类自动探测按钮、用户自注册 agent/web 按钮 + dev server 端口预览、统一模型配置),
-pi / pi-web agent 栈,以及 sandbox-mgr 多沙箱控制面(见[多沙箱管理](#多沙箱管理sandbox-mgr))。
+分阶段构建。MVP 已完成:gateway + app(axum + 静态指路页)+ code-server + vnc,带四
+层与版本化 L1 运行时的场景预置系统、离线支持,mgr-web 内统一的 Sandbox 管理器
+UI(golden-layout 工作区,多沙箱 pane 混排——终端、agent、code-server、VNC、
+pi-web;web/agent 自动探测按钮、用户自注册 agent/web 按钮 + dev server 端口预览、
+每沙箱模型 profile 指派),pi / pi-web agent 栈,以及 sandbox-mgr 多沙箱控制面
+(见[多沙箱管理](#多沙箱管理sandbox-mgr))。
 尚未做:按需 TUI 按钮之外的 L5 外部服务、终端多实例。
 
 ### dev server 预览(`/preview/<port>/`)

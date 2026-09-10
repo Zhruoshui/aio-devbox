@@ -14,8 +14,9 @@ services:
 
   app:
     build:
-      # Repo-root context so app/Dockerfile can reach both app/ (Rust) and web/
-      # (React SPA). See app/Dockerfile's web-builder stage.
+      # Repo-root context so app/Dockerfile can reach app/ (Rust source +
+      # static redirect page) from one context. The old web-builder stage
+      # (React SPA) is retired — the UI lives in mgr-web (mgr.localhost).
       context: .
       dockerfile: app/Dockerfile
     image: sandbox-app

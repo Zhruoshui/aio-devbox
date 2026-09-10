@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# Multi-stage build for the axum app server + React SPA.
+# Multi-stage build for the axum app server + static redirect page.
 #
 # IMPORTANT: the build context is the REPO ROOT (docker-compose sets
-# `context: .` + `dockerfile: app/Dockerfile`), so COPY paths are prefixed with
-# `app/` and `web/`. This lets one Dockerfile reach both the Rust source and
-# the frontend source.
+# `context: .` + `dockerfile: app/Dockerfile`), so COPY paths are prefixed
+# with `app/`. This lets one Dockerfile reach the Rust source and the static
+# page in one context.
 #
 # The runtime stage is `FROM sandbox-base`, so the `sandbox-base` image must be
 # built and tagged first. Use `make build` / `make up` (which run
@@ -66,16 +66,6 @@ COPY app/services.toml ./app/
 RUN touch app/src/main.rs aio-models/src/lib.rs \
  && cargo build --release --locked -p aio-app
 
-# --- web-builder: compile the React SPA with Vite (sandbox-base has node 20). ---
-FROM ${BASE_IMAGE} AS web-builder
-WORKDIR /web
-# Lockfile-first for a deterministic, cacheable install.
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
-COPY web/ ./
-# `npm run build` runs `tsc --noEmit && vite build`; output lands in /web/dist.
-RUN npm run build
-
 # --- Runtime: derive from the shared dev-env base image. ---
 # Carries node / python / git / opencode because Phase E/F spawn pty shells
 # (terminal, opencode) inside this container.
@@ -84,14 +74,19 @@ FROM ${BASE_IMAGE}
 COPY --from=builder /app/target/release/aio-app /usr/local/bin/aio-app
 
 # Entrypoint: autostarts pi-web (if the pi-web scenario baked it into base)
-# before exec'ing the CMD. See app/entrypoint.sh for the why. --chmod because
-# the source file carries no exec bit on the host; COPY --chmod sets it at
-# build time without a separate RUN chmod.
+# and patches the static redirect target (MGR_URL set) before exec'ing the
+# CMD. See app/entrypoint.sh for the why. --chmod because the source file
+# carries no exec bit on the host; COPY --chmod sets it at build time
+# without a separate RUN chmod.
 COPY --chmod=755 app/entrypoint.sh /usr/local/bin/aio-entrypoint.sh
 
-# Static SPA tree (React build output from the web-builder stage).
+# Static redirect page (unified Phase 6, D1): web/ — the per-sandbox
+# workbench SPA — is retired; "/" now serves a minimal page that bounces to
+# the Sandbox manager (MGR_URL set, patched by the entrypoint) or explains
+# where the UI went (stock stacks). ALL /api/* routes are unchanged and
+# remain the surface mgr-web's proxy consumes.
 # Lives under /app (not /root, which is the persistent workspace volume).
-COPY --from=web-builder /web/dist /app/static
+COPY app/redirect/ /app/static/
 
 USER root
 EXPOSE 8088
