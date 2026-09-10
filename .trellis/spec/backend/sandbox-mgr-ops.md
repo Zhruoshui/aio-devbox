@@ -1,11 +1,12 @@
 # Sandbox-mgr 控制平面运维契约
 
 > **Purpose**: sandbox-mgr(aio-mgr)在 DooD 形态下驱动宿主 docker 的硬约束。
-> 来源任务: 09-08-sandbox-mgr-tui Phase 2(2026-09-08)。这些是实测踩坑沉淀
-> 的可执行契约,不是建议——违反任何一条都会以"看起来成功"的方式失败
-> (reload 报 ok、compose up 正常,但路由不通/挂载为空)。
-> 代码锚点: `mgr/src/{caddy.rs,docker.rs,composegen.rs}`、`mgr/compose.yml`、
-> `mgr/Dockerfile`。
+> 来源任务: 09-08-sandbox-mgr-tui Phase 2(2026-09-08)+ 09-09-sandbox-mgr-
+> unified(契约 4 改写/契约 7 多 profile/契约 9 第四处/契约 10 新增,2026-09-10)。
+> 这些是实测踩坑沉淀的可执行契约,不是建议——违反任何一条都会以"看起来
+> 成功"的方式失败(reload 报 ok、compose up 正常,但路由不通/挂载为空)。
+> 代码锚点: `mgr/src/{caddy.rs,docker.rs,composegen.rs,proxy.rs,models.rs}`、
+> `mgr/compose.yml`、`mgr/Dockerfile`。
 
 ---
 
@@ -96,22 +97,44 @@ header_up Host sbx-<name>-piweb.mgr.localhost
 
 ---
 
-## 契约 4: mgr 生命周期命令必须带全量 profile
+## 契约 4: mgr 生命周期命令的 profile 分裂——up 只带 vnc,其余全量
 
 mgr 沙箱的 code-server/vnc 在生成的 compose 里是 profile 门控服务(与 repo
-compose 同构,design §3.5),但 mgr 把沙箱当整体产品管理:镜像全部构建、
-up 必须全起(否则工作台面板缺一半)、down 必须看到它们才能拆干净。
+compose 同构,design §3.5)。unified Phase 3(D4,code-server 按需实例)把
+原"全量 profile"契约分裂为两半:
 
 ```rust
 // mgr/src/docker.rs
+/// up 专用: 仅 vnc
+const UP_PROFILES: [&str; 2] = ["--profile", "vnc"];
+/// 非 up 生命周期(stop/restart/down/rm): 全量
 const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
+/// 单服务按需拉起(code-server): 仅其自身 profile
+pub const CODE_SERVER_PROFILE: [&str; 2] = ["--profile", "code-server"];
 ```
+
+**为什么 up 不带 code-server**: vnc 是常驻依赖(pi agent-browser 硬依赖
+其中的 CDP Chromium),code-server 是纯编辑面、无任何东西依赖其常驻。
+工作区 code-server pane 打开时经 `POST /api/sandboxes/:name/service/
+code-server/start`(`compose_service_up`)按需拉起。实测(compose 5.2.0)
+不带 code-server profile 的 `up` 不会启动它、也**不触碰**已启动的实例。
+
+**为什么其余命令必须全量**: stop/restart/down 必须能**看见** code-server
+才能停它/拆干净(已拉起的 code-server 随沙箱一起死,绝不残留)。实测
+这些命令对"服务无容器"也容忍(fresh D4 沙箱直接 stop/down 不报错)。
+
+**recreate 的 zombie 陷阱**(jobs.rs): app 容器被 force-recreate 后,旧的
+code-server 容器仍 running 但挂在**已删除**旧 app 的 netns
+(`network_mode: service:app`)——死网络,下次全量 restart 报错。recreate
+job 必须先 `compose_service_rm`(targeted `rm --force --stop`)再 up。
+`up -d <svc>` 会按当前 app 容器重建服务。
 
 `compose_ps` 例外: compose 5.x 的 `ps --all` 列出 profile 门控容器,
 不需要(也不应该)加 profile 标志。
 
-**验证点**: mgr 创建的沙箱应有 4 个容器(app/gateway/code-server/vnc);
-`GET /api/manifest` 中 codeServer/vnc/piWeb 全部 `enabled: true`。
+**验证点**: 新建沙箱 up 后 3 容器 running(app/gateway/vnc),code-server
+无容器;打开 pane 后 4 容器;stop 后全停;`GET /api/manifest` 中
+codeServer/vnc/piWeb 全部 `enabled: true`(门控的是容器,不是 manifest)。
 
 ---
 
@@ -164,31 +187,57 @@ render() 单测 `render_has_static_mgr_site_first` 锚定站点块存在且在�
 
 ---
 
-## 契约 7: 模型配置上收——同步链与写降级(Phase 4)
+## 契约 7: 模型配置上收——多 profile 同步链与写降级(Phase 4 → unified Phase 4)
 
 **Trigger**: 任何动 `mgr/src/models.rs`、`app/src/mgr_sync.rs`、
-`app/src/routes/models/mod.rs` 写接口、或 composegen MGR_URL 注入的人。
+`app/src/routes/models/mod.rs` 写接口、或 composegen MGR_URL/MGR_SANDBOX_NAME
+注入的人。
 
-mgr 是模型配置唯一真相源(D6),三段式同步链,任何一段的字段名/语义
-漂移都会让拉取静默失效(拉不到≠报错,是 60s 空转):
+mgr 是模型配置唯一真相源(D6),**per-profile**(unified Phase 4, D8):
+一套 profile = 一整份 CanonicalConfig(aio-models 不感知包装层),每个
+沙箱指派一套。三段式同步链,任何一段的字段名/语义漂移都会让拉取静默
+失效(拉不到≠报错,是 60s 空转):
 
-1. **真相源**: kv 表 `models_config` 键,值 `{"version": <u64>, "config":
-   <CanonicalConfig>}`,PUT 成功才 bump version。kv 只可能写入通过
-   validate 的 JSON,因此 mgr 侧无 app 的 corrupt-move-aside 分支
-   (app models.json 是文件、mgr 是 kv——损坏语义不同是**有意的**)。
-2. **拉取端点**: `GET /api/models/sync` 返回**未 mask** canonical(明文
-   key)。这是 D6/D9 已接受的边界: mgr-api 不发布宿主端口、aio-mgr-net
-   不出宿主、总网关站点块只按 Host 路由沙箱域名。**不要**在 mgr-web 里
-   调它(要明文没意义),浏览器走 masked 的 `GET /api/models/config`。
-   消费端 `app/src/mgr_sync.rs` 的解析结构体与 mgr 的响应形状有处理器
-   级测试双向锁定(`sync_handler_shape_*` / `sync_payload_decodes_*`)。
-3. **沙箱侧**: composegen 给 app 注入 `MGR_URL=http://mgr-api:8089`;
-   启动拉一次 + 60s 周期;深比较(serde_json 全量等值)不同才
-   `write_config` + `apply_all_agents`(与 apply/:agent handler 共用
-   `render_agent`,单一渲染路径);拉取失败 warn 一次静默用本地缓存。
-   `MGR_URL` 未设置 = 存量栈,零行为变化(guard 恒通、不 spawn)。
+1. **真相源**: kv 表 `models_profiles` 键,值 `{"version": <u64 全局递增>,
+   "profiles": [{"id", "name", "config": <CanonicalConfig>}], "assignments":
+   {"<sandbox-name>": "<profile-id>"}}`。PUT 成功才 bump version(version
+   全局非 per-profile——拉取端深比较,跨 profile 的 bump 只多一次跳过
+   比较)。kv 只可能写入通过 validate 的 JSON,因此 mgr 侧无 app 的
+   corrupt-move-aside 分支(app models.json 是文件、mgr 是 kv——损坏
+   语义不同是**有意的**)。
+2. **迁移(双向兼容)**: 读到旧键 `models_config`(单配置时代)→ 转为
+   `id: "default"` profile + **全部现存沙箱指派到它**(升级行为零变化),
+   先写新键再删旧键——中间崩溃则下次 boot 幂等重跑;回滚的 mgr 读到
+   新键缺失 → 读回旧键。`default` id 与 `gen_preset_id` 风格的
+   `profile-<5hex>` id 均由后端持有。
+3. **拉取端点**: `GET /api/models/sync?name=<sandbox>` 返回该沙箱**所指派
+   profile** 的**未 mask** canonical(明文 key)。**404 矩阵**(app 按
+   "未指派,保持本地"静默处理): 无 name / 未知沙箱 / 未指派,三者 404
+   且响应**不可区分**(不向任意调用方泄露沙箱名存在性)。明文边界同
+   D6/D9 已接受: mgr-api 不发布宿主端口、aio-mgr-net 不出宿主。**不要**
+   在 mgr-web 里调它,浏览器走 masked 的 `GET /api/models/config?profile=`。
+   请求与响应形状有处理器级测试双向锁定(`sync_handler_shape_*` /
+   `sync_payload_decodes_*` + `sync_url_carries_sandbox_name_query`)。
+4. **沙箱侧**: composegen 给 app 注入 `MGR_URL=http://mgr-api:8089` +
+   `MGR_SANDBOX_NAME=<name>`(拉取身份);启动拉一次 + 60s 周期;深比较
+   (serde_json 全量等值)不同才 `write_config` + `apply_all_agents`(与
+   apply/:agent handler 共用 `render_agent`,单一渲染路径)。失败语义
+   两档: **404 = debug + 保持本地**(未指派/解绑契约,不是错误);
+   其余(transport/非 200/解析失败)= warn 一次 + 保持本地。两者都不写
+   不退。`MGR_URL` 未设置 = 存量栈,零行为变化(guard 恒通、不 spawn);
+   有 MGR_URL 无 MGR_SANDBOX_NAME(旧 compose)= 发无名请求,mgr 404,
+   同样静默保持本地。
 
-**写降级矩阵**: MGR_URL 设置时 app 侧 6 个写接口统一 403 body
+**指派端点**: `PUT /api/sandboxes/:name/model_profile`,body
+`{"profile": "<id>" | null}`(null/缺失 = 解绑)。纯 kv 写,**绝不触发
+recreate**——沙箱下轮 60s 拉取生效;与 `PUT /api/sandboxes/:name`(env
+改动走 recreate job)是两条独立路由,不得合并。adopted 行同样可指派
+(无 MGR_URL 不拉取,指派惰性记录)。**删除/注销沙箱必须同步清掉其
+assignment**(jobs.rs delete 与 unadopt 都带)——残留条目会被同名新建的
+沙箱静默继承。`sandbox_json` 增 `model_profile` 字段(id 或 null)。
+profile CRUD: 删最后一个 profile 400;删除时解绑其全部 assignments。
+
+**写降级矩阵**(不变): MGR_URL 设置时 app 侧 6 个写接口统一 403 body
 `managed-by-mgr`(PUT config、import/pi、apply/:agent、provider PUT/
 DELETE、sync);前端 `GET /api/models/managed` 探测只读态 + 403 兜底。
 GET 类(config/agents/usage/catalog/managed)与 discover/test 探测**不降级**。
@@ -198,12 +247,12 @@ GET 类(config/agents/usage/catalog/managed)与 discover/test 探测**不降级*
 **sbx-<name>-piweb**——composegen 给 app 的 aio-mgr-net 别名;design §3.7
 原文的 `sbx-<name>:8088` 是笔误,`sbx-<name>` 是 gateway 的 :80 别名)。
 单沙箱 5s 超时、错误隔离进 `error` 字段、30s TTL 缓存(含错误条目,
-避免错误沙箱被高频重试)。design 原文的"60s 常驻轮询"实现为按需扇出
-+TTL——等价满足汇总语义,少一份常驻状态。
+避免错误沙箱被高频重试)。
 
-**验证点**: 改 mgr 配置后沙箱 canonical(明文)与 pi native render 在
-≤60s 内更新;沙箱 PUT 返回 403 `managed-by-mgr`;`/api/usage` 含各
-running 沙箱条目且单沙箱挂掉不整体失败。
+**验证点**: 建两个 profile 指派不同沙箱,改 A 所指 profile 后 A 的
+canonical(明文)与 native render 在 ≤60s 内更新、B 不动;解绑后该沙箱
+保持本地(404 → debug 不写);旧 `models_config` 键升级后自动迁移且全
+沙箱行为不变;`/api/usage` 含各 running 沙箱条目且单沙箱挂掉不整体失败。
 
 **mgr 不提供的端点**(沙箱本地文件操作,mgr 语义不成立,mgr-web 移植
 时裁掉): `/api/models/agents`、`apply/:agent`、`agents/:agent/provider/
@@ -259,10 +308,13 @@ running 沙箱条目且单沙箱挂掉不整体失败。
 D9 决策: 信任边界 = 宿主机/本机。**全面无认证**——存量栈 gateway
 (去 basicauth 后的 repo gateway/Caddyfile)、mgr 总网关(caddy.rs
 render,有单测 `render_never_contains_basicauth` 锚定)、每沙箱生成的
-gateway(composegen,同锚定)。
+gateway(composegen,同锚定)、**mgr-api 的 `/api/sbx/:name/*` 沙箱代理**
+(unified Phase 1 第四处——它把每沙箱 app 的 pty(`/api/term/ws`,
+全 shell 面)收拢到 mgr.localhost origin 下,等价于网关层的暴露面;
+见契约 10)。
 
-- 重新引入认证必须三处同步: repo Caddyfile + caddy.rs render +
-  composegen render_caddyfile(任一遗漏 = 部分路由裸奔)。
+- 重新引入认证必须四处同步: repo Caddyfile + caddy.rs render +
+  composegen render_caddyfile + proxy.rs(任一遗漏 = 部分路由裸奔)。
 - 历史机制已删,不可"顺手恢复": `make hash`/`ensure-hash`、
   gateway/secrets/、gateway/entrypoint.sh(hash 投递)、Makefile
   save/load 的 hash 打包、CI 冒烟的 `-u admin:admin`。
@@ -275,3 +327,42 @@ gateway(composegen,同锚定)。
 Makefile docker-compose.yml gateway/ .env.example .github/ README* docs/`
 清零;`make -n up NOBUILD=1` 无 ensure-hash 报错;网关直连 200 无
 WWW-Authenticate 头。
+
+---
+
+## 契约 10: /api/sbx/:name/* 沙箱代理——宿主封闭派生(unified Phase 1)
+
+**Trigger**: 任何动 `mgr/src/proxy.rs`、在 mgr-web 里直连沙箱后端、
+或想加第五条代理面的人。
+
+mgr-web 的一切沙箱面(终端 WS、buttons CRUD、manifest、/preview)经
+mgr-api 代理而非浏览器跨子域直连——理由: adopted 旧栈 app 镜像**无 CORS
+头**(直连必死)+ 未来认证单一收口(mgr.localhost 一个 origin)。
+
+**规则**:
+
+1. **上游宿主封闭派生**: 上游恒为 `http://sbx-<name>-piweb:8088/<path>`,
+   `<name>` 取自路由参数,必须过 `validate_name` **且**存在于 sandboxes
+   表(native/adopted 皆可——adopt 把同一别名接入 aio-mgr-net,契约 8)。
+   **任何请求参数都到不了上游 HOST——无 SSRF 面**,只是注册沙箱的
+   name-keyed 映射。别名是 app 的 aio-mgr-net 别名(同 usage 扇出的
+   选择),不是 gateway 的 `sbx-<name>`。
+2. **name 取原始(未解码)路径段**: slug 字母表 [a-z0-9-] 永不需要
+   percent-decode,名字里的任何转义序列按定义不是注册沙箱,被
+   validate_name 拒绝——上游宿主永不由解码值构造。
+3. **HTTP + WS 双透传**: HTTP 剥 hop-by-hop 头 + `Body::from_stream`
+   流式(SSE 存活);WS 以 app `/preview` 代理为模板(Upgrade 探测 /
+   2s 上游握手预算 / subprotocol 回传 / 双向消息泵)。错误走 mgr
+   `{"error": ...}` JSON 形状(mgr-web apiError 只解 JSON);未知
+   `:name` = **真 404**(代理语义,非 lifecycle 的 400-shaped not found)。
+4. **不做存活过滤**: stopped 沙箱连接失败 → 502(工作区树层面置灰,
+   代理不二次猜测)。
+5. **路由形状**: 只注册 `/api/sbx/:name/*path`(matchit 0.7.3 catch-all
+   需非空尾段);裸 `/api/sbx/<name>` 回落到 `/api/*rest` seam 404;
+   尾斜杠形式不匹配任何路由(unmatched_fallback)。代理 router 经
+   merge 注册在 seam 之前。
+
+**验证点**: `curl http://mgr.localhost/api/sbx/<name>/api/manifest` 返回
+该沙箱 manifest;终端 pane 经代理打字/resize 可用;未知沙箱 404 JSON;
+`curl http://mgr.localhost/api/sbx/<name>/preview/<port>/` 用户 web 按钮
+经代理可达。

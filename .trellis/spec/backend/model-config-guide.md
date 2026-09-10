@@ -140,9 +140,16 @@ The live channel is how the UI absorbs hand-edits made in the agent's NATIVE fil
 
 `reqwest` (json + rustls-tls — env-proxy aware, no openssl), `rusqlite` (bundled), `json5`. Shared `reqwest::Client` lives on `AppState` (per-request `.timeout()`).
 
-## Frontend (`web/src/panes/models/` — split directory)
+## Frontend (`mgr-web/src/pages/models/` — split directory)
 
-- New manifest pane type `"page"` (native in-app pane, `enabled` always true — no probe). Added to `ServiceType` in `web/src/types.ts`, `isServiceEntry`/`PaneForService` in `App.tsx`, "System" sidebar group, `serviceIcon` in `icons.tsx`.
+> 09-09-sandbox-mgr-unified 迁移注记: 本节组件均自 `web/src/panes/models/`
+> 平移(09-08 Phase 4c),组件结构/拆分不变;差异: ①加 profile 选择栏与
+> `?profile=` 作用域(D8,契约 7);② MgrNotice 链接改工作区导航;③
+> live-config 节(LiveProviderList)未平移——mgr 无沙箱本地 agent API。
+> 下文 `web/` 路径按 `mgr-web/src/pages/models/` 读。
+
+- The in-sandbox `"page"` pane type (ModelsPane inside the workbench) is
+  RETIRED with web/ (D1/D8) — the model UI now lives only in mgr-web.
 - Module split (task 08-26-models-config-redesign): `index.tsx` re-exports `ModelsPane` (App.tsx imports `./panes/models`); `ModelsPane.tsx` owns ALL state + `/api/models/*` handlers; `types.ts` is the single decoder boundary (mirrors serde types); `ProviderGrid.tsx` (cc-switch style card grid) + `ProviderEditor.tsx` (right drawer: basic fields + advanced JSON + model list + binding overview + discover modal); `UsageTab.tsx` + `charts.tsx` (summary cards + token bar chart + cost donut, Kumo categorical palette, no chart dependency).
 - **Model editor: `ModelRow.tsx` (08-27-provider-form-piweb, replaces the old flat `ModelTable.tsx`)** — pi-web style collapsed/expanded row per model. Collapsed: id input, display name, reasoning badge, cost summary (`in / out`), test button + pill, delete. Expanded: full field editor (protocol override, name, reasoning, contextWindow, maxTokens, cost 4-way grid) plus a "fill from models.dev" button. `ProviderEditor.tsx` renders `provider.models.map(m => <ModelRow .../>)` instead of a single table.
 - **`ModelPicker.tsx`** — stateless model-id picker over one provider's model list (search + click-to-pick). No provider-selection layer of its own; wired into `AgentTabs.tsx` (08-27-agent-tabs-live-config) under a `.ml-model-trigger` button (selected shows `name (id)`): the agent-tab model field is pick-only over the chosen provider's `models[]` — no free text, canonical stays the only place model lists are edited.

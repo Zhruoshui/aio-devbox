@@ -1,8 +1,12 @@
 # Xterm Pane Guidelines
 
-> Contracts for `web/src/panes/XtermPane.tsx` — the generic terminal pane for
-> `service.type !== "web"`. Pairs with [component-guidelines.md](./component-guidelines.md)
-> (imperative-lib lifecycle pattern).
+> Contracts for `mgr-web/src/pages/workspace/panes/XtermPane.tsx` — the
+> generic terminal pane for `service.type !== "web"`, bound per-sandbox
+> (`componentState.sandbox`, unified Phase 2/D2). Ported verbatim from
+> web/src/panes/XtermPane.tsx (retired, see directory-structure.md) — only
+> the WS URL construction changed. Pairs with
+> [component-guidelines.md](./component-guidelines.md) (imperative-lib
+> lifecycle pattern).
 
 ## Terminal surface contract
 
@@ -50,15 +54,33 @@ new Terminal({ fontFamily: "var(--font-mono)", fontSize: 13 });
 new Terminal({ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.25 });
 ```
 
+## WS 路由契约(经 mgr 代理,unified Phase 1/D6)
+
+`paneUrl.ts::termWsUrl` 是唯一构造点:
+
+```
+ws(s)://<mgr origin>/api/sbx/<sandbox>/api/term/ws?cmd=<encodeURIComponent(cmd)>
+```
+
+- **same-origin on mgr**: 浏览器不再跨子域直连 `sbx-<name>-piweb:8088`
+  (adopted 旧栈无 CORS 头);mgr/src/proxy.rs 转发(契约 10)。
+- **一条 pane 一个会话**: 关闭 pane = unmount,WS 关闭,后端 pty 进程
+  随 WS close 退出("close kills, reopen restarts");重开 = 全新会话。
+- **掉线重连上限 1**: WS 中途断开写一条 notice、至多重试一次、之后停
+  (不 crash、不 retry-spam)。
+- 文本帧 = 按键;二进制 5 字节控制帧 = resize(`TIOCSWINSZ`)。
+
 ## Verification
 
 - Build gate is enough for the contract: `tsc --noEmit` accepts `lineHeight`
   (xterm 5.x option) and `vite build` bundles it.
-- The visual regression signal (crowded rows) is **not** caught by
-  `smoke-test.cjs` (it asserts interactions, not pixels). Verify by eye in a
-  terminal pane after `make up`, or when swapping the mono stack / font size.
+- The visual regression signal (crowded rows) is **not** caught by any smoke
+  test (asserts interactions, not pixels). Verify by eye in a terminal pane
+  after `make mgr-up`, or when swapping the mono stack / font size.
 
 ## Related
 
 - `styles.css` `--font-mono` / `--term-*` tokens (surface colors for xterm).
+- `paneUrl.ts` — per-sandbox URL factory (term WS via mgr proxy, web buttons
+  via `/api/sbx/<name>/preview/<port>/`, gateways via subdomain origins).
 - Terminal pty/resize protocol documented in the `XtermPane.tsx` header comment.

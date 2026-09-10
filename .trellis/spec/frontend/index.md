@@ -1,8 +1,11 @@
 # Frontend Development Guidelines
 
-> React SPA (Vite + TypeScript) that renders the AIO sandbox workspace: a
-> golden-layout tiling of generic panes, one per enabled service. Built in the
-> app image's `web-builder` stage and served by the axum backend at `/`.
+> React SPA (Vite + TypeScript) — **mgr-web**, the single unified UI
+> (09-09-sandbox-mgr-unified D1/D2): golden-layout workspace (panes from every
+> sandbox, mixed freely) + admin pages (sandboxes/images/models/usage). Built
+> in mgr's `web-builder` stage and served by mgr-api at `mgr.localhost`. The
+> old per-sandbox workbench `web/` is retired (tombstone in
+> directory-structure.md).
 
 ## Stack
 
@@ -13,25 +16,24 @@
 
 ## Where things live
 
-See [directory-structure.md](./directory-structure.md). In short: `web/src/main.tsx`
-(entry), `App.tsx` (workspace shell + golden-layout owner), `layout.ts`
-(golden-layout config builder), `types.ts` (Manifest/ServiceEntry),
-`panes/IframePane.tsx` + `panes/XtermPane.tsx` (generic panes by service type),
-`panes/models/` (native in-app `"page"` pane — unified model config, split into
-`ModelsPane.tsx` shell + view sub-components; `index.tsx` re-exports
-`ModelsPane`. Backend contract in the backend Model Config Guide).
-
-A second SPA lives in `mgr-web/` (sandbox-mgr admin console: no
-golden-layout, `App.tsx` in-memory view state instead of routing; `types.ts`/
-`api.ts` mirror the mgr control-plane API — backend/api-contracts.md).
+See [directory-structure.md](./directory-structure.md). In short: `mgr-web/src/
+main.tsx` (entry), `App.tsx` (shell: sidebar nav + theme/lang, in-memory view
+state instead of routing), `pages/WorkspacePage.tsx` (golden-layout owner),
+`pages/workspace/paneUrl.ts` (per-sandbox URL factory), `pages/workspace/panes/`
+(`IframePane` / `XtermPane` / `CodeServerPane` — generic panes by service
+type, each bound to its sandbox), `pages/workspace/SandboxTree.tsx` (sandbox
+tree + manifest lazy-load + button registration), `pages/models/` (model
+config page with profile selector, D8). Admin pages in `pages/` (list/create/
+adopt/edit/job/images/usage). `types.ts`/`api.ts` mirror the mgr control-plane
+API — backend/api-contracts.md.
 
 ## Pane types (`ServiceEntry.type`)
 
 - `"web"` → `IframePane` (containerized service in an iframe; TCP-probed `enabled`).
-- `"agent"` → `XtermPane` (pty CLI; `enabled` = `command_exists`).
-- `"page"` → native React pane served by axum itself (ModelsPane); `enabled`
-  always true, no `url`/`cmd`. Added to `ServiceType`, `isServiceEntry`/
-  `PaneForService` in `App.tsx`, sidebar "System" group, `serviceIcon`.
+- `"agent"` → `XtermPane` (pty CLI over the mgr proxy; `enabled` = `command_exists`).
+- `"page"` pane type is RETIRED with web/ (09-09 D1/D8): the in-sandbox model
+  config UI is gone — model config lives in mgr-web's Models page (per-profile,
+  契约 7). Do not re-introduce `"page"` panes.
 
 ## Guidelines Index
 

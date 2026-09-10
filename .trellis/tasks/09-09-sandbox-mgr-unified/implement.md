@@ -31,28 +31,41 @@
 
 ## Phase 4: 模型多 profile + 指派（design §4）
 
-- [ ] mgr models.rs：kv 新键 `models_profiles`（version/profiles/assignments）+ 启动迁移（旧 models_config → default profile + 全沙箱指派，双向兼容读）
-- [ ] API：GET/POST/DELETE profiles、PUT profiles/:id、PUT sandboxes/:name/model_profile、sync 加 `?name=`（未指派 404）；sandbox_json 加 model_profile
-- [ ] composegen.rs 注入 `MGR_SANDBOX_NAME`；app mgr_sync.rs 带 name + 404→debug 静默保持本地
-- [ ] 双向 wire-shape 测试对更新（mgr sync_handler_shape_* / app sync_payload_decodes_*）
-- [ ] mgr-web：ModelsPage profile 下拉+CRUD；EditPage 指派 select（三态）；卡片显示 profile
+- [x] mgr models.rs：kv 新键 `models_profiles`（version/profiles/assignments）+ 启动迁移（旧 models_config → default profile + 全沙箱指派，双向兼容读）
+- [x] API：GET/POST/DELETE profiles、PUT profiles/:id、PUT sandboxes/:name/model_profile、sync 加 `?name=`（未指派 404）；sandbox_json 加 model_profile
+- [x] composegen.rs 注入 `MGR_SANDBOX_NAME`；app mgr_sync.rs 带 name + 404→debug 静默保持本地
+- [x] 双向 wire-shape 测试对更新（mgr sync_handler_shape_* / app sync_payload_decodes_*）
+- [x] mgr-web：ModelsPage profile 下拉+CRUD；EditPage 指派 select（三态）；卡片显示 profile
 - 验证：`cargo test -p aio-mgr && cargo test -p aio-app`；端到端：改 A 沙箱所指 profile ≤60s 后 A 内 agent 文件更新、B 不动；解绑后沙箱保持本地
+  - cargo：workspace 349 绿（app 215 / config 23 / mgr 72 / models 39；mgr +4 新测试：迁移双向兼容 / 迁移幂等 / profile CRUD / 指派-404 矩阵）
+  - mgr-web `npm run build`（tsc 门）绿
+  - 容器级端到端（改 A ≤60s 生效 / B 不动 / 解绑保持本地）待 Phase 6 前统一手测窗口
 
 ## Phase 5: 规格更新（design §6）
 
-- [ ] sandbox-mgr-ops.md：契约 4 改写 / 契约 7 改写 / 契约 9 加第四处 / 新契约 10（代理）
-- [ ] api-contracts.md：代理路由组 + 新端点 + sandbox_json 字段
-- [ ] frontend/directory-structure.md：mgr-web 节重写 + web/ 节墓碑
-- [ ] frontend/xterm-pane.md：路径与 WS 路由更新
+- [x] sandbox-mgr-ops.md：契约 4 改写 / 契约 7 改写 / 契约 9 加第四处 / 新契约 10（代理）
+- [x] api-contracts.md：代理路由组 + 新端点 + sandbox_json 字段
+- [x] frontend/directory-structure.md：mgr-web 节重写 + web/ 节墓碑
+- [x] frontend/xterm-pane.md：路径与 WS 路由更新
 - 验证：对照 research/contracts-quote.md 逐条核（不丢既有验证点）
+  - 逐条核对完成；契约 4 保留 ps 例外 + manifest enabled 验证点（语义更新为
+    门控容器非 manifest）；契约 7 保留写降级矩阵/usage 扇出/不提供端点清单/
+    明文边界；附带清理三处死引用（model-config-guide Frontend 节、
+    frontend/index.md、api-contracts.md 的 web/src 镜像路径）
 
 ## Phase 6: web/ 退役（design §5，不可逆点）
 
-- [ ] `app/services.toml` 删 modelsConfig 条目
-- [ ] `app/redirect/index.html`（MGR_URL 有→跳 mgr.localhost；无→说明页）；app/Dockerfile 删 web-builder 段改 COPY redirect
-- [ ] 删 `web/` 目录；审计 Makefile / .github / 文档引用
-- [ ] 重建 sandbox-app 镜像验证（注意 no-cache 重建前 builder prune，memory: no-cache-rebuild-disk-full）
+- [x] `app/services.toml` 删 modelsConfig 条目
+- [x] `app/redirect/index.html`（MGR_URL 有→跳 mgr.localhost；无→说明页）；app/Dockerfile 删 web-builder 段改 COPY redirect
+- [x] 删 `web/` 目录；审计 Makefile / .github / 文档引用
+- [x] 重建 sandbox-app 镜像验证（注意 no-cache 重建前 builder prune，memory: no-cache-rebuild-disk-full）
 - 验证：`make build && make up` 后 stock 栈 app :8088 返回 redirect 页；API 路由完好（`curl :8088/api/manifest` 正常）
+  - 全绿：cargo workspace 349 / mgr-web tsc+vite；make build+up 四容器健康
+  - redirect 页：stock 栈（无 MGR_URL）placeholder 3 处完好 → 说明页分支；manifest 无
+    modelsConfig、codeServer/vnc/terminal/pi/piWeb 全在；stats/probe 正常；
+    seam 404 → 502 "seam reserved"（既有设计，非回归）
+  - 磁盘清理顺带：6 个过期 env-hash 变体镜像（~30GB）+ builder cache
+- Phase 2 手测确认记录：用户 2026-09-10 确认多沙箱/拖拽/终端/iframe 全通
 
 ## 回滚点
 

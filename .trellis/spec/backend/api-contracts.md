@@ -1,10 +1,12 @@
 # API Contracts
 
 Executable contracts for the axum HTTP surface. There are TWO axum servers:
-the sandbox app (`app/src/routes/*.rs` owns each payload, frontend mirror
-`web/src/types.ts`) and the mgr control plane (`mgr/src/routes.rs` owns each
-payload, frontend mirror `mgr-web/src/types.ts`) — same decode-once-at-the-
-boundary rule (cross-layer-thinking-guide).
+the sandbox app (`app/src/routes/*.rs` owns each payload; its frontend
+consumer is **mgr-web** via the mgr proxy — manifest/buttons mirrors in
+`mgr-web/src/pages/workspace/types.ts`, stats no longer has a frontend
+consumer since web/ retired) and the mgr control plane (`mgr/src/routes.rs`
++ module routers own each payload, frontend mirror `mgr-web/src/types.ts`)
+— same decode-once-at-the-boundary rule (cross-layer-thinking-guide).
 
 ## GET /api/stats — container-view resource metrics
 
@@ -22,7 +24,8 @@ update both code owners and the frontend renderer together.
 - Backend owner: `app/src/routes/stats.rs::StatsSnapshot`
   (`#[allow(non_snake_case)]` — the camelCase field names ARE the wire
   contract; do not rename casually).
-- Frontend mirror: `web/src/types.ts::StatsSnapshot` (`memTotalBytes?`).
+- Frontend mirror: `StatsSnapshot` (`memTotalBytes?`) — retired with web/;
+  no current frontend consumer (kept as the app-side contract).
 - Data source: `spawn_stats_sampler` (tokio task, 2s period) keeps the
   snapshot in `AppState.stats`; the handler only clones-and-returns — no
   cgroup reads on the request path.
@@ -127,7 +130,8 @@ reach a loopback-bound dev server; the gateway's catch-all already hands
   1-65535, 0/8088/non-numeric → 400). Non-blocking UX hint for the register
   dialog: `listening:false` is a warning, never an error — registration of a
   dead port stays allowed.
-- Frontend mirror: `web/src/types.ts::RegisterButtonInput`.
+- Frontend mirror: `mgr-web/src/pages/workspace/types.ts::RegisterButtonInput`
+  (reached through the mgr proxy `/api/sbx/:name/api/buttons*`, 契约 10).
 
 ### 3. Contracts
 
@@ -200,13 +204,17 @@ during the process lifetime, so the manifest handler never re-expands.
 
 ---
 
-# mgr 控制面 API(`mgr/src/routes.rs`)
+# mgr 控制面 API(`mgr/src/routes.rs` + 模块子路由)
 
-sandbox-mgr(09-08-sandbox-mgr-tui Phase 1/3)。base path:容器形态经总网关
-`http://mgr.localhost` → `mgr-api:8089`;裸跑形态直连 `MGR_BIND`(默认
-`:8089`)。mgr-web SPA 与静态 `/api` seam 同 app 模式(见 GET /api/stats 的
-路由顺序规则)。所有错误统一 `{"error": "<message>"}` JSON;校验类 400,
-内部失败 500(anyhow 链尾)。
+sandbox-mgr(09-08-sandbox-mgr-tui Phase 1/3 + 09-09-sandbox-mgr-unified)。
+base path:容器形态经总网关 `http://mgr.localhost` → `mgr-api:8089`;裸跑
+形态直连 `MGR_BIND`(默认 `:8089`)。mgr-web SPA 与静态 `/api` seam 同
+app 模式(见 GET /api/stats 的路由顺序规则)。所有错误统一
+`{"error": "<message>"}` JSON;校验类 400,内部失败 500(anyhow 链尾)。
+
+子路由模块各自持有自己的 router,经 `merge` 注册在 routes.rs 总 router、
+**seam 之前**(merge 是"静态段先赢"规则的注册序形式): `models.rs`/
+`usage.rs`/`proxy.rs`。新增模块照此并入。
 
 ## GET /api/sandboxes — 列表(含实时状态合并)
 
@@ -227,10 +235,13 @@ mgr-web 列表页数据源;DB status 是"意图"(creating/running/error),`live`
 
 ### 3. Contracts
 
-列表项字段(12): `name/status/live/adopted/created_at/cpus/mem_mb/env/
-image/entry_url/piweb_url/services[]`。URL 字段在 payload 里内联生成
-(`http://sbx-<name>.mgr.localhost/`),sbx- 前缀与 caddy.rs render 及
-composegen 网络别名三方共享同一身份——改前缀必须三处同改。
+列表项字段(13): `name/status/live/adopted/created_at/cpus/mem_mb/env/
+image/entry_url/piweb_url/model_profile/services[]`。URL 字段在 payload 里
+内联生成(`http://sbx-<name>.mgr.localhost/`),sbx- 前缀与 caddy.rs render
+及 composegen 网络别名三方共享同一身份——改前缀必须三处同改。
+`model_profile`: 所指派 profile id 或 `null`(未指派 = 沙箱保持本地
+models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** store
+(一次解析,非每行——models store 可能不小),详情逐行读。
 
 ### 4. Validation & Error Matrix
 
@@ -249,6 +260,33 @@ composegen 网络别名三方共享同一身份——改前缀必须三处同改
 null 方案下 UI 无法区分"未更改"与"清除"。创建侧对偶:`0`/null 归一化为
 无限制。负数 400(`check_limits`)。改 env 走 recreate job(202 + `{job}`),
 卷保留。
+
+## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8)
+
+Body `{"profile": "<id>" | null}`(null/缺失 = 解绑)。**纯 kv 写,同步返回,
+绝不触发 recreate job**——沙箱的 60s 拉取自然生效;这是它与 `PUT
+/api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条路由的全部理由,
+不得合并。未知沙箱 400(`require_row` 同形);未知 profile id 404
+(models.rs `set_assignment`)。错误矩阵与写路径细节见
+[sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
+
+## POST /api/sandboxes/:name/service/:service/start — 按需单服务拉起(unified Phase 3, D4)
+
+Synchronous(compose `up -d <svc>`,秒级),无 job。`service` 白名单当前仅
+`code-server`;沙箱 not running → 400(停着的栈不得半启动回来);
+adopted 行走 `compose_service_up_file` 变体(无 `-p`,契约 8)。前端 pane
+打开时探测可达(`probe?port=8200`)直接 iframe,否则 start → probe 轮询
+→ iframe。profile 分裂规则见 [sandbox-mgr-ops.md 契约 4](./sandbox-mgr-ops.md)。
+
+## /api/sbx/:name/* — 沙箱代理路由组(unified Phase 1)
+
+**Owner**: `mgr/src/proxy.rs`(any-method catch-all)。mgr-web 的一切沙箱面
+(终端 WS `/api/sbx/<n>/api/term/ws?cmd=...`、buttons CRUD +
+probe、manifest、`/preview/<port>/*`)经此代理到 `http://sbx-<name>-
+piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
+双透传。完整契约(宿主派生封闭性/别名/路由形状/错误语义)见
+[sandbox-mgr-ops.md 契约 10](./sandbox-mgr-ops.md);暴露面并入契约 9
+的认证四处清单。
 
 ## images 表 build_log 的 A5 保留语义
 
