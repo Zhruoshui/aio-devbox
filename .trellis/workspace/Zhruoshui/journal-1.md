@@ -789,3 +789,68 @@ sbx-111 installed_services 四键全开、向导复选框翻转/pi-web 联动。
 ### Status
 
 [OK] S1 完成归档。旁支 S3(images-manage)/模型指派/usage 图表等仍在规划。
+
+## Session 6: S2 模型配置重构——agent 指派三层结构 (D4)
+
+### Summary
+
+cc-switch 心智重构落地:全局供应商库(不变)× profile × agent 卡片式指派 →
+沙箱指派 profile + agent 子集,只渲染勾选的 agent。三层结构本已存在,
+本次补「agent 子集」维度 + 卡片化 UI + 渲染过滤。
+
+### Main Changes
+
+- **mgr 数据模型**: `assignments` 值从裸字符串升级为 `StoredAssignment
+  {profile, agents}`;反序列化兼容旧 `{"<sbx>": "<profile-id>"}`(= agents
+  None 全指派,AC4);`agents` 语义 None=全指派/[]=零指派(拉取 404 → 保持
+  本地,AC3)/[names]=精确子集。`VALID_AGENTS` 白名单(未知 agent 400)。
+  `set_assignment/assignment/read_assignments` 适配;`assigned_profile`
+  降为测试锚点。
+- **mgr API**: `PUT /:name/model_profile` body 增 `agents`(整份替换语义);
+  `sandbox_json` 增 `model_agents`;`GET /api/models/sync` payload 增
+  `agents`,零指派 → 404。
+- **app 同步**: `SyncPayload` 增 `#[serde(default)] agents`(旧 mgr 兼容);
+  差异判定扩展 config+子集(子集变了也重渲染,`last_agents` 存 loop 状态);
+  `apply_selected_agents` 过滤渲染——四个 renderer 零改动(R4);
+  `apply_all_agents` 变 None 路径别称(测试锚点)。Some([]) 零指派在
+  mgr 端就 404,app 端保持本地。
+- **前端**: 新组件 `AgentAssignControl`(四 agent 复选,null=全选);EditPage
+  指派含 agent 勾选;SandboxListPage profile chip → 快捷指派 popover(子集
+  摘要 `pi+2`);Models 页 pi/opencode tab 供应商卡片墙(点卡=激活,active
+  高亮)。types/api 增 `model_agents`。
+- **spec**: api-contracts model_profile 契约 + sandbox-mgr-ops 契约 7 全量
+  更新 agents 子集语义与回滚注意(旧代码读新形状 kv 失败)。
+
+### Key Findings
+
+- 界面 429 配额:子代理 trellis-implement ×3 全部 API 限额失败 → 主会话
+  内联实现,安全兜底。
+- 会话前工作区已有 app 端 mgr_sync/mod.rs 的 S2 改动(apply_selected_agents
+  等),经核验完整且 223 测试全绿——只需补 mgr 端、前端集成与 spec。
+- 前端 PUT 的「整份替换」陷阱:agents 省略会触发后端 serde default 放大
+  为全指派——EditPage 始终携带 origAgents。
+- `apply_all_agents` 无生产引用了 → 标 `#[cfg(test)]` 消除 dead_code。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `20d6831` | feat(mgr): S2 模型配置 agent 指派三层结构 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-mgr: 88 绿(含 4 个 S2 新测:旧 payload 迁移/白名单/
+  sync agents+Some([])404/subset helper)
+- [OK] cargo test -p aio-app: 223 绿(含既有 mgr_sync 子集/渲染过滤测试)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] 实机 AC2/AC3 链路(沙箱 A 指派 + 仅 pi/opencode → 60s 内
+  ~/.pi 更新、~/.claude 不动;零指派 → 本地完全不动)
+
+### Next Steps
+
+- S1→S3 数据链路(S3 images-manage 依赖组合清单字段)等旁支仍在规划。
+- 模型指派 UI 的浏览器目视复核留宿主机。
+### Status
+
+[OK] S2 实现+检查+spec 更新完成,已提交 `20d6831`(task 仍 in_progress,
+待实机 AC 后归档)。
