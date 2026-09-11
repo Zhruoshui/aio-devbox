@@ -975,3 +975,67 @@ images 表从只读列表升级为可管理:每镜像显示组合清单+体积,�
 
 [OK] S4 实现+检查+spec 更新完成,已提交 `38dad12`(task 仍 in_progress,
 待实机 AC 后归档)。
+
+## Session 9: S5 侧栏折叠——图标栏 + hover flyout (D6)
+
+### Summary
+
+两处折叠最大化工作区:App 侧栏可折叠为 48px 图标栏;WorkspacePage 的
+SandboxTree 可折叠为竖向首字母图标条 + hover flyout。两折叠独立记忆。
+
+### Main Changes
+
+- **App 侧栏折叠 (R1)**: `App.tsx` 增 `sidebarCollapsed` state,键
+  `mgr.sidebarCollapsed`(localStorage);`.sidebar.collapsed` 宽 48px,隐藏
+  `.sb-title/.launch-label/.sb-group-label`,折叠态隐藏 brand 图标、collapse
+  按钮居中(chev-l/chev-r 翻转);展开态完全不变(AC4)。
+- **SandboxTree 折叠 (R2/R3)**: `WorkspacePage` 增 `treeCollapsed` state,
+  键 `mgr.treeCollapsed`(R4 两键互不影响);SandboxTree 增
+  `collapsed`/`onCollapseToggle` props + 折叠分支:每沙箱一个首字母圆
+  (`.ws-cavatar`,stopped 置灰),hover(`onMouseEnter`/`onMouseLeave` 挂
+  `.ws-cnode`)弹 `.ws-flyout` 浮层(绝对定位贴右侧),flyout 内按钮组
+  = 展开态 `buttonsOf` 同源(manifest 探测一致),stopped 沙箱按钮置灰 +
+  start 按钮(flyout footer),register 按钮;点击 launch **不关闭** flyout
+  (React mouseleave 看整个 DOM subtree,flyout 是 node child)。
+- **R5 翻转**: `@media (max-width: 560px)` flyout 左开(`right: 100%`)。
+- **CSS**: `.ws-cnode/.ws-cavatar/.ws-flyout/.ws-tree.collapsed` 全套,
+  flyout `max-height: 70vh + overflow-y auto`;折叠 rail 顶 collapse 按钮
+  (展开态居右、折叠态居中)。
+- **i18n**: `collapse/expandSidebar` + `collapse/expandTree` 双语言。
+- **spec**: directory-structure.md 补 App/sidebar 与 SandboxTree 折叠说明。
+
+### Key Findings
+
+- 折叠态 avatar 点击语义:最初 `onToggle`(展开树节点)在折叠态无意义,
+  改为 `onCollapseToggle`(展开整个树)——折叠态下一格即整栏。
+- flyout 点击保持的关键:React `onMouseLeave` 只在指针**离开整个子树**
+  时触发;flyout 作为 `.ws-cnode` 的 DOM child,鼠标从 avatar 移入 flyout
+  不触发关闭(连续开多个 pane)。
+- 折叠态 `.sb-head` 有 brand + collapse 两元素会挤出 48px——折叠态
+  隐藏 brand,让 collapse 按钮独占居中。
+- vnc 容器在 `container:` netns,与 aio-mgr-net 的 mgr-api 异网,wget 亦缺,
+  浏览器验证走不通 → 依 S2/S3/S4 惯例留宿主机目视。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `849cb9b` | feat(mgr): S5 侧栏折叠图标栏 + 沙箱树 flyout (09-10) |
+
+### Testing
+
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [静态审查] flyout hover/点击语义、stopped 置灰、两折叠键隔离、展开态
+  回归(折叠分支与展开分支完全 parallel)
+- [留宿主机] make mgr-up 重建后 AC1-AC5 目视:折叠/刷新保持、flyout
+  hover+连续开 pane、stopped 启动入口、展开态回归、窄屏翻转
+
+### Next Steps
+
+- S1-S5 五子任务全部完成,待宿主机一批实机 AC 后归档(batch2 父任务
+  跨子任务验收)。
+- S5 实机复核留宿主机。
+### Status
+
+[OK] S5 实现+检查+spec 更新完成,已提交 `849cb9b`(task 仍 in_progress,
+待实机 AC 后归档)。
