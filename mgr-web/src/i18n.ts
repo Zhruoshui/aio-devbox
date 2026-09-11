@@ -347,6 +347,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcUsageByModel: "各模型用量",
     mcUsageCostShare: "成本占比",
     mcUsageTotalTokens: "总 Tokens",
+    // S4: cross-sandbox bars + 14-day trend + day filter
+    mcUsageBySandbox: "各沙箱用量",
+    mcUsageTrend: "近 14 天趋势",
+    muDayFilter: "按日筛选",
+    muDayAll: "全部",
+    muColDay: "当日用量",
   },
   en: {
     brand: "Sandbox manager",
@@ -669,6 +675,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcUsageByModel: "Tokens by model",
     mcUsageCostShare: "Cost share",
     mcUsageTotalTokens: "Total tokens",
+    // S4: cross-sandbox bars + 14-day trend + day filter
+    mcUsageBySandbox: "Usage by sandbox",
+    mcUsageTrend: "Last 14 days",
+    muDayFilter: "Filter by day",
+    muDayAll: "All",
+    muColDay: "Day usage",
   },
 };
 

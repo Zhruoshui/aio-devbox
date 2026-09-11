@@ -18,13 +18,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getUsage } from "../api";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
-import { CostDonut, TokenBars, type ChartItem } from "./models/charts";
+import {
+  CostDonut,
+  DayTrend,
+  SandboxBars,
+  TokenBars,
+  type ChartItem,
+  type DayTrendItem,
+  type SandboxBarItem,
+} from "./models/charts";
 import {
   cacheHitDenom,
   cacheHitRate,
   fmtCost,
   fmtPct,
   fmtTokens,
+  type DayUsage,
+  type SandboxTotal,
   type SandboxUsageEntry,
   type UsageRow,
 } from "./models/types";
@@ -49,9 +59,13 @@ interface TaggedRow extends UsageRow {
 export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
   const [window, setWindow] = useState<UsageWindow>("today");
   const [entries, setEntries] = useState<SandboxUsageEntry[] | null>(null);
+  const [totals, setTotals] = useState<SandboxTotal[] | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(""); // "" = all sandboxes
+  // S4: day filter for the detail table — "" = all days ("全部"), else a
+  // "YYYY-MM-DD" date. Independent of the window switch (R4, AC3).
+  const [dayFilter, setDayFilter] = useState("");
 
   const fetchUsage = useCallback(async (w: UsageWindow): Promise<void> => {
     // `loading` only disables the refresh button — the in-page spinner is
@@ -60,6 +74,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
     try {
       const r = await getUsage(w);
       setEntries(r.sandboxes);
+      setTotals(r.totals);
       setError("");
       // Drop a selection that no longer exists (sandbox deleted/stopped).
       setSelected((sel) =>
@@ -104,7 +119,107 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
     return max;
   }, [entries, selected]);
 
-  const s = summarize(rows);
+  // S4: cross-sandbox bar items for the combined view (R1/AC1). Use mgr's
+  // totals when present; fall back to deriving from entries (old mgr).
+  const sandboxBars: SandboxBarItem[] = useMemo(() => {
+    const out: SandboxBarItem[] = [];
+    if (totals) {
+      for (const tb of totals) {
+        out.push({
+          label: tb.name,
+          value: tb.in + tb.out,
+          hasCost: tb.cost > 0,
+        });
+      }
+    } else {
+      for (const e of entries ?? []) {
+        if (e.error || !e.usage) continue;
+        let inT = 0;
+        let outT = 0;
+        let hasCost = false;
+        for (const r of e.usage.rows) {
+          inT += r.in;
+          outT += r.out;
+          if ((r.cost ?? 0) > 0) hasCost = true;
+        }
+        out.push({ label: e.name, value: inT + outT, hasCost });
+      }
+    }
+    return out.sort((a, b) => b.value - a.value);
+  }, [totals, entries]);
+
+  // S4: the single-sandbox 14-day trend (R2/R3/AC2). Derived from the
+  // selected sandbox's byDay; days without data are gap-filled to zero so
+  // the chart always spans the 14 calendar days.
+  const trendItems: DayTrendItem[] = useMemo(() => {
+    const byDay = current?.usage?.byDay;
+    if (!byDay) return [];
+    const byDate = new Map<string, DayTrendItem>();
+    for (const d of byDay) {
+      const ex = byDate.get(d.date) ?? { date: d.date, in: 0, out: 0, cost: 0 };
+      ex.in += d.in;
+      ex.out += d.out;
+      if (d.cost !== undefined) ex.cost = (ex.cost ?? 0) + d.cost;
+      byDate.set(d.date, ex);
+    }
+    // Last 14 calendar days ending today (UTC) — same span the backend clips
+    // to. The backend returns only days with data; we gap-fill the rest.
+    const out: DayTrendItem[] = [];
+    const today = new Date();
+    const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    for (let i = 13; i >= 0; i--) {
+      const ms = todayUtc - i * 86400000;
+      const d = new Date(ms);
+      const label = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      const item = byDate.get(label);
+      out.push(item ?? { date: label, in: 0, out: 0 });
+    }
+    return out;
+  }, [current]);
+
+  // Distinct dates present in the current (agent, model) rows for the
+  // single-sandbox view — the day-filter dropdown options.
+  const dayOptions: string[] = useMemo(() => {
+    const byDay = current?.usage?.byDay ?? [];
+    return [...new Set(byDay.map((d) => d.date))].sort().reverse();
+  }, [current]);
+
+  // S4: (agent, model) -> DayUsage on the selected day (single-sandbox view).
+  // When a day is selected, only rows that have usage that day are shown, and
+  // the date column shows that day's per-row value (R4, AC3). Null when no
+  // day is selected (the "全部" option) or in the combined view.
+  const onDay = useMemo(() => {
+    if (dayFilter === "" || selected === "") return null;
+    const byDay = current?.usage?.byDay ?? [];
+    const out = new Map<string, DayUsage>();
+    for (const d of byDay) {
+      if (d.date !== dayFilter) continue;
+      out.set(`${d.agent}|${d.model}`, d);
+    }
+    return out;
+  }, [dayFilter, current, selected]);
+
+  // Rows for the table: the active view's rows, narrowed to (agent, model)
+  // pairs that had usage on the selected day (when one is selected).
+  const visibleRows = useMemo(() => {
+    if (!onDay) return rows;
+    return rows.filter((r) => onDay.has(`${r.agent}|${r.model}`));
+  }, [rows, onDay]);
+
+  // Day filter only makes sense in the per-sandbox view (the combined view
+  // would need per-sandbox+day pairs, which byDay is not shaped for).
+  const showDayFilter = selected !== "" && dayOptions.length > 0;
+
+  // Reset the day filter when the selected sandbox changes (a date that
+  // exists in one sandbox may not in another — and a stale filter would
+  // silently show an empty table).
+  useEffect(() => {
+    // Previous selected value rides in dayFilter's closure; just clear when
+    // a per-sandbox selection is active or the selection changed.
+    setDayFilter("");
+  }, [selected]);
+
+  const s = summarize(visibleRows);
 
   return (
     <div className="page">
@@ -180,7 +295,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
           {t(lang, "muSandboxErr")}
           {current.error}
         </div>
-      ) : rows.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <div className="ml-empty">
           <p>{t(lang, "mcUsageEmpty")}</p>
         </div>
@@ -204,6 +319,29 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
 
           {/* charts */}
           <div className="ml-charts">
+            {/* S4/AC1: cross-sandbox bars in the combined view; click = jump
+             * to that sandbox's single view. */}
+            {selected === "" && sandboxBars.length > 0 && (
+              <div className="ml-chart-card">
+                <h3 className="ml-chart-title">
+                  {t(lang, "mcUsageBySandbox")}
+                </h3>
+                <SandboxBars
+                  items={sandboxBars}
+                  onSelect={(name) => setSelected(name)}
+                />
+              </div>
+            )}
+            {/* S4/R2 AC2: the 14-day trend in the per-sandbox view; hidden on
+             * old apps (no byDay) or when the sandbox has no trend data. */}
+            {selected !== "" && trendItems.length > 0 && (
+              <div className="ml-chart-card ml-trend-card">
+                <h3 className="ml-chart-title">
+                  {t(lang, "mcUsageTrend")}
+                </h3>
+                <DayTrend items={trendItems} />
+              </div>
+            )}
             {s.modelItems.length > 0 && (
               <div className="ml-chart-card">
                 <h3 className="ml-chart-title">
@@ -223,6 +361,28 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
           {/* detail table (sandbox column only in the combined view — the
            * per-sandbox view already names it in the selector) */}
           <div className="ml-chart-card ml-usage-table-card">
+            {/* S4/R4: day filter (per-sandbox view). "全部" = no filter; each
+             * option narrows the table to rows with usage on that day. */}
+            {showDayFilter && (
+              <div className="mu-day-filter">
+                <label htmlFor="mu-day-filter" className="mu-day-label">
+                  {t(lang, "muDayFilter")}
+                </label>
+                <select
+                  id="mu-day-filter"
+                  className="mu-day-select"
+                  value={dayFilter}
+                  onChange={(e) => setDayFilter(e.target.value)}
+                >
+                  <option value="">{t(lang, "muDayAll")}</option>
+                  {dayOptions.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="ml-table-scroll">
               <table className="ml-table ml-usage-table">
                 <thead>
@@ -231,6 +391,9 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
                     <th>{t(lang, "mcUsageColAgent")}</th>
                     <th>{t(lang, "mcUsageColProvider")}</th>
                     <th>{t(lang, "mcUsageColModel")}</th>
+                    {/* S4/R4: date column shown only in the per-sandbox view
+                     * with a day selected — value is that day's per-row usage. */}
+                    {onDay && <th>{t(lang, "muColDay")}</th>}
                     <th className="ml-num">{t(lang, "mcUsageColIn")}</th>
                     <th className="ml-num">{t(lang, "mcUsageColOut")}</th>
                     <th className="ml-num">{t(lang, "mcUsageCacheHit")}</th>
@@ -240,7 +403,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
+                  {visibleRows.map((r, i) => (
                     <tr key={i}>
                       {selected === "" && <td className="ml-cell-clip">{r.sandbox}</td>}
                       <td>{r.agent}</td>
@@ -250,6 +413,14 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
                       <td className="ml-cell-clip ml-cell-mono" title={r.model}>
                         {r.model}
                       </td>
+                      {onDay && (
+                        <td className="ml-num">
+                          {(() => {
+                            const d = onDay.get(`${r.agent}|${r.model}`);
+                            return d ? fmtTokens(d.in + d.out + d.cacheRead + d.cacheWrite) : "—";
+                          })()}
+                        </td>
+                      )}
                       <td className="ml-num">{fmtTokens(r.in)}</td>
                       <td className="ml-num">{fmtTokens(r.out)}</td>
                       <td className="ml-num">
@@ -266,7 +437,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
                     </tr>
                   ))}
                   <tr className="ml-table-total">
-                    <td colSpan={selected === "" ? 4 : 3}>{t(lang, "mcUsageTotal")}</td>
+                    <td colSpan={selected === "" ? 4 : onDay ? 4 : 3}>{t(lang, "mcUsageTotal")}</td>
                     <td className="ml-num">{fmtTokens(s.totalIn)}</td>
                     <td className="ml-num">{fmtTokens(s.totalOut)}</td>
                     <td className="ml-num">

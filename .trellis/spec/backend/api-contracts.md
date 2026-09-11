@@ -340,6 +340,44 @@ piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
 每写携带,ON CONFLICT 时 `COALESCE(?5, images.combo)`——NULL combo 不覆盖
 已有描述(旧行 A5 复用场景)。
 
+## GET /api/models/usage (app) — byDay 序列(S4,D5)
+
+响应在既有 `rows` + `generatedAt` 之上增 `byDay`:近 14 个自然日
+(UTC)`(date, agent, model)` 的逐日聚合。
+
+```json
+{ "rows": [/* 不变 */], "byDay": [{ "date": "2026-09-10", "agent": "pi",
+  "model": "claude-sonnet-4-6", "in": 100, "out": 50, "cacheRead": 10,
+  "cacheWrite": 5, "cost": 0.01 }], "generatedAt": "…Z" }
+```
+
+- **与 window 参数解耦**(S4 关键语义):byDay 恒定最近 14 天
+  `[today-13 … today]`(扫描器先累加日桶、后做窗口 cutoff,再按
+  `now_day` 裁剪)。today/7d 窗口的 byDay 不因此被截断;all 窗口也不吐
+  出全部历史。
+- 每项 `cost` 仅当来源记账了成本(pi/opencode);claude/codex 日项
+  `cost` 缺省 → 前端隐藏成本系列(AC4)。
+- 无数据的日子**不发合成行**——前端按 14 日跨度 gap-fill 到 0。
+- 与 `rows` 的时间窗口互相独立:选某个 window 不影响趋势图。
+- 向后兼容:旧前端(无 byDay 消费)忽略该字段;旧 app(无 byDay)不返回
+  → 新前端隐藏趋势图。
+
+## GET /api/usage (mgr) — totals 派生(S4,D5)
+
+响应在既有 `sandboxes` 之上增 `totals`:
+
+```json
+{ "sandboxes": [/* 不变 */], "totals": [{ "name": "sbx-a", "in": 123,
+  "out": 45, "cost": 0.015 }] }
+```
+
+- `totals` 是 **mgr 对已缓存 entries 的纯 sum**(design §2),不含重新
+  扫描:对每个非 error entry 的 `usage.rows` 累加 `in`/`out`/`cost`
+  (`cost` 缺失按 0);error entry 的项三个字段全 0。
+- 用于合计视图的「分沙箱条形图」;若无 totals(旧 mgr)前端从 entries
+  推算。
+- 不入缓存——由 30s 缓存的 entries 派生,命中缓存即算。
+
 ## images 管理端点(S3,D3)
 
 - `GET /api/images` — 每行 `{env_hash, tag, built_at, refcount, build_log,

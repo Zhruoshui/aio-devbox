@@ -2283,6 +2283,107 @@ body {
   border-top: 1px solid var(--border-soft);
 }
 
+/* S4: cross-sandbox bars (clickable rows), 14-day trend, day filter */
+
+/* each bar is a real <button> so the whole row is the click target */
+.ml-sbx-bar {
+  display: grid;
+  grid-template-columns: 130px 1fr 74px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0;
+  margin: 0 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.ml-sbx-bar:hover .ml-bar-track {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.ml-sbx-bar:hover .ml-bar-label {
+  color: var(--accent);
+}
+/* cost-less sandbox bars fall back to the neutral track (AC4 degrade) */
+.ml-bar-fill-nocost {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--muted) 0 4px,
+    transparent 4px 8px
+  );
+  opacity: 0.6;
+}
+
+.ml-trend-card {
+  grid-column: 1 / -1; /* the trend deserves full width under the bars */
+}
+.ml-trend {
+  width: 100%;
+}
+.ml-trend-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.ml-trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--space-3);
+}
+.ml-trend-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+/* the cost line swatch is a line, not a fill */
+.ml-trend-line-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--text);
+}
+.ml-trend-tick {
+  font-size: 10px;
+  fill: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* S4 day filter (per-sandbox detail table) */
+.mu-day-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.mu-day-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.mu-day-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  max-width: 160px;
+}
+.mu-day-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── discover modal ──────────────────────────────────────────────── */
 .ml-discover {
   width: min(560px, calc(100vw - 32px));

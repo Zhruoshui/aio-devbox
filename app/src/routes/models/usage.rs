@@ -79,8 +79,46 @@ pub struct UsageRow {
 #[derive(Debug, Serialize)]
 pub struct UsageResponse {
     pub rows: Vec<UsageRow>,
+    /// S4: last-14-days series, zero-filled (design §1.2). Independent of the
+    /// window param: the trend is always the recent 14 calendar days.
+    #[serde(rename = "byDay")]
+    pub by_day: Vec<DayUsage>,
     #[serde(rename = "generatedAt")]
     pub generated_at: String,
+}
+
+/// One day's usage for one (agent, model) — the R2 byDay series item.
+/// `date` is `YYYY-MM-DD` (UTC); `cost` present only when the source logged
+/// it (pi/opencode); claude/codex days carry None (the frontend hides the
+/// cost series, AC4).
+#[derive(Debug, Clone, Serialize)]
+pub struct DayUsage {
+    pub date: String,
+    pub agent: String,
+    pub model: String,
+    pub r#in: u64,
+    pub out: u64,
+    #[serde(rename = "cacheRead")]
+    pub cache_read: u64,
+    #[serde(rename = "cacheWrite")]
+    pub cache_write: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+}
+
+/// One scanner's full output: the aggregated rows (current, cross-day) plus
+/// the per-day bricks (S4). The scanners keep their existing row logic and
+/// additionally accumulate `by_day` from the per-record timestamp they
+/// already parse.
+pub struct UsageScan {
+    pub rows: Vec<UsageRow>,
+    pub by_day: Vec<DayUsage>,
+}
+
+/// Format a UTC day index (epoch / 86400) as `YYYY-MM-DD`.
+fn day_label(day: i64) -> String {
+    let (y, m, d) = days_to_ymd(day);
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 // ── cache ──────────────────────────────────────────────────────────
@@ -89,6 +127,7 @@ struct CacheEntry {
     at: Instant,
     window: String,
     rows: Vec<UsageRow>,
+    by_day: Vec<DayUsage>,
     generated_at: String,
 }
 
@@ -122,6 +161,7 @@ pub async fn usage(
             if entry.window == window && entry.at.elapsed() < CACHE_TTL {
                 return Json(UsageResponse {
                     rows: entry.rows.clone(),
+                    by_day: entry.by_day.clone(),
                     generated_at: entry.generated_at.clone(),
                 });
             }
@@ -143,20 +183,34 @@ pub async fn usage(
     let canonical = read_config(&state.models_file).unwrap_or_default();
 
     let mut buckets: BTreeMap<(String, Option<String>, String), UsageRow> = BTreeMap::new();
+    // S4 byDay merge: (date, agent, model) -> DayUsage.
+    let mut day_buckets: BTreeMap<(String, String, String), DayUsage> = BTreeMap::new();
+    let mut merge_day = |d: DayUsage| {
+        let key = (d.date.clone(), d.agent.clone(), d.model.clone());
+        day_buckets.entry(key).and_modify(|existing| {
+            existing.r#in += d.r#in;
+            existing.out += d.out;
+            existing.cache_read += d.cache_read;
+            existing.cache_write += d.cache_write;
+            if let Some(c) = d.cost {
+                existing.cost = Some(existing.cost.unwrap_or(0.0) + c);
+            }
+        }).or_insert(d);
+    };
 
     // Each scanner swallows its own errors and contributes nothing on failure.
-    for row in scan_pi(&home, &canonical, cutoff_secs) {
-        merge_row(&mut buckets, row);
-    }
-    for row in scan_opencode(&home, cutoff_ms) {
-        merge_row(&mut buckets, row);
-    }
-    for row in scan_claude(&home, cutoff_secs) {
-        merge_row(&mut buckets, row);
-    }
-    for row in scan_codex(&home, cutoff_secs) {
-        merge_row(&mut buckets, row);
-    }
+    let mut absorb = |scan: UsageScan| {
+        for row in scan.rows {
+            merge_row(&mut buckets, row);
+        }
+        for d in scan.by_day {
+            merge_day(d);
+        }
+    };
+    absorb(scan_pi(&home, &canonical, cutoff_secs));
+    absorb(scan_opencode(&home, cutoff_ms));
+    absorb(scan_claude(&home, cutoff_secs));
+    absorb(scan_codex(&home, cutoff_secs));
 
     let mut rows: Vec<UsageRow> = buckets.into_values().collect();
 
@@ -176,9 +230,14 @@ pub async fn usage(
             .then(a.model.cmp(&b.model))
     });
 
+    // S4: build the last-14-days zero-filled byDay series (design §1.2). The
+    // series is always 14 calendar days ending today, regardless of window.
+    let by_day = build_14_day_series(day_buckets, now_secs);
+
     let generated_at = format_iso_utc(now_secs);
     let resp = UsageResponse {
         rows: rows.clone(),
+        by_day: by_day.clone(),
         generated_at: generated_at.clone(),
     };
 
@@ -187,10 +246,40 @@ pub async fn usage(
         at: Instant::now(),
         window,
         rows,
+        by_day,
         generated_at,
     });
 
     Json(resp)
+}
+
+/// Build the byDay series from the merged day buckets (design §1.2).
+/// Clips to the recent 14 calendar days ending today ([today-13 … today]),
+/// regardless of the window param — the trend is always the recent 14 days.
+/// Emits ONLY the (date, agent, model) days that actually have data — no
+/// synthetic filler rows: the frontend gap-fills missing calendar days to 0
+/// on the trend (it knows the 14-day span). This keeps the payload honest
+/// (a day with no usage simply has no rows) and the buckets 1:1 with what
+/// was scanned. `YYY-MM-DD` compares lexicographically, so string bounds are
+/// a valid day-range filter.
+fn build_14_day_series(
+    buckets: BTreeMap<(String, String, String), DayUsage>,
+    now_secs: u64,
+) -> Vec<DayUsage> {
+    let today = (now_secs / 86400) as i64;
+    let start = day_label(today - 13);
+    let end = day_label(today);
+    let mut out: Vec<DayUsage> = buckets
+        .into_values()
+        .filter(|d| d.date >= start && d.date <= end)
+        .collect();
+    out.sort_by(|a, b| {
+        a.date
+            .cmp(&b.date)
+            .then(a.agent.cmp(&b.agent))
+            .then(a.model.cmp(&b.model))
+    });
+    out
 }
 
 /// Merge a row into the bucket map (sums tokens/cost for matching identity).
@@ -280,20 +369,21 @@ fn is_leap(y: i64) -> bool {
 /// Records without a `message` (e.g. the session header line) are skipped.
 /// Time filter: top-level `timestamp` (ISO8601) if parseable else file mtime.
 /// provider is joined from canonical (best-effort). Missing dir => nothing.
-pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Vec<UsageRow> {
+pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> UsageScan {
     let sessions = home.join(".pi/agent/sessions");
     if !sessions.is_dir() {
-        return Vec::new();
+        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
     }
     let files = match collect_jsonl(&sessions) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::pi", "collect jsonl: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
 
     let mut buckets: BTreeMap<String, UsageRow> = BTreeMap::new();
+    let mut day_buckets: BTreeMap<(i64, String), DayUsage> = BTreeMap::new();
     for file in files {
         let mtime_secs = file_mtime_secs(&file);
         let reader = match std::fs::File::open(&file) {
@@ -327,8 +417,33 @@ pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Ve
                 Some(u) => u,
                 None => continue,
             };
-            // Window filter: timestamp is at the record root (verified).
+            // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
+            // window-independent: the scanner must see every record regardless
+            // of the window cutoff).
             let t = parse_timestamp_secs(&v).unwrap_or(mtime_secs);
+            let day_bucket = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
+                date: String::new(),
+                agent: "pi".into(),
+                model: model.clone(),
+                r#in: 0,
+                out: 0,
+                cache_read: 0,
+                cache_write: 0,
+                cost: None,
+            });
+            day_bucket.r#in += as_u64(usage.get("input"));
+            day_bucket.out += as_u64(usage.get("output"));
+            day_bucket.cache_read += as_u64(usage.get("cacheRead"));
+            day_bucket.cache_write += as_u64(usage.get("cacheWrite"));
+            if let Some(c) = usage
+                .get("cost")
+                .and_then(|c| c.get("total"))
+                .and_then(|t| t.as_f64())
+            {
+                day_bucket.cost = Some(day_bucket.cost.unwrap_or(0.0) + c);
+            }
+
+            // Window filter: timestamp is at the record root (verified).
             if t < cutoff_secs {
                 continue;
             }
@@ -361,7 +476,15 @@ pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Ve
     for row in &mut out {
         row.provider = find_provider_for_model(canonical, &row.model);
     }
-    out
+    let by_day = day_buckets
+        .into_iter()
+        .map(|((day, model), mut d)| {
+            d.date = day_label(day);
+            d.model = model;
+            d
+        })
+        .collect();
+    UsageScan { rows: out, by_day }
 }
 
 /// Find the canonical provider id whose models contains `model_id` (best-effort).
@@ -378,10 +501,10 @@ fn find_provider_for_model(canonical: &CanonicalConfig, model_id: &str) -> Optio
 
 /// Scan opencode's SQLite DB (read-only, WAL-safe). Aggregates assistant
 /// message rows by (providerID, modelID). Missing db / read error => nothing.
-pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
+pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
     let db = home.join(".local/share/opencode/opencode.db");
     if !db.exists() {
-        return Vec::new();
+        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
     }
     let conn = match rusqlite::Connection::open_with_flags(
         &db,
@@ -390,7 +513,7 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         Ok(c) => c,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "open db: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
 
@@ -398,7 +521,7 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         Ok(s) => s,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "prepare: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
     let rows_iter = match stmt.query_map([], |row| {
@@ -409,11 +532,12 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         Ok(it) => it,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "query: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
 
     let mut buckets: BTreeMap<(String, String), UsageRow> = BTreeMap::new();
+    let mut day_buckets: BTreeMap<(i64, String), DayUsage> = BTreeMap::new();
     for item in rows_iter {
         let (data, time_created) = match item {
             Ok(v) => v,
@@ -426,6 +550,40 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         // Only assistant rows carry tokens.
         if v.get("role").and_then(|r| r.as_str()) != Some("assistant") {
             continue;
+        }
+        // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
+        // window-independent; opencode has no record when time_created is None).
+        let day: Option<i64> = time_created.map(|ms| (ms.max(0) as u64 / 86400000) as i64);
+        if let Some(day) = day {
+            let tokens = v.get("tokens").and_then(|t| t.as_object());
+            let model_id = v
+                .get("modelID")
+                .and_then(|x| x.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let d = day_buckets
+                .entry((day, model_id.clone()))
+                .or_insert(DayUsage {
+                    date: String::new(),
+                    agent: "opencode".into(),
+                    model: model_id.clone(),
+                    r#in: 0,
+                    out: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    cost: None,
+                });
+            if let Some(tokens) = tokens {
+                d.r#in += as_u64(tokens.get("input"));
+                d.out += as_u64(tokens.get("output"));
+                if let Some(cache) = tokens.get("cache").and_then(|c| c.as_object()) {
+                    d.cache_read += as_u64(cache.get("read"));
+                    d.cache_write += as_u64(cache.get("write"));
+                }
+            }
+            if let Some(c) = v.get("cost").and_then(|c| c.as_f64()) {
+                d.cost = Some(d.cost.unwrap_or(0.0) + c);
+            }
         }
         // Window filter (time_created is ms epoch).
         if let Some(ms) = time_created {
@@ -448,7 +606,7 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         let row = buckets.entry(key).or_insert(UsageRow {
             agent: "opencode".into(),
             provider: Some(provider_id),
-            model: model_id,
+            model: model_id.clone(),
             r#in: 0,
             out: 0,
             cache_read: 0,
@@ -470,7 +628,18 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
         }
     }
 
-    buckets.into_values().collect()
+    let by_day = day_buckets
+        .into_iter()
+        .map(|((day, model), mut d)| {
+            d.date = day_label(day);
+            d.model = model;
+            d
+        })
+        .collect();
+    UsageScan {
+        rows: buckets.into_values().collect(),
+        by_day,
+    }
 }
 
 // ── claude scan ────────────────────────────────────────────────────
@@ -478,20 +647,21 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> Vec<UsageRow> {
 /// Scan claude code session jsonl files (guard with dir existence).
 /// assistant records carry `message.model` + `message.usage.*` + line-level
 /// `timestamp` (ISO). No cost in claude logs => cost omitted.
-pub fn scan_claude(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
+pub fn scan_claude(home: &Path, cutoff_secs: u64) -> UsageScan {
     let projects = home.join(".claude/projects");
     if !projects.is_dir() {
-        return Vec::new();
+        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
     }
     let files = match collect_jsonl(&projects) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::claude", "collect jsonl: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
 
     let mut buckets: BTreeMap<String, UsageRow> = BTreeMap::new();
+    let mut day_buckets: BTreeMap<(i64, String), DayUsage> = BTreeMap::new();
     for file in files {
         let mtime_secs = file_mtime_secs(&file);
         let reader = match std::fs::File::open(&file) {
@@ -520,6 +690,24 @@ pub fn scan_claude(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
                 None => continue,
             };
             let t = parse_timestamp_secs(&v).unwrap_or(mtime_secs);
+            // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
+            // window-independent; claude logs no cost => cost stays None).
+            let day = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
+                date: String::new(),
+                agent: "claude".into(),
+                model: model.clone(),
+                r#in: 0,
+                out: 0,
+                cache_read: 0,
+                cache_write: 0,
+                cost: None,
+            });
+            day.r#in += as_u64(usage.get("input_tokens"));
+            day.out += as_u64(usage.get("output_tokens"));
+            day.cache_read += as_u64(usage.get("cache_read_input_tokens"));
+            day.cache_write += as_u64(usage.get("cache_creation_input_tokens"));
+
+            // Window filter.
             if t < cutoff_secs {
                 continue;
             }
@@ -540,7 +728,17 @@ pub fn scan_claude(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
         }
     }
 
-    buckets.into_values().collect()
+    let by_day = day_buckets
+        .into_iter()
+        .map(|((day, _), mut d)| {
+            d.date = day_label(day);
+            d
+        })
+        .collect();
+    UsageScan {
+        rows: buckets.into_values().collect(),
+        by_day,
+    }
 }
 
 // ── codex scan ─────────────────────────────────────────────────────
@@ -548,20 +746,21 @@ pub fn scan_claude(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
 /// Scan codex session jsonl files (guard with dir existence). For each file,
 /// track the most recent TurnContext model name; `token_count` events
 /// contribute their `info.total_token_usage` to that model's bucket.
-pub fn scan_codex(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
+pub fn scan_codex(home: &Path, cutoff_secs: u64) -> UsageScan {
     let sessions = home.join(".codex/sessions");
     if !sessions.is_dir() {
-        return Vec::new();
+        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
     }
     let files = match collect_jsonl(&sessions) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::codex", "collect jsonl: {e}");
-            return Vec::new();
+            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
         }
     };
 
     let mut buckets: BTreeMap<String, UsageRow> = BTreeMap::new();
+    let mut day_buckets: BTreeMap<(i64, String), DayUsage> = BTreeMap::new();
     for file in files {
         let mtime_secs = file_mtime_secs(&file);
         let reader = match std::fs::File::open(&file) {
@@ -612,10 +811,27 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
                 None => continue,
             };
             let t = parse_timestamp_secs(&v).unwrap_or(mtime_secs);
+            // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
+            // window-independent; codex logs no cost => cost stays None).
+            let model = last_model.clone().unwrap_or_else(|| "unknown".to_string());
+            let day = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
+                date: String::new(),
+                agent: "codex".into(),
+                model: model.clone(),
+                r#in: 0,
+                out: 0,
+                cache_read: 0,
+                cache_write: 0,
+                cost: None,
+            });
+            day.r#in += as_u64(total.get("input_tokens"));
+            day.out += as_u64(total.get("output_tokens"));
+            day.cache_read += as_u64(total.get("cached_input_tokens"));
+
+            // Window filter.
             if t < cutoff_secs {
                 continue;
             }
-            let model = last_model.clone().unwrap_or_else(|| "unknown".to_string());
             let row = buckets.entry(model.clone()).or_insert(UsageRow {
                 agent: "codex".into(),
                 provider: None,
@@ -632,7 +848,17 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> Vec<UsageRow> {
         }
     }
 
-    buckets.into_values().collect()
+    let by_day = day_buckets
+        .into_iter()
+        .map(|((day, _), mut d)| {
+            d.date = day_label(day);
+            d
+        })
+        .collect();
+    UsageScan {
+        rows: buckets.into_values().collect(),
+        by_day,
+    }
 }
 
 // ── cost backfill (task 08-27-usage-correctness, design §2) ────────
@@ -985,6 +1211,105 @@ mod tests {
         assert_eq!(window_cutoff("all", 1_700_000_000), 0);
     }
 
+    // --- S4 byDay ---
+
+    /// `day_label` renders epoch/86400 as the UTC calendar date (design §1.1).
+    #[test]
+    fn day_label_formats_utc_date() {
+        // 2023-11-14T22:13:20Z -> day index, label is the calendar date.
+        let day = (1_700_000_000 / 86400) as i64;
+        assert_eq!(day_label(day), "2023-11-14");
+        // Epoch day 0.
+        assert_eq!(day_label(0), "1970-01-01");
+    }
+
+    /// build_14_day_series clips to [today-13 … today] and drops older days.
+    #[test]
+    fn build_series_clips_to_recent_14_days() {
+        let now = 1_700_000_000; // 2023-11-14
+        let today = (now / 86400) as i64;
+        let mut buckets: BTreeMap<(String, String, String), DayUsage> = BTreeMap::new();
+        // A day inside the window.
+        buckets.insert(
+            (day_label(today - 3), "pi".into(), "m".into()),
+            DayUsage {
+                date: day_label(today - 3),
+                agent: "pi".into(),
+                model: "m".into(),
+                r#in: 10,
+                out: 1,
+                cache_read: 0,
+                cache_write: 0,
+                cost: None,
+            },
+        );
+        // A day older than 14 days — must be clipped.
+        buckets.insert(
+            (day_label(today - 20), "pi".into(), "old".into()),
+            DayUsage {
+                date: day_label(today - 20),
+                agent: "pi".into(),
+                model: "old".into(),
+                r#in: 999,
+                out: 0,
+                cache_read: 0,
+                cache_write: 0,
+                cost: None,
+            },
+        );
+        let out = build_14_day_series(buckets, now);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].model, "m");
+        assert_eq!(out[0].date, day_label(today - 3));
+    }
+
+    /// A single JSONL file with records on two days produces per-day buckets
+    /// (integration-ish: exercises the real scan_pi by_day accumulation).
+    #[test]
+    fn pi_scan_accumulates_by_day() {
+        let dir = temp_dir();
+        let sessions = dir.join(".pi/agent/sessions/x--");
+        std::fs::create_dir_all(&sessions).unwrap();
+        // day 0 = 2023-11-14 (epoch day 19675), day 1 = next day.
+        let d0 = 1_700_000_000i64;
+        let d1 = d0 + 86400;
+        let ts0 = format_iso_utc(d0 as u64);
+        let ts1 = format_iso_utc(d1 as u64);
+        let lines = vec![
+            format!(
+                r#"{{"type":"assistant","timestamp":"{ts0}","message":{{"model":"m1","usage":{{"input":100,"output":10}}}}}}"#
+            ),
+            format!(
+                r#"{{"type":"assistant","timestamp":"{ts0}","message":{{"model":"m1","usage":{{"input":50,"output":5}}}}}}"#
+            ),
+            format!(
+                r#"{{"type":"assistant","timestamp":"{ts1}","message":{{"model":"m1","usage":{{"input":7}}}}}}"#
+            ),
+        ];
+        std::fs::write(sessions.join("s.jsonl"), lines.join("\n")).unwrap();
+
+        let scan = scan_pi(&dir, &CanonicalConfig::default(), 0);
+        // Aggregated rows still sum all records (100+50+7).
+        let m1 = scan.rows.iter().find(|r| r.model == "m1").unwrap();
+        assert_eq!(m1.r#in, 157);
+        // by_day splits into two days.
+        let d0_label = day_label(d0 / 86400);
+        let d1_label = day_label(d1 / 86400);
+        assert_eq!(scan.by_day.len(), 2);
+        let d0_item = scan
+            .by_day
+            .iter()
+            .find(|d| d.date == d0_label && d.model == "m1")
+            .unwrap();
+        assert_eq!(d0_item.r#in, 150);
+        let d1_item = scan
+            .by_day
+            .iter()
+            .find(|d| d.date == d1_label && d.model == "m1")
+            .unwrap();
+        assert_eq!(d1_item.r#in, 7);
+    }
+
     // --- format_iso_utc ---
 
     #[test]
@@ -1093,7 +1418,7 @@ mod tests {
 
         let canonical = CanonicalConfig::default();
         // Cutoff = 0 (all): includes the pre-cutoff record too.
-        let all_rows = scan_pi(&dir, &canonical, 0);
+        let all_rows = scan_pi(&dir, &canonical, 0).rows;
         let m1_all = all_rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1_all.r#in, 100 + 200 + 999);
         assert_eq!(m1_all.out, 50);
@@ -1104,7 +1429,7 @@ mod tests {
 
         // Cutoff in the future: only post-cutoff records.
         let future_cut = 2_000_000_000;
-        let rows = scan_pi(&dir, &canonical, future_cut);
+        let rows = scan_pi(&dir, &canonical, future_cut).rows;
         let m1 = rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1.r#in, 300); // 100 + 200, not 999
         let m2 = rows.iter().find(|r| r.model == "m2").unwrap();
@@ -1136,7 +1461,7 @@ mod tests {
         .unwrap();
 
         let canonical = CanonicalConfig::default();
-        let rows = scan_pi(&dir, &canonical, 0);
+        let rows = scan_pi(&dir, &canonical, 0).rows;
         assert!(rows.iter().all(|r| r.model != "root-level"));
         let nested = rows.iter().find(|r| r.model == "nested").unwrap();
         assert_eq!(nested.r#in, 42);
@@ -1146,7 +1471,7 @@ mod tests {
     fn pi_scan_missing_dir_returns_empty() {
         let dir = temp_dir();
         let canonical = CanonicalConfig::default();
-        let rows = scan_pi(&dir, &canonical, 0);
+        let rows = scan_pi(&dir, &canonical, 0).rows;
         assert!(rows.is_empty());
     }
 
@@ -1173,7 +1498,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let rows = scan_pi(&dir, &canonical, 0);
+        let rows = scan_pi(&dir, &canonical, 0).rows;
         assert_eq!(rows[0].provider.as_deref(), Some("my-prov"));
 
         // Unmatched model => provider None.
@@ -1182,7 +1507,7 @@ mod tests {
             r#"{"type":"assistant","timestamp":"2099-01-01T00:00:00Z","message":{"role":"assistant","model":"unknown-model","usage":{"input":1}}}"#,
         )
         .unwrap();
-        let rows = scan_pi(&dir, &canonical, 0);
+        let rows = scan_pi(&dir, &canonical, 0).rows;
         let un = rows.iter().find(|r| r.model == "unknown-model").unwrap();
         assert!(un.provider.is_none());
     }
@@ -1226,7 +1551,7 @@ mod tests {
         conn.execute("CREATE TABLE outdb.message AS SELECT * FROM message", []).unwrap();
         drop(conn);
 
-        let rows = scan_opencode(&dir, 1_000_000);
+        let rows = scan_opencode(&dir, 1_000_000).rows;
         let m1 = rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1.r#in, 100);
         assert_eq!(m1.out, 50);
@@ -1247,7 +1572,7 @@ mod tests {
     #[test]
     fn opencode_scan_missing_db_returns_empty() {
         let dir = temp_dir();
-        let rows = scan_opencode(&dir, 0);
+        let rows = scan_opencode(&dir, 0).rows;
         assert!(rows.is_empty());
     }
 
@@ -1269,7 +1594,7 @@ mod tests {
         ];
         std::fs::write(projects.join("s.jsonl"), lines.join("\n")).unwrap();
 
-        let rows = scan_claude(&dir, 2_000_000_000);
+        let rows = scan_claude(&dir, 2_000_000_000).rows;
         assert_eq!(rows.len(), 1);
         let r = &rows[0];
         assert_eq!(r.model, "claude-3");
@@ -1284,7 +1609,7 @@ mod tests {
     #[test]
     fn claude_scan_missing_dir_returns_empty() {
         let dir = temp_dir();
-        let rows = scan_claude(&dir, 0);
+        let rows = scan_claude(&dir, 0).rows;
         assert!(rows.is_empty());
     }
 
@@ -1309,7 +1634,7 @@ mod tests {
         ];
         std::fs::write(sessions.join("rollout-x.jsonl"), lines.join("\n")).unwrap();
 
-        let rows = scan_codex(&dir, 2_000_000_000);
+        let rows = scan_codex(&dir, 2_000_000_000).rows;
         let gpt5 = rows.iter().find(|r| r.model == "gpt-5").unwrap();
         assert_eq!(gpt5.r#in, 100);
         assert_eq!(gpt5.out, 50);
@@ -1324,7 +1649,7 @@ mod tests {
     #[test]
     fn codex_scan_missing_dir_returns_empty() {
         let dir = temp_dir();
-        let rows = scan_codex(&dir, 0);
+        let rows = scan_codex(&dir, 0).rows;
         assert!(rows.is_empty());
     }
 
@@ -1406,6 +1731,7 @@ mod tests {
                 cache_write: 0,
                 cost: None,
             }],
+            by_day: vec![],
             generated_at: "2023-11-14T22:13:20Z".into(),
         };
         assert!(entry.at.elapsed() < CACHE_TTL);
@@ -1432,6 +1758,7 @@ mod tests {
                 cache_write: 0,
                 cost: Some(0.1),
             }],
+            by_day: vec![],
             generated_at: "2023-11-14T22:13:20Z".to_string(),
         };
         let json = serde_json::to_value(&resp).unwrap();
@@ -1460,6 +1787,7 @@ mod tests {
         let generated_at = format_iso_utc(1_700_000_000);
         let resp = UsageResponse {
             rows: Vec::new(),
+            by_day: vec![],
             generated_at: generated_at.clone(),
         };
         let json = serde_json::to_value(&resp).unwrap();

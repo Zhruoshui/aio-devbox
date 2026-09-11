@@ -105,6 +105,14 @@ The live channel is how the UI absorbs hand-edits made in the agent's NATIVE fil
 | codex (when installed) | `~/.codex/sessions/**/*.jsonl` | `token_count` event `total_token_usage` |
 
 - Window: today / 7d / all; cutoff injected into pure scan helpers. 30s process-global cache keyed by window; `?refresh=1` bypasses.
+- **byDay 序列 (S4, D5)**: 响应增 `byDay`——近 14 自然日的 `(date, agent,
+  model)` 逐日聚合,独立于 window 参数。每扫描器在**窗口 cutoff 之前**先
+  累加日桶(`t / 86400`),handler 合并后按 `now_day-13..=now_day` 裁剪;
+  `day_label(day)` 用 `days_to_ymd` 格式化 `YYYY-MM-DD`。cost 同 rows 规则
+  (pi/opencode 有、claude/codex 无);无数据的日子**不发合成行**(前端
+  gap-fill 到 0)。扫描器返回类型统一改为 `UsageScan { rows, by_day }`。
+- **Zero-row filter caveat (S4)**: 零行过滤(见下)只作用于 `rows`;`byDay`
+  不受其影响(日桶在过滤前累加).
 - Every record is fallible and skipped; one corrupt record never fails the response.
 - **Zero-row filter (08-27-usage-correctness)**: after merging, the handler drops rows where
   `in+out+cacheRead+cacheWrite == 0` (noise rows like unused free models). Scan-level contracts
