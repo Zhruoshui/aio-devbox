@@ -224,24 +224,44 @@ mgr 是模型配置唯一真相源(D6),**per-profile**(unified Phase 4, D8):
 
 1. **真相源**: kv 表 `models_profiles` 键,值 `{"version": <u64 全局递增>,
    "profiles": [{"id", "name", "config": <CanonicalConfig>}], "assignments":
-   {"<sandbox-name>": "<profile-id>"}}`。PUT 成功才 bump version(version
-   全局非 per-profile——拉取端深比较,跨 profile 的 bump 只多一次跳过
-   比较)。kv 只可能写入通过 validate 的 JSON,因此 mgr 侧无 app 的
-   corrupt-move-aside 分支(app models.json 是文件、mgr 是 kv——损坏
-   语义不同是**有意的**)。
+   {"<sandbox-name>": {"profile": "<id>" | null, "agents": <subset> | null}}}`。
+   PUT 成功才 bump version(version 全局非 per-profile——拉取端深比较,
+   跨 profile 的 bump 只多一次跳过比较)。kv 只可能写入通过 validate 的
+   JSON,因此 mgr 侧无 app 的 corrupt-move-aside 分支(app models.json 是
+   文件、mgr 是 kv——损坏语义不同是**有意的**)。
+   **S2 assignments 形状**: value 从裸字符串升级为 `{profile, agents}`
+   (design §1.1)。反序列化兼容旧裸字符串 `"<profile-id>"`(= `agents:
+   None` 全指派,AC4);`agents` 语义: None = 全指派、`[]` = 零指派、
+   `[names]` = 精确子集。旧代码读新形状会失败——**回滚前须手工把 kv
+   assignments value 改回裸字符串**(implement 回滚节)。
 2. **迁移(双向兼容)**: 读到旧键 `models_config`(单配置时代)→ 转为
    `id: "default"` profile + **全部现存沙箱指派到它**(升级行为零变化),
    先写新键再删旧键——中间崩溃则下次 boot 幂等重跑;回滚的 mgr 读到
    新键缺失 → 读回旧键。`default` id 与 `gen_preset_id` 风格的
    `profile-<5hex>` id 均由后端持有。
 3. **拉取端点**: `GET /api/models/sync?name=<sandbox>` 返回该沙箱**所指派
-   profile** 的**未 mask** canonical(明文 key)。**404 矩阵**(app 按
-   "未指派,保持本地"静默处理): 无 name / 未知沙箱 / 未指派,三者 404
-   且响应**不可区分**(不向任意调用方泄露沙箱名存在性)。明文边界同
-   D6/D9 已接受: mgr-api 不发布宿主端口、aio-mgr-net 不出宿主。**不要**
-   在 mgr-web 里调它,浏览器走 masked 的 `GET /api/models/config?profile=`。
-   请求与响应形状有处理器级测试双向锁定(`sync_handler_shape_*` /
-   `sync_payload_decodes_*` + `sync_url_carries_sandbox_name_query`)。
+   profile** 的**未 mask** canonical(明文 key)+ `agents` 子集字段
+   (S2: None/缺省 = 全指派;数组 = 精确子集)。**404 矩阵**(app 按
+   "未指派,保持本地"静默处理): 无 name / 未知沙箱 / 未指派 / **零指派
+   (agents: [])**,四种 404 且响应**不可区分**(不向任意调用方泄露沙箱名
+   存在性;零指派让沙箱保持本地 = AC3)。明文边界同 D6/D9 已接受:
+   mgr-api 不发布宿主端口、aio-mgr-net 不出宿主。**不要**在 mgr-web 里调
+   它,浏览器走 masked 的 `GET /api/models/config?profile=`。请求与响应
+   形状有处理器级测试双向锁定(`sync_handler_shape_*`(现含 agents) /
+   `sync_payload_decodes_*` + `sync_url_carries_sandbox_name_query`,新增
+   `sync_payload_carries_agents_and_empty_agents_404s`)。
+4. **沙箱侧**: composegen 给 app 注入 `MGR_URL=http://mgr-api:8089` +
+   `MGR_SANDBOX_NAME=<name>`(拉取身份);启动拉一次 + 60s 周期;深比较
+   (serde_json 全量等值)**config + 上次应用的 agent 子集**(S2——子集变了
+   也要重渲染,`last_agents` 存于 loop 状态,进程重启后首拉重渲,幂等)
+  不同才 `write_config` + `apply_selected_agents`(过滤变体;None = 全量
+   = 旧 `apply_all_agents` 语义,与 apply/:agent handler 共用
+   `render_agent`,单一渲染路径,四个 renderer 零改动)。失败语义两档:
+   **404 = debug + 保持本地**(未指派/解绑/零指派契约,不是错误);
+   其余(transport/非 200/解析失败)= warn 一次 + 保持本地。两者都不写
+   不退。`MGR_URL` 未设置 = 存量栈,零行为变化(guard 恒通、不 spawn);
+   有 MGR_URL 无 MGR_SANDBOX_NAME(旧 compose)= 发无名请求,mgr 404,
+   同样静默保持本地。
 4. **沙箱侧**: composegen 给 app 注入 `MGR_URL=http://mgr-api:8089` +
    `MGR_SANDBOX_NAME=<name>`(拉取身份);启动拉一次 + 60s 周期;深比较
    (serde_json 全量等值)不同才 `write_config` + `apply_all_agents`(与
@@ -253,13 +273,17 @@ mgr 是模型配置唯一真相源(D6),**per-profile**(unified Phase 4, D8):
    同样静默保持本地。
 
 **指派端点**: `PUT /api/sandboxes/:name/model_profile`,body
-`{"profile": "<id>" | null}`(null/缺失 = 解绑)。纯 kv 写,**绝不触发
-recreate**——沙箱下轮 60s 拉取生效;与 `PUT /api/sandboxes/:name`(env
-改动走 recreate job)是两条独立路由,不得合并。adopted 行同样可指派
-(无 MGR_URL 不拉取,指派惰性记录)。**删除/注销沙箱必须同步清掉其
-assignment**(jobs.rs delete 与 unadopt 都带)——残留条目会被同名新建的
-沙箱静默继承。`sandbox_json` 增 `model_profile` 字段(id 或 null)。
-profile CRUD: 删最后一个 profile 400;删除时解绑其全部 assignments。
+`{"profile": "<id>" | null, "agents": <subset> | null}`(profile null/缺失
+= 解绑)。**agents 整份替换**: 省略/缺省 = 全指派(旧客户端兼容,AC4)、
+`[]` = 零指派(沙箱下一拉 404 → 保持本地)、数组 = 精确子集(仅渲染
+勾选 agent,未勾选 agent 的本地配置不动,R3)。未知 agent 名 400
+(`VALID_AGENTS` 白名单)。纯 kv 写,**绝不触发 recreate**——沙箱下轮 60s
+拉取生效;与 `PUT /api/sandboxes/:name`(env 改动走 recreate job)是两条
+独立路由,不得合并。adopted 行同样可指派(无 MGR_URL 不拉取,指派惰性
+记录)。**删除/注销沙箱必须同步清掉其 assignment**(jobs.rs delete 与
+unadopt 都带)——残留条目会被同名新建的沙箱静默继承。`sandbox_json`
+增 `model_profile`(id 或 null)+ `model_agents`(null = 全指派,旧数据
+兼容)。profile CRUD: 删最后一个 profile 400;删除时解绑其全部 assignments。
 
 **写降级矩阵**(不变): MGR_URL 设置时 app 侧 6 个写接口统一 403 body
 `managed-by-mgr`(PUT config、import/pi、apply/:agent、provider PUT/
@@ -277,6 +301,11 @@ GET 类(config/agents/usage/catalog/managed)与 discover/test 探测**不降级*
 canonical(明文)与 native render 在 ≤60s 内更新、B 不动;解绑后该沙箱
 保持本地(404 → debug 不写);旧 `models_config` 键升级后自动迁移且全
 沙箱行为不变;`/api/usage` 含各 running 沙箱条目且单沙箱挂掉不整体失败。
+**S2 (AC2-AC4)**: 沙箱 A 指派 profile P + 仅 pi/opencode → ≤60s 内
+`~/.pi` 配置更新、`~/.claude`/`~/.codex` 不动;agent 全不勾(零指派)→
+拉取后本地配置完全不动;旧 kv `{"<sbx>": "<profile-id>"}` 形状读取为
+全指派不回归;`agentSubsetSummary` 的 `pi+2` 摘要与 EditPage/快捷指派
+的勾选 → PUT → 60s 生效闭环。
 
 **mgr 不提供的端点**(沙箱本地文件操作,mgr 语义不成立,mgr-web 移植
 时裁掉): `/api/models/agents`、`apply/:agent`、`agents/:agent/provider/

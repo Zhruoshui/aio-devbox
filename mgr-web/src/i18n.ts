@@ -202,6 +202,15 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mpAssignTo: "模型 Profile",
     mpAssignHint:
       "指派后该沙箱定期拉取此 profile（约 1 分钟内生效），无需重建容器；解绑后沙箱保持本地模型配置。",
+    // S2 agent subset (D4): which agent configs the assignment renders
+    mpAgents: "Agent 子集",
+    mpAgentsHint:
+      "勾选的 agent 才会渲染配置文件；未勾选的 agent 保持本地配置不动。零勾选 = 沙箱拉取后配置完全不变。",
+    mpAgentsAll: "全部 agent",
+    mpQuickAssign: "快捷指派",
+    mpQuickAssignHint: "保存后约 1 分钟内生效，无需重建容器。",
+    mpQuickSave: "保存",
+    mpAgentsNone: "未勾选任何 agent（拉取后本地配置不变）",
     mpNoProfiles: "（无 profile）",
     mcProviders: "供应商库",
     mcProvidersSub: "统一管理各 agent 使用的 API 供应商、密钥与模型目录。",
@@ -213,6 +222,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcNoBoundAgents: "未被任何 agent 绑定",
     mcBoundAgentsSub: "以下 agent 正在使用这个供应商：",
     mcAssign: "分配",
+    // S2 provider card wall (agent tabs, R1)
+    maProviderCards: "供应商（点击卡片切换）",
+    maActive: "使用中",
     maPresetHeading: "预设",
     mcAddProvider: "新增供应商",
     mcDeleteProvider: "删除",

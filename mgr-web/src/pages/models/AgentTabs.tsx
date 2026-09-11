@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
-import { incompatibleReason, type CanonicalConfig } from "./types";
+import { incompatibleReason, protocolLabel, type CanonicalConfig } from "./types";
 import { MgrNotice, type SandboxLink } from "./MgrNotice";
 import { ModelPicker } from "./ModelPicker";
 
@@ -63,6 +63,61 @@ export function AgentTabs({
       </div>
 
       <MgrNotice links={sandboxLinks} lang={lang} onGoWorkspace={onGoWorkspace} />
+
+      {/* S2 (R1): provider card wall — click a card to point this agent's
+       * assignment at that provider (one-click switch, cc-switch-style).
+       * The card for the CURRENTLY-assigned provider is highlighted; the
+       * provider dropdown below still handles incompatible providers /
+       * explicit model picking. */}
+      <div className="ml-agent-cards">
+        <div className="ml-sec-head">
+          <h2>{t(lang, "maProviderCards")}</h2>
+        </div>
+        <div className="ml-grid">
+          {providerList.map(([id, p]) => {
+            const isActive = id === currentProviderId;
+            return (
+              <div
+                key={id}
+                className={`ml-card${isActive ? " is-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-label={p.name || id}
+                aria-current={isActive ? "true" : undefined}
+                onClick={() => {
+                  onUpdateAssignment(agent, { provider: id });
+                  setPickerOpen(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onUpdateAssignment(agent, { provider: id });
+                    setPickerOpen(false);
+                  }
+                }}
+              >
+                <div className="ml-card-head">
+                  <div className="ml-card-main">
+                    <span className="ml-badge ml-badge-protocol" title={p.api}>
+                      {protocolLabel(p.api)}
+                    </span>
+                    <span className="ml-card-name">{p.name || id}</span>
+                  </div>
+                  {isActive && <span className="ml-badge ml-badge-current">{t(lang, "maActive")}</span>}
+                </div>
+                <div className="ml-card-url" title={p.baseUrl}>
+                  {p.baseUrl || "—"}
+                </div>
+                <div className="ml-card-meta">
+                  <span>
+                    {p.models.length} {t(lang, "mcModels")}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* assignment card */}
       <div className="ml-form-card">

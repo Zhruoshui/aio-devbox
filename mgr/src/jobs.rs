@@ -314,7 +314,7 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
                 // entry would be silently inherited by a future sandbox
                 // created under the same name. Best-effort — a failure here
                 // must not fail the teardown (log-and-continue).
-                if let Err(e) = crate::models::set_assignment(&conn, &name, None) {
+                if let Err(e) = crate::models::set_assignment(&conn, &name, None, None) {
                     tracing::warn!(sandbox = %name, error = %e.message, "assignment cleanup failed");
                 }
             }

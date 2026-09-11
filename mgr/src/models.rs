@@ -84,17 +84,63 @@ pub struct Profile {
     pub config: CanonicalConfig,
 }
 
+/// One sandbox's model assignment: which profile, plus an optional agent
+/// subset (S2, D4c). `agents: None` = ALL four agents (pi/claude/codex/
+/// opencode) — also the meaning of pre-S2/legacy data, so old payloads
+/// migrate to this shape without behavior change (AC4). `Some([])` = zero
+/// agents, which makes the sync endpoint 404 (sandbox keeps local — AC3).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct StoredAssignment {
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub agents: Option<Vec<String>>,
+}
+
+/// The agent whitelist (S2). `agents` values outside this set are rejected
+/// on PUT (400) and silently ignored on sync (only assigned agents render).
+pub const VALID_AGENTS: [&str; 4] = ["pi", "claude", "codex", "opencode"];
+
+/// Deserialize the assignments map accepting BOTH shapes: the pre-S2 legacy
+/// form `{<sandbox>: "<profile-id>"}` (bare string value — every sandbox
+/// implicitly gets all agents, `agents: None`) and the S2 form
+/// `{<sandbox>: {"profile": <id|null>, "agents": <[..]|null>}}`. Anything
+/// else is a corrupt row (surfaced as internal error, never a silent reset).
+fn deserialize_assignments<'de, D>(d: D) -> Result<BTreeMap<String, StoredAssignment>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    let obj = v.as_object().ok_or_else(|| {
+        serde::de::Error::custom("models_profiles assignments must be a JSON object")
+    })?;
+    let mut out = BTreeMap::new();
+    for (name, value) in obj {
+        let entry = if let Some(id) = value.as_str() {
+            // Legacy bare-string value → full-agent assignment.
+            StoredAssignment {
+                profile: Some(id.to_string()),
+                agents: None,
+            }
+        } else {
+            serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?
+        };
+        out.insert(name.clone(), entry);
+    }
+    Ok(out)
+}
+
 /// The kv row payload. `version` is GLOBAL (bumped on every successful
 /// mutation of any profile — the sandbox pull's deep compare makes per-profile
-/// versioning an unnecessary cost). `assignments` maps sandbox name → profile
-/// id; an unassigned sandbox pulls nothing (sync 404s, app keeps local).
+/// versioning an unnecessary cost). `assignments` maps sandbox name → its
+/// {profile id, agent subset}; an unassigned sandbox pulls nothing (sync 404s,
+/// app keeps local).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StoredModels {
     version: u64,
     #[serde(default)]
     profiles: Vec<Profile>,
-    #[serde(default)]
-    assignments: BTreeMap<String, String>,
+    #[serde(default, deserialize_with = "deserialize_assignments")]
+    assignments: BTreeMap<String, StoredAssignment>,
 }
 
 impl StoredModels {
@@ -179,9 +225,16 @@ fn read_stored(conn: &rusqlite::Connection) -> Result<StoredModels, ApiError> {
         }],
         assignments: BTreeMap::new(),
     };
-    // Every existing sandbox keeps pulling exactly what it pulled before.
+    // Every existing sandbox keeps pulling exactly what it pulled before
+    // (S2: legacy rows carry no agent subset — `agents: None` = all agents).
     for name in db::list_sandbox_names(conn)? {
-        stored.assignments.insert(name, DEFAULT_PROFILE_ID.into());
+        stored.assignments.insert(
+            name,
+            StoredAssignment {
+                profile: Some(DEFAULT_PROFILE_ID.into()),
+                agents: None,
+            },
+        );
     }
     write_stored(conn, &stored)?;
     db::kv_del(conn, KV_MODELS_LEGACY)?;
@@ -205,14 +258,27 @@ fn write_stored(conn: &rusqlite::Connection, stored: &StoredModels) -> Result<()
 
 // ── cross-module assignment surface (routes.rs PUT /:name/model_profile) ──
 
-/// The profile id a sandbox is assigned to, for sandbox_json's
-/// `model_profile` field (None = unassigned; the JSON carries null then).
-/// Runs the legacy migration lazily like every other read path.
-pub fn assigned_profile(
+/// The full assignment record for a sandbox, for sandbox_json's
+/// `model_profile` + `model_agents` fields (None = unassigned; the JSON
+/// carries null then). Runs the legacy migration lazily like every other
+/// read path.
+pub fn assignment(
+    conn: &rusqlite::Connection,
+    sandbox: &str,
+) -> Result<Option<StoredAssignment>, ApiError> {
+    Ok(read_stored(conn)?.assignments.get(sandbox).cloned())
+}
+
+/// The profile id a sandbox is assigned to (convenience over `assignment`;
+/// kept for call sites that only need the id). None = unassigned.
+/// `#[cfg(test)]`: production call sites use `assignment` (which also carries
+/// the agent subset); this shim survives for the tests' brevity.
+#[cfg(test)]
+pub(crate) fn assigned_profile(
     conn: &rusqlite::Connection,
     sandbox: &str,
 ) -> Result<Option<String>, ApiError> {
-    Ok(read_stored(conn)?.assignments.get(sandbox).cloned())
+    Ok(assignment(conn, sandbox)?.and_then(|a| a.profile))
 }
 
 /// The WHOLE assignment map, for the sandbox list (one store parse instead
@@ -220,18 +286,26 @@ pub fn assigned_profile(
 /// the legacy migration lazily.
 pub fn read_assignments(
     conn: &rusqlite::Connection,
-) -> Result<std::collections::BTreeMap<String, String>, ApiError> {
+) -> Result<std::collections::BTreeMap<String, StoredAssignment>, ApiError> {
     Ok(read_stored(conn)?.assignments)
 }
 
-/// Assign (`Some(id)`) or unassign (`None`) a sandbox's model profile.
-/// Pure kv write — NEVER triggers a recreate (design §4.2: env changes go
-/// through the recreate job; the assignment lands on the sandbox's next
-/// 60s pull). Unknown profile id = 404.
+/// Assign (`Some(id)`, optional agent subset `agents`) or unassign (`None`)
+/// a sandbox's model profile. Pure kv write — NEVER triggers a recreate
+/// (design §4.2: env changes go through the recreate job; the assignment
+/// lands on the sandbox's next 60s pull). Unknown profile id = 404; an
+/// agent name outside the VALID_AGENTS whitelist = 400.
+///
+/// `agents` semantics (S2, D4c):
+///   - `None`        → every agent renders (legacy/full-assignment default);
+///   - `Some([])`    → zero agents (sync 404s, sandbox keeps local);
+///   - `Some(list)`  → exactly the listed agents render; the rest of the
+///     sandbox's local agent files are left untouched (AC3).
 pub fn set_assignment(
     conn: &rusqlite::Connection,
     sandbox: &str,
     profile: Option<&str>,
+    agents: Option<&[String]>,
 ) -> Result<(), ApiError> {
     let mut stored = read_stored(conn)?;
     match profile {
@@ -242,9 +316,23 @@ pub fn set_assignment(
                     message: format!("model profile {id:?} not found"),
                 });
             }
-            stored
-                .assignments
-                .insert(sandbox.to_string(), id.to_string());
+            if let Some(list) = agents {
+                for name in list {
+                    if !VALID_AGENTS.contains(&name.as_str()) {
+                        return Err(ApiError::bad(format!(
+                            "unknown agent {name:?} (valid: {})",
+                            VALID_AGENTS.join(", ")
+                        )));
+                    }
+                }
+            }
+            stored.assignments.insert(
+                sandbox.to_string(),
+                StoredAssignment {
+                    profile: Some(id.to_string()),
+                    agents: agents.map(|a| a.to_vec()),
+                },
+            );
         }
         None => {
             stored.assignments.remove(sandbox);
@@ -430,7 +518,7 @@ async fn list_profiles(
             let assigned: Vec<&String> = stored
                 .assignments
                 .iter()
-                .filter(|(_, id)| id.as_str() == p.id)
+                .filter(|(_, a)| a.profile.as_deref() == Some(p.id.as_str()))
                 .map(|(name, _)| name)
                 .collect();
             json!({ "id": p.id, "name": p.name, "version": stored.version, "assigned": assigned })
@@ -558,7 +646,9 @@ async fn delete_profile(
         return Err(ApiError::bad("cannot delete the last model profile"));
     }
     stored.profiles.retain(|p| p.id != id);
-    stored.assignments.retain(|_, pid| pid != &id);
+    stored
+        .assignments
+        .retain(|_, a| a.profile.as_deref() != Some(id.as_str()));
     stored.version += 1;
     write_stored(&guard, &stored)?;
     drop(guard);
@@ -614,13 +704,28 @@ async fn sync(
         }
         read_stored(&conn)?
     };
-    let Some(profile_id) = stored.assignments.get(name) else {
+    // S2 (D4c): the assignment carries an optional agent subset. `agents`
+    // Some([]) = zero agents = the sandbox must NOT render anything — same
+    // keep-local 404 path as an unassigned sandbox (AC3). `agents` None =
+    // all agents (also the legacy shape). A present assignment with a null
+    // profile is treated as unassigned (defensive; PUT removes the row).
+    let Some(assign) = stored.assignments.get(name) else {
         return Err(unassigned());
     };
+    let Some(profile_id) = assign.profile.as_deref() else {
+        return Err(unassigned());
+    };
+    // S2 (AC3): an explicitly EMPTY agent subset means the sandbox must
+    // render nothing — same keep-local 404 path as unassigned.
+    if matches!(assign.agents, Some(ref a) if a.is_empty()) {
+        return Err(unassigned());
+    }
     let profile = stored.profile(profile_id).ok_or_else(unassigned)?;
     Ok(Json(json!({
         "version": stored.version,
         "config": profile.config,
+        // None (absent) = all agents; Some(list) = render only these.
+        "agents": assign.agents,
     })))
 }
 
@@ -1661,6 +1766,22 @@ mod tests {
         c
     }
 
+    /// A full-agent assignment (the `agents: None` shape).
+    fn assign(profile: &str) -> StoredAssignment {
+        StoredAssignment {
+            profile: Some(profile.to_string()),
+            agents: None,
+        }
+    }
+
+    /// An agent-subset assignment (S2).
+    fn assign_agents(profile: &str, agents: &[&str]) -> StoredAssignment {
+        StoredAssignment {
+            profile: Some(profile.to_string()),
+            agents: Some(agents.iter().map(|s| s.to_string()).collect()),
+        }
+    }
+
     // --- kv round-trip + versioning ---
 
     #[test]
@@ -1864,12 +1985,8 @@ mod tests {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
             stored.version = 7;
-            stored
-                .assignments
-                .insert("alpha".into(), DEFAULT_PROFILE_ID.into());
-            stored
-                .assignments
-                .insert("beta".into(), "profile-second".into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored.assignments.insert("beta".into(), assign("profile-second"));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             write_stored(&conn, &stored).unwrap();
@@ -1883,11 +2000,15 @@ mod tests {
         .await
         .unwrap();
         let obj = v.as_object().expect("sync payload is an object");
-        assert_eq!(obj.len(), 2, "exactly {{version, config}}: {obj:?}");
+        assert_eq!(obj.len(), 3, "exactly {{version, config, agents}}: {obj:?}");
         assert_eq!(v["version"], 7);
         assert_eq!(
             v["config"]["providers"]["sample"]["apiKey"],
             "sk-default-key"
+        );
+        assert!(
+            v.get("agents").unwrap().is_null(),
+            "absent subset serializes as null (all agents): {obj:?}"
         );
 
         // A different sandbox gets a different profile's config — the
@@ -1916,9 +2037,7 @@ mod tests {
         {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
-            stored
-                .assignments
-                .insert("alpha".into(), DEFAULT_PROFILE_ID.into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta"); // registered but UNassigned
             write_stored(&conn, &stored).unwrap();
@@ -2080,8 +2199,8 @@ mod tests {
         assert_eq!(
             stored.assignments,
             BTreeMap::from([
-                ("alpha".to_string(), DEFAULT_PROFILE_ID.to_string()),
-                ("beta".to_string(), DEFAULT_PROFILE_ID.to_string()),
+                ("alpha".to_string(), assign(DEFAULT_PROFILE_ID)),
+                ("beta".to_string(), assign(DEFAULT_PROFILE_ID)),
             ]),
             "every pre-existing sandbox keeps pulling exactly what it pulled before"
         );
@@ -2253,7 +2372,7 @@ mod tests {
         // Assign to the second profile; sync resolves THAT config.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some("profile-second")).unwrap();
+            set_assignment(&conn, "alpha", Some("profile-second"), None).unwrap();
         }
         {
             let conn = state.db.lock().unwrap();
@@ -2278,7 +2397,7 @@ mod tests {
         // Reassign to default: the next pull gets the default config.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some(DEFAULT_PROFILE_ID)).unwrap();
+            set_assignment(&conn, "alpha", Some(DEFAULT_PROFILE_ID), None).unwrap();
         }
         let Json(v) = sync(
             State(state.clone()),
@@ -2296,7 +2415,7 @@ mod tests {
         // Unknown profile: 404, assignment unchanged.
         let err = {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some("nope")).unwrap_err()
+            set_assignment(&conn, "alpha", Some("nope"), None).unwrap_err()
         };
         assert_eq!(err.status, StatusCode::NOT_FOUND);
         {
@@ -2310,7 +2429,7 @@ mod tests {
         // Unassign: assigned_profile is None again and sync 404s.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", None).unwrap();
+            set_assignment(&conn, "alpha", None, None).unwrap();
         }
         let err = sync(
             State(state),
@@ -2327,6 +2446,136 @@ mod tests {
         );
     }
 
+    // --- S2: agent-subset assignment (D4c) ---
+
+    #[test]
+    fn legacy_bare_string_assignment_reads_as_all_agents() {
+        // AC4: a pre-S2 kv payload (`{"<sbx>": "<profile-id>"}`) must parse
+        // to `agents: None` = every agent renders, profile preserved.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        db::kv_set(
+            &conn,
+            KV_MODELS,
+            &serde_json::to_string(&json!({
+                "version": 3,
+                "profiles": [ { "id": DEFAULT_PROFILE_ID, "name": "Default",
+                                "config": sample_config("sk-key-abcdef") } ],
+                "assignments": { "alpha": DEFAULT_PROFILE_ID }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let stored = read_stored(&conn).unwrap();
+        let a = stored.assignments.get("alpha").expect("alpha assigned");
+        assert_eq!(a.profile.as_deref(), Some(DEFAULT_PROFILE_ID));
+        assert_eq!(
+            a.agents, None,
+            "bare-string legacy value => None (all agents), AC4"
+        );
+    }
+
+    #[test]
+    fn set_assignment_rejects_unknown_agent_and_accepts_subset() {
+        // Whiltelist: an agent outside VALID_AGENTS is 400, store untouched.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        {
+            let conn = &conn;
+            let mut stored = two_profiles();
+            write_stored(conn, &stored).unwrap();
+            let err = set_assignment(
+                conn,
+                "alpha",
+                Some(DEFAULT_PROFILE_ID),
+                Some(&["pi".to_string(), "skynet".to_string()]),
+            )
+            .unwrap_err();
+            assert_eq!(err.status, StatusCode::BAD_REQUEST);
+            assert!(err.message.contains("unknown agent"), "{}", err.message);
+            assert_eq!(read_stored(conn).unwrap().version, 1, "rejected write");
+        }
+        // A valid subset persists agents Some(["pi","opencode"]).
+        set_assignment(
+            &conn,
+            "alpha",
+            Some(DEFAULT_PROFILE_ID),
+            Some(&["pi".to_string(), "opencode".to_string()]),
+        )
+        .unwrap();
+        let stored = read_stored(&conn).unwrap();
+        assert_eq!(
+            stored.assignments.get("alpha").unwrap().agents.as_deref(),
+            Some(["pi".to_string(), "opencode".to_string()].as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_payload_carries_agents_and_empty_agents_404s() {
+        // AC2/AC3 wire contract: sync returns `agents` alongside version+config
+        // for a subset; Some([]) (zero agents) behaves like unassigned → 404
+        // so the sandbox keeps local (AC3).
+        let state = mgr_state();
+        {
+            let conn = state.db.lock().unwrap();
+            register_sandbox(&conn, "alpha");
+            register_sandbox(&conn, "beta");
+            let mut stored = two_profiles();
+            stored
+                .assignments
+                .insert("alpha".into(), assign_agents(DEFAULT_PROFILE_ID, &["pi", "opencode"]));
+            stored
+                .assignments
+                .insert("beta".into(), assign_agents(DEFAULT_PROFILE_ID, &[]));
+            write_stored(&conn, &stored).unwrap();
+        }
+        // Subset sandbox: agents travels as an array.
+        let Json(v) = sync(
+            State(state.clone()),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(v["agents"], json!(["pi", "opencode"]));
+
+        // Zero-agent sandbox: 404 = keep local (AC3).
+        let err = sync(
+            State(state),
+            Query(SyncQuery {
+                name: Some("beta".into()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND, "Some([]) = keep-local 404");
+    }
+
+    #[test]
+    fn assigned_profile_helpers_agree_with_subset() {
+        // `assignment` (used by sandbox_json) exposes BOTH profile and agents;
+        // the full-assignment case keeps the id lookback in sync with
+        // `assigned_profile` for the same row.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        write_stored(&conn, &two_profiles()).unwrap();
+        set_assignment(
+            &conn,
+            "alpha",
+            Some("profile-second"),
+            Some(&["claude".to_string()]),
+        )
+        .unwrap();
+        let a = assignment(&conn, "alpha").unwrap().unwrap();
+        assert_eq!(a.profile.as_deref(), Some("profile-second"));
+        assert_eq!(a.agents.as_deref(), Some(["claude".to_string()].as_slice()));
+        assert_eq!(
+            assigned_profile(&conn, "alpha").unwrap().as_deref(),
+            Some("profile-second")
+        );
+    }
+
     #[tokio::test]
     async fn read_assignments_bulk_form_matches_single_lookups() {
         // routes.rs list_sandboxes consumes the bulk form — it must agree
@@ -2338,12 +2587,8 @@ mod tests {
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             let mut stored = two_profiles();
-            stored
-                .assignments
-                .insert("alpha".into(), DEFAULT_PROFILE_ID.into());
-            stored
-                .assignments
-                .insert("beta".into(), "profile-second".into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored.assignments.insert("beta".into(), assign("profile-second"));
             write_stored(&conn, &stored).unwrap();
         }
         let bulk = {
@@ -2363,10 +2608,13 @@ mod tests {
             );
         }
         assert_eq!(
-            bulk.get("alpha").map(String::as_str),
-            Some(DEFAULT_PROFILE_ID)
+            bulk.get("alpha").map(|a| a.profile.as_deref()),
+            Some(Some(DEFAULT_PROFILE_ID))
         );
-        assert_eq!(bulk.get("beta").map(String::as_str), Some("profile-second"));
+        assert_eq!(
+            bulk.get("beta").map(|a| a.profile.as_deref()),
+            Some(Some("profile-second"))
+        );
     }
 
     // --- discover pure helpers (app parity) ---

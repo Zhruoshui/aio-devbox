@@ -335,7 +335,9 @@ pub struct ProviderPatch {
 
 /// The four agent tabs. Used by the live-readback reader so each agent
 /// can map its own native config file shape into a uniform `live` JSON.
-#[derive(Debug, Copy, Clone)]
+/// PartialEq supports the mgr-sync agent-subset whitelist membership check
+/// (S2, 09-10-mgr-models-agent-assign) — value semantics, no behavior.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Agent {
     Pi,
     Opencode,

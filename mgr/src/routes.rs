@@ -22,6 +22,7 @@ use crate::db;
 use crate::docker;
 use crate::envhash;
 use crate::jobs;
+use crate::models::StoredAssignment;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -606,12 +607,13 @@ async fn reconnect_adopted_aliases(
 /// (creating/running/error); `live` reports what compose actually says:
 /// "running" / "stopped" / "gone" (no containers) / "unknown" (compose ps
 /// itself failed - docker down, stale compose file: shown, never hidden).
-/// `model_profile` is the assigned profile id or null (D8; caller resolves
-/// it once per list request — the store parse is not per-row free).
+/// `model_assignment` is the assigned {profile id, agent subset} or None (D8;
+/// S2: `model_agents` carries the subset — null = all agents). Caller resolves
+/// it once per list request — the store parse is not per-row free.
 async fn sandbox_json(
     state: &Arc<AppState>,
     row: &db::SandboxRow,
-    model_profile: Option<String>,
+    model_assignment: Option<StoredAssignment>,
 ) -> serde_json::Value {
     // S1 installed services (see installed_services_of): code_server/vnc
     // from services_json, pi/pi-web from the scenario set, all-on for
@@ -697,7 +699,12 @@ async fn sandbox_json(
         "piweb_url": format!("http://sbx-{}-piweb.mgr.localhost/", row.name),
         // Assigned model profile (D8): null = unassigned (sandbox keeps its
         // local models.json untouched).
-        "model_profile": model_profile,
+        // Assigned model profile (D8): null = unassigned (sandbox keeps its
+        // local models.json untouched).
+        "model_profile": model_assignment.as_ref().and_then(|a| a.profile.clone()),
+        // S2 (D4c): assigned agent subset — null = all agents render,
+        // [] = none (sandbox keeps local), [..] = render exactly these.
+        "model_agents": model_assignment.and_then(|a| a.agents),
         "services": ps.iter().map(|e| json!({
             "service": e.service, "name": e.name, "state": e.state, "status": e.status,
         })).collect::<Vec<_>>(),
@@ -712,16 +719,16 @@ async fn list_sandboxes(State(state): State<Arc<AppState>>) -> ApiResult<Json<se
         // models store can be sizeable; assigned_profile would re-parse it
         // per row — models.rs read_assignments is the bulk form).
         let stored = crate::models::read_assignments(&conn)?;
-        let assignments: std::collections::HashMap<String, String> = rows
+        let assignments: std::collections::HashMap<String, crate::models::StoredAssignment> = rows
             .iter()
-            .filter_map(|r| stored.get(&r.name).cloned().map(|p| (r.name.clone(), p)))
+            .filter_map(|r| stored.get(&r.name).cloned().map(|a| (r.name.clone(), a)))
             .collect();
         (rows, assignments)
     };
     let mut out = Vec::with_capacity(rows.0.len());
     for row in &rows.0 {
-        let profile = rows.1.get(&row.name).cloned();
-        out.push(sandbox_json(&state, row, profile).await);
+        let assignment = rows.1.get(&row.name).cloned();
+        out.push(sandbox_json(&state, row, assignment).await);
     }
     Ok(Json(json!({ "sandboxes": out })))
 }
@@ -735,11 +742,11 @@ async fn get_sandbox(
         db::get_sandbox(&conn, &name)?
             .ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
     };
-    let profile = {
+    let assignment = {
         let conn = state.db.lock().unwrap();
-        crate::models::assigned_profile(&conn, &name)?
+        crate::models::assignment(&conn, &name)?
     };
-    Ok(Json(sandbox_json(&state, &row, profile).await))
+    Ok(Json(sandbox_json(&state, &row, assignment).await))
 }
 
 #[derive(Deserialize)]
@@ -865,7 +872,7 @@ async fn unadopt_sandbox(
         // Same assignment hygiene as the native delete path (jobs.rs): an
         // adopted row's assignment is usually inert (no MGR_URL), but it is
         // recorded and would be inherited by a same-name sandbox later.
-        if let Err(e) = crate::models::set_assignment(&conn, &row.name, None) {
+        if let Err(e) = crate::models::set_assignment(&conn, &row.name, None, None) {
             tracing::warn!(sandbox = %row.name, error = %e.message, "assignment cleanup failed");
         }
     }
@@ -1087,6 +1094,10 @@ async fn service_start(
 #[derive(Deserialize)]
 struct ModelProfileBody {
     profile: Option<String>,
+    /// S2 (D4c): the agent subset to render. Absent/null = ALL agents (also
+    /// the legacy-client meaning); `[]` = none (sandbox keeps local).
+    #[serde(default)]
+    agents: Option<Vec<String>>,
 }
 
 async fn put_model_profile(
@@ -1102,10 +1113,18 @@ async fn put_model_profile(
         if db::get_sandbox(&conn, &name)?.is_none() {
             return Err(ApiError::bad(format!("sandbox {name:?} not found")));
         }
-        crate::models::set_assignment(&conn, &name, body.profile.as_deref())?;
+        crate::models::set_assignment(
+            &conn,
+            &name,
+            body.profile.as_deref(),
+            body.agents.as_deref(),
+        )?;
     }
     Ok(Json(
-        json!({ "ok": true, "name": name, "model_profile": body.profile }),
+        json!({
+            "ok": true, "name": name, "model_profile": body.profile,
+            "model_agents": body.agents,
+        }),
     ))
 }
 

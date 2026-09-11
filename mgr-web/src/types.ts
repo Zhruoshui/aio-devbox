@@ -74,6 +74,11 @@ export interface Sandbox {
   /** Assigned model profile id, null = unassigned (the sandbox keeps its
    * local models.json; mgr never overwrites it - unified Phase 4, D8). */
   model_profile: string | null;
+  /** Agent subset of the assignment (S2, D4): null = ALL four agents
+   * (legacy rows and older backends omit the field - read it via
+   * `?? null` at the use site); an array is the explicit subset; [] = zero
+   * agents (the sandbox's 60s pull sees a 404 and keeps everything local). */
+  model_agents: string[] | null;
   /** Runtime container states (compose ps per service). */
   services: SandboxService[];
   /** S1: services installed at create time (read-only — fixed by the image

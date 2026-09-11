@@ -296,14 +296,22 @@ null 方案下 UI 无法区分"未更改"与"清除"。创建侧对偶:`0`/null 
 无限制。负数 400(`check_limits`)。改 env 走 recreate job(202 + `{job}`),
 卷保留。
 
-## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8)
+## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8; S2 增 agents)
 
-Body `{"profile": "<id>" | null}`(null/缺失 = 解绑)。**纯 kv 写,同步返回,
-绝不触发 recreate job**——沙箱的 60s 拉取自然生效;这是它与 `PUT
-/api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条路由的全部理由,
-不得合并。未知沙箱 400(`require_row` 同形);未知 profile id 404
-(models.rs `set_assignment`)。错误矩阵与写路径细节见
-[sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
+Body `{"profile": "<id>" | null, "agents": <subset> | null}`:
+- `profile`: 指派 id;null/缺失 = 解绑。
+- `agents`(S2, D4c): **整份替换**语义——缺省 = 全指派,`[]` = 零指派
+  (沙箱拉取 404 → 保持本地),数组 = 精确子集(仅渲染勾选 agent)。
+  **必须始终随 PUT 携带**,省略会让后端 serde default 把已有子集悄悄放大
+  为全指派(frontend 编辑页/快捷指派都显式传)。
+- **纯 kv 写,同步返回,绝不触发 recreate job**——沙箱的 60s 拉取自然生效;
+  这是它与 `PUT /api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条
+  路由的全部理由,不得合并。未知沙箱 400(`require_row` 同形);未知
+  profile id 404;agent 名不在 {pi,claude,codex,opencode} 白名单内 400
+  (models.rs `VALID_AGENTS`,`set_assignment`)。响应增
+  `model_agents`(与 body 同形);`GET /api/sandboxes`/`:name` 的
+  `sandbox_json` 增 `model_agents`(null = 全指派,旧数据兼容,AC4)。
+  错误矩阵与写路径细节见 [sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
 
 ## POST /api/sandboxes/:name/service/:service/start — 按需单服务拉起(unified Phase 3, D4)
 

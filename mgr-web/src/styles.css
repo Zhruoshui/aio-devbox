@@ -679,6 +679,56 @@ body {
   font-family: var(--font-mono);
   color: var(--fg-2);
 }
+/* S2 quick-assign: the profile chip is the popover anchor (relative) */
+.sbx-meta > span {
+  position: relative;
+}
+.mp-chip {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: underline dotted;
+}
+.mp-chip:hover {
+  color: var(--accent);
+}
+.mp-chip .mp-subset {
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 600;
+}
+.mp-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-ring), var(--elev-raised);
+}
+.mp-popover-head strong {
+  font-size: var(--text-sm);
+}
+.mp-popover-err {
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+.mp-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .sbx-services {
   display: flex;
   flex-wrap: wrap;
@@ -1881,6 +1931,15 @@ body {
 /* current preset: accent ring instead of a badge */
 .ml-preset-card.is-current {
   box-shadow: 0 0 0 1.5px var(--accent), var(--elev-raised);
+}
+/* S2 provider card wall (agent tabs): the ACTIVE (currently-assigned)
+ * provider card gets the same accent ring as the current preset. */
+.ml-agent-cards {
+  margin-bottom: var(--space-4);
+}
+.ml-agent-cards .ml-card.is-active {
+  box-shadow: 0 0 0 1.5px var(--accent), var(--elev-raised);
+  cursor: pointer;
 }
 .ml-preset-card-row {
   display: flex;

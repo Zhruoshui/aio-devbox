@@ -1,22 +1,30 @@
 // Background model-config pull from sandbox-mgr (Phase 4b, design §3.7;
-// unified Phase 4/D8: profile-scoped pull).
+// unified Phase 4/D8: profile-scoped pull; S2/09-10-mgr-models-agent-assign
+// design §3: agent-subset render).
 //
 // When this sandbox is managed by sandbox-mgr (MGR_URL set in the
 // mgr-generated compose), mgr is the single source of truth for the model
 // config (D6). This task pulls `GET {MGR_URL}/api/models/sync?name=<this
 // sandbox>` every 60s (plus once at startup) — mgr resolves the sandbox's
-// ASSIGNED profile (D8) and answers with that profile's config —
-// deep-compares the payload against the local canonical store, and on
-// difference OVERWRITES the local store and re-renders every assigned
-// agent's native files through the same apply pipeline a user-triggered
-// apply uses (routes::models::apply_all_agents — the pull path never owns
-// a second render pipeline).
+// ASSIGNED profile (D8) and answers with that profile's config + the
+// sandbox's ASSIGNED AGENT SUBSET (S2: `agents: null` = all four, legacy;
+// `agents: [names]` = render only those; zero/none assigned = mgr 404s,
+// which lands on the keep-local path) — deep-compares the payload against
+// the local canonical store AND the last-applied agent subset, and on
+// difference OVERWRITES the local store and re-renders the subset's
+// assigned agents' native files through the same apply pipeline a
+// user-triggered apply uses (routes::models::apply_selected_agents — the
+// pull path never owns a second render pipeline; the four renderers are
+// untouched, R4).
+//
+// Agents OUTSIDE the subset are not rendered and not cleaned up — their
+// last-written native files stay (PRD R3: 未指派 agent 的本地配置不动).
 //
 // Failure semantics, two tiers (design §4.3):
-//   - 404 (sandbox unassigned / unknown / no name sent) = NOT an error:
-//     one tracing::debug per cycle, keep the local cache. This is the
-//     unbind contract — after unassignment the sandbox keeps whatever it
-//     last pulled, silently.
+//   - 404 (sandbox unassigned / zero-agent assignment / unknown / no name
+//     sent) = NOT an error: one tracing::debug per cycle, keep the local
+//     cache. This is the unbind contract — after unassignment the sandbox
+//     keeps whatever it last pulled, silently.
 //   - everything else (mgr down / offline / non-200 / unparseable payload):
 //     one tracing::warn per failure, then keep using the local cache —
 //     never write, never panic, never exit the task.
@@ -40,8 +48,8 @@ use std::path::Path;
 use aio_models::store::{read_config, write_config, CanonicalConfig, StoreError};
 use serde::Deserialize;
 
-use crate::routes::models::apply_all_agents;
-use crate::routes::models::render::home_dir;
+use crate::routes::models::{apply_selected_agents, parse_agent_subset};
+use crate::routes::models::render::{home_dir, Agent};
 use crate::state::AppState;
 
 /// Pull period (design §3.7: startup + every 60s).
@@ -52,11 +60,18 @@ const SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// GET /api/models/sync payload shape (mgr/src/models.rs): the mgr-side kv
 /// version + the UNMASKED canonical config of the ASSIGNED profile — the
 /// sandbox needs the real keys to render the agents' native files.
+/// `agents` (S2, 09-10-mgr-models-agent-assign, design §3.1) is the sandbox's
+/// agent-subset assignment: None/absent (older mgr) = ALL four agents (legacy
+/// semantics — old mgr + new app is the AC4 no-regression path); Some(subset)
+/// = render only that subset. Some([]) never reaches here — mgr maps a
+/// zero-agent assignment to 404 (unassigned), the keep-local path.
 #[derive(Debug, Deserialize)]
 struct SyncPayload {
     #[serde(default)]
     version: u64,
     config: CanonicalConfig,
+    #[serde(default)]
+    agents: Option<Vec<String>>,
 }
 
 /// One pull cycle's fetch outcome: a payload to apply, or a "mgr says this
@@ -69,12 +84,20 @@ enum Fetched {
 
 /// Spawn the pull loop. Only called when MGR_URL is set (main.rs); runs
 /// forever — individual cycle failures are warned and swallowed below.
+///
+/// `last_agents` memory (S2): the loop owns the last-APPLIED agent subset in
+/// a loop-local variable — the subset is sync-payload state, not local-store
+/// state (the canonical store stays a whole-document override, design §3.3),
+/// so cycle-to-cycle comparison is the only place it can live. After a
+/// process restart it resets to None: a subset-assigned sandbox re-renders
+/// once on the first pull (renderers are key-level merge — idempotent).
 pub fn spawn_mgr_sync(state: AppState) {
     tokio::spawn(async move {
         tracing::info!(
             "mgr sync: model-config pull task started ({} / 60s)",
             state.mgr_url.as_deref().unwrap_or_default()
         );
+        let mut last_agents: Option<Vec<Agent>> = None;
         loop {
             match fetch(&state).await {
                 Ok(Fetched::Unassigned) => {
@@ -83,7 +106,7 @@ pub fn spawn_mgr_sync(state: AppState) {
                     );
                 }
                 Ok(Fetched::Payload(payload)) => {
-                    if let Err(e) = apply(&state, payload).await {
+                    if let Err(e) = apply(&state, payload, &mut last_agents).await {
                         tracing::warn!("mgr sync: {e}; keeping local cache");
                     }
                 }
@@ -99,7 +122,11 @@ pub fn spawn_mgr_sync(state: AppState) {
 /// One pull-and-apply cycle body. Ok(true) = the local store was
 /// overwritten and re-rendered; Ok(false) = no change; Err = local-read or
 /// write failure (the local cache is guaranteed untouched on Err).
-async fn apply(state: &AppState, payload: SyncPayload) -> Result<bool, String> {
+async fn apply(
+    state: &AppState,
+    payload: SyncPayload,
+    last_agents: &mut Option<Vec<Agent>>,
+) -> Result<bool, String> {
     // Serialize with every other models.json reader/writer (same lock the
     // handlers take; see module doc on concurrency).
     let _guard = state.models_lock.lock().await;
@@ -113,17 +140,58 @@ async fn apply(state: &AppState, payload: SyncPayload) -> Result<bool, String> {
         }
         Err(StoreError::Io(e)) => return Err(format!("read local models.json: {e}")),
     };
-    if !config_differs(&local, &payload.config) {
+
+    // Resolve the subset ONCE per cycle: payload.agents None/absent = all
+    // agents (legacy mgr, AC4); Some(names) = whitelist render. Unknown
+    // names drop with a warn (parse_agent_subset) — one bad entry from an
+    // unknown mgr version never fails the pull.
+    let agents: Option<Vec<Agent>> = payload
+        .agents
+        .as_ref()
+        .map(|names| parse_agent_subset(names));
+
+    // Diff covers config AND subset (design §3.2): an unchanged config with
+    // a changed subset still re-renders — the subset decides WHICH native
+    // files render, so it is part of "what the world should look like".
+    // Compare the PARSED subsets (not raw wire names): ["pi","bogus"] and
+    // ["pi"] produce the same effective render set, so no re-render is the
+    // correct outcome.
+    if !config_differs(&local, &payload.config) && *last_agents == agents {
         return Ok(false);
     }
 
-    overwrite_and_render(&state.models_file, &home_dir(), &payload.config)
-        .map_err(|e| format!("write models.json: {e}"))?;
+    overwrite_and_render(
+        &state.models_file,
+        &home_dir(),
+        &payload.config,
+        agents.as_deref(),
+    )
+    .map_err(|e| format!("write models.json: {e}"))?;
+    *last_agents = agents;
     tracing::info!(
-        "mgr sync: applied new model config from mgr (store version {})",
-        payload.version
+        "mgr sync: applied new model config from mgr (store version {}, agents: {})",
+        payload.version,
+        match &last_agents {
+            None => "all".to_string(),
+            Some(list) => list
+                .iter()
+                .map(|a| agent_name(a).to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        }
     );
     Ok(true)
+}
+
+/// Agent display name for the sync log line (common::Agent has no Display
+/// impl — a match here is cheaper than adding one for a single log site).
+fn agent_name(a: &Agent) -> &'static str {
+    match a {
+        Agent::Pi => "pi",
+        Agent::Opencode => "opencode",
+        Agent::Claude => "claude",
+        Agent::Codex => "codex",
+    }
 }
 
 /// The sync pull URL: `{mgr}/api/models/sync[?name=<sandbox>]`. `?name=` is
@@ -196,18 +264,23 @@ pub(crate) fn config_differs(local: &CanonicalConfig, remote: &CanonicalConfig) 
     }
 }
 
-/// Overwrite the local store with mgr's copy, then re-render every assigned
-/// agent. Render runs ONLY after a successful write (a failed write must
-/// not leave the native files claiming config the store doesn't have).
-/// Caller must hold models_lock. Per-agent render failures are warned and
-/// skipped — one agent's broken native file must not block the others.
+/// Overwrite the local store with mgr's copy, then re-render the assigned
+/// agents. `agents: None` = every assigned agent (legacy full pass);
+/// `Some(subset)` = only agents in the subset that also have an assignment
+/// (S2 — agents outside the sandbox's assignment subset keep their native
+/// files untouched, PRD R3). Render runs ONLY after a successful write (a
+/// failed write must not leave the native files claiming config the store
+/// doesn't have). Caller must hold models_lock. Per-agent render failures
+/// are warned and skipped — one agent's broken native file must not block
+/// the others.
 pub(crate) fn overwrite_and_render(
     models_file: &Path,
     home: &Path,
     remote: &CanonicalConfig,
+    agents: Option<&[Agent]>,
 ) -> Result<(), std::io::Error> {
     write_config(models_file, remote)?;
-    for (agent, result) in apply_all_agents(remote, home) {
+    for (agent, result) in apply_selected_agents(remote, home, agents) {
         if result.ok {
             tracing::info!(
                 "mgr sync: rendered {agent} native config ({} file(s))",
@@ -314,7 +387,7 @@ mod tests {
     #[test]
     fn sync_payload_decodes_mgr_wire_shape() {
         // Lock the wire contract with mgr/src/models.rs sync(): the payload is
-        // exactly {version, config} — camelCase provider fields (aio-models
+        // {version, config, agents?} — camelCase provider fields (aio-models
         // serde), version defaults to 0 when absent. The sandbox identity
         // travels in the REQUEST (?name=, see sync_url below), not here.
         let j = serde_json::json!({
@@ -330,17 +403,38 @@ mod tests {
                     }
                 },
                 "agents": {"pi": {"provider": "prov-a", "model": "model-a"}}
-            }
+            },
+            "agents": ["pi", "opencode"]
         });
         let p: SyncPayload = serde_json::from_value(j).expect("mgr sync shape decodes");
         assert_eq!(p.version, 3);
         assert_eq!(p.config.providers["prov-a"].api_key.as_deref(), Some("sk-real"));
         assert_eq!(p.config.agents.pi.as_ref().unwrap().model, "model-a");
+        assert_eq!(
+            p.agents.as_deref(),
+            Some(&["pi".to_string(), "opencode".to_string()][..]),
+        );
 
-        // version absent (older mgr) defaults instead of failing the pull.
+        // version AND agents absent (older mgr, S2 design §5: old mgr + new
+        // app must not regress) — both default instead of failing the pull;
+        // agents None = full render pass.
         let j = serde_json::json!({ "config": {} });
-        let p: SyncPayload = serde_json::from_value(j).expect("version defaults");
+        let p: SyncPayload = serde_json::from_value(j).expect("version/agents default");
         assert_eq!(p.version, 0);
+        assert!(p.agents.is_none(), "absent agents = None (all agents)");
+
+        // agents: null on the wire (mgr's full-assignment serialization) is
+        // also None, same as absent.
+        let j = serde_json::json!({ "version": 1, "config": {}, "agents": null });
+        let p: SyncPayload = serde_json::from_value(j).expect("null agents decodes");
+        assert!(p.agents.is_none());
+
+        // agents: [] (zero agents — mgr 404s this in practice, but the
+        // decoder must not choke if a future mgr sends it) = empty subset,
+        // renders nothing.
+        let j = serde_json::json!({ "version": 1, "config": {}, "agents": [] });
+        let p: SyncPayload = serde_json::from_value(j).expect("empty agents decodes");
+        assert_eq!(p.agents.as_deref(), Some(&[][..]));
     }
 
     #[test]
@@ -374,7 +468,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
 
         let remote = sample_config("sk-real-key");
-        overwrite_and_render(&models_file, &home, &remote).unwrap();
+        overwrite_and_render(&models_file, &home, &remote, None).unwrap();
 
         // Store: mgr's copy lands verbatim (real key, not a mask).
         let back = read_config(&models_file).unwrap();
@@ -389,6 +483,77 @@ mod tests {
     }
 
     #[test]
+    fn overwrite_and_render_subset_excludes_unassigned_agents() {
+        // S2 / PRD AC2-AC3: pi AND opencode assigned in the canonical config,
+        // but the sandbox's agent subset is [pi] — opencode's native file
+        // must stay untouched while pi's renders. The store is still the
+        // whole-document override (opencode's ASSIGNMENT lands in
+        // models.json; only the RENDER is filtered).
+        let dir = temp_dir();
+        let models_file = dir.join("models.json");
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let mut remote = sample_config("sk-real-key");
+        remote.agents.opencode = Some(AgentAssignment {
+            provider: "prov-a".into(),
+            model: "model-a".into(),
+        });
+        let subset = [Agent::Pi];
+        overwrite_and_render(&models_file, &home, &remote, Some(&subset)).unwrap();
+
+        // Store: BOTH assignments land (whole-document override).
+        let back = read_config(&models_file).unwrap();
+        assert!(back.agents.opencode.is_some(), "store keeps the whole config");
+        // Render: pi in subset -> rendered; opencode out of subset -> untouched.
+        assert!(home.join(".pi/agent/settings.json").exists());
+        assert!(
+            !home.join(".config/opencode/opencode.jsonc").exists(),
+            "agent outside the subset must not be rendered (R3)"
+        );
+    }
+
+    #[test]
+    fn overwrite_and_render_empty_subset_renders_nothing() {
+        // Some([]) = zero agents: the store still overwrites (mgr is the
+        // authority for the canonical document), but no native file renders.
+        // (Mgr maps a zero-agent assignment to 404 in practice — this test
+        // pins the app-side behavior were the payload to arrive anyway.)
+        let dir = temp_dir();
+        let models_file = dir.join("models.json");
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let remote = sample_config("sk");
+        overwrite_and_render(&models_file, &home, &remote, Some(&[])).unwrap();
+
+        assert!(read_config(&models_file).is_ok(), "store still written");
+        assert!(
+            !home.join(".pi/agent/settings.json").exists(),
+            "zero-agent subset renders nothing (AC3)"
+        );
+        assert!(!home.join(".pi/agent/models.json").exists());
+    }
+
+    #[test]
+    fn overwrite_and_render_subset_unassigned_agent_is_noop_for_it() {
+        // Subset names an agent with NO assignment in canonical — the
+        // intersection (subset ∩ assigned) drops it; no error, no file.
+        let dir = temp_dir();
+        let models_file = dir.join("models.json");
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let remote = sample_config("sk");
+        // pi assigned; subset asks for claude (unassigned) and pi.
+        let subset = [Agent::Claude, Agent::Pi];
+        overwrite_and_render(&models_file, &home, &remote, Some(&subset)).unwrap();
+
+        assert!(home.join(".pi/agent/settings.json").exists());
+        assert!(!home.join(".claude/settings.json").exists());
+    }
+
+    #[test]
     fn overwrite_and_render_skips_render_when_store_write_fails() {
         // A write failure (parent path occupied by a regular file) must
         // abort BEFORE any native file is rendered — never half-applied.
@@ -399,12 +564,31 @@ mod tests {
         let home = dir.join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let err = overwrite_and_render(&models_file, &home, &sample_config("sk"));
+        let err = overwrite_and_render(&models_file, &home, &sample_config("sk"), None);
         assert!(err.is_err());
         assert!(
             !home.join(".pi/agent/settings.json").exists(),
             "render must not run after a failed store write"
         );
+    }
+
+    #[test]
+    fn parse_agent_subset_drops_unknown_names() {
+        // Unknown agent names are ignored (warn at runtime) — one bad entry
+        // from an unknown mgr version never fails the pull.
+        let parsed = parse_agent_subset(&[
+            "pi".to_string(),
+            "bogus".to_string(),
+            "codex".to_string(),
+        ]);
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed.contains(&Agent::Pi));
+        assert!(parsed.contains(&Agent::Codex));
+        assert!(!parsed.contains(&Agent::Claude));
+
+        // All-unknown degrades to the empty subset (renders nothing) —
+        // consistent with Some([]) semantics.
+        assert!(parse_agent_subset(&["nope".to_string()]).is_empty());
     }
 
     /// serde_json deep equality (mirror of the module's compare).

@@ -29,6 +29,7 @@ import {
 } from "../api";
 import { t, type Lang } from "../i18n";
 import type { SandboxEnv, Scenario, ServicesInput } from "../types";
+import { AgentAssignControl } from "../components/AgentAssignControl";
 import { EnvPicker } from "./EnvPicker";
 import { ServicesPicker } from "./ServicesPicker";
 
@@ -71,6 +72,11 @@ export function EditPage({
   const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
   const [profileSel, setProfileSel] = useState<string | null>(null); // null = not loaded
   const [origProfile, setOrigProfile] = useState<string | null>(null);
+  /** S2 agent subset of the assignment: null = ALL agents (also the legacy
+   * payload meaning), [] = zero agents (sandbox keeps local), [...] explicit.
+   * Mirrors profileSel's "not loaded" via the double-null dance on save. */
+  const [agentsSel, setAgentsSel] = useState<string[] | null>(null);
+  const [origAgents, setOrigAgents] = useState<string[] | null>(null);
 
   // Load the sandbox + scenario catalog in parallel; seed the form from the
   // stored env (the API's env shape IS the picker's value shape - types.ts).
@@ -96,6 +102,8 @@ export function EditPage({
         setMemMb(sb.mem_mb !== null ? String(sb.mem_mb) : "");
         setOrigProfile(sb.model_profile);
         setProfileSel(sb.model_profile ?? "");
+        setOrigAgents(sb.model_agents ?? null);
+        setAgentsSel(sb.model_agents ?? null);
         // S1: installed services are read-only here (immutable since
         // create; pre-S1 rows read back all-on server-side).
         void setInstalled(sb.installed_services ?? null);
@@ -135,7 +143,19 @@ export function EditPage({
       memOut !== origMem);
   const profileChanged =
     profileSel !== null && profileSel !== (origProfile ?? "");
-  const changed = envOrResChanged || profileChanged;
+  /** S2: agents subset changed (deep compare — null "all" vs explicit
+   * all-four differ on the wire, but produce the same render; treat them
+   * as equal so a no-op save doesn't fire). */
+  const agentsChanged = ((): boolean => {
+    if (agentsSel === null) return false; // not loaded yet
+    if (origAgents === null) return agentsSel.length !== 0;
+    return (
+      agentsSel.length !== origAgents.length ||
+      agentsSel.some((a, i) => a !== origAgents[i])
+    );
+  })();
+  const assignChanged = profileChanged || agentsChanged;
+  const changed = envOrResChanged || assignChanged;
   const canSubmit =
     scenarios !== null && env !== null && resErr === "" && changed && !submitting;
 
@@ -144,10 +164,23 @@ export function EditPage({
     setSubmitting(true);
     setMsg(null);
     try {
-      // Profile first (pure kv write): even when the recreate below fails,
-      // the assignment stands - it never needed the recreate anyway.
-      if (profileChanged) {
-        await putSandboxModelProfile(name, profileSel === "" ? null : profileSel);
+      // Profile/agents assignment first (pure kv write): even when the recreate
+      // below fails, the assignment stands - it never needed the recreate.
+      if (assignChanged) {
+        // Wire profile: the current selection, or the ORIGINAL when only
+        // agents changed (so an agents-only save keeps the existing
+        // assignment instead of un-binding it).
+        const wireProfile = profileChanged
+          ? profileSel === ""
+            ? null
+            : profileSel
+          : origProfile;
+        // Full-replacement semantics: always send the intended subset
+        // (origAgents when agents unchanged) — OMITTING it would make the
+        // backend's serde default widen a subset back to "all" (ac4 trap).
+        // null = all agents (also the legacy meaning).
+        const wireAgents = agentsChanged ? agentsSel : origAgents;
+        await putSandboxModelProfile(name, wireProfile, wireAgents);
       }
       if (!envOrResChanged) {
         // Profile-only change: nothing to recreate - back to the list (it
@@ -254,6 +287,21 @@ export function EditPage({
               </option>
             ))}
           </select>
+          {/* S2 agent subset: only meaningful once a profile is selected
+           * (unassigned sandboxes render nothing regardless). */}
+          {profileSel !== "" && profileSel !== null && (
+            <div className="mp-agents" style={{ marginTop: 8 }}>
+              <span className="hint">{t(lang, "mpAgentsHint")}</span>
+              <AgentAssignControl
+                lang={lang}
+                value={agentsSel}
+                onChange={setAgentsSel}
+              />
+              {agentsSel !== null && agentsSel.length === 0 && (
+                <span className="field-error">{t(lang, "mpAgentsNone")}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="dialog-actions">

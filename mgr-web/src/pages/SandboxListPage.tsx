@@ -21,10 +21,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { deleteSandbox, listModelProfiles, listSandboxes, sandboxAction } from "../api";
+import { deleteSandbox, listModelProfiles, listSandboxes, putSandboxModelProfile, sandboxAction, type ModelProfile } from "../api";
 import { withMgrPort } from "./workspace/paneUrl";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
+import { agentSubsetSummary, AgentAssignControl } from "../components/AgentAssignControl";
 import { isJobReply, type Sandbox } from "../types";
 
 const POLL_MS = 4000;
@@ -49,6 +50,8 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
   // id -> display name for the cards' model-profile chip (D8); fetched once
   // per mount - profile renames without a page visit are not a real case.
   const [profileNames, setProfileNames] = useState<Record<string, string> | null>(null);
+  // Full profile list for the card popover's profile select (S2, design §4.2).
+  const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
 
   const fetchList = useCallback(async () => {
     try {
@@ -74,6 +77,7 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
         const names: Record<string, string> = {};
         for (const p of r.profiles) names[p.id] = p.name;
         setProfileNames(names);
+        setProfiles(r.profiles); // S2: card popover needs the id list too
       })
       .catch(() => {
         /* advisory chip — an error surface here would be noise */
@@ -157,6 +161,7 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
               sb={sb}
               lang={lang}
               profileNames={profileNames}
+              profiles={profiles}
               busy={busy === sb.name}
               onEnter={() => onEnter(sb.name)}
               onAction={(a) => void act(sb, a)}
@@ -225,6 +230,7 @@ function SandboxCard({
   sb,
   lang,
   profileNames,
+  profiles,
   busy,
   onEnter,
   onAction,
@@ -235,6 +241,8 @@ function SandboxCard({
   lang: Lang;
   /** id -> display name for the model-profile chip; null = not loaded yet. */
   profileNames: Record<string, string> | null;
+  /** Full profile list for the popover select (S2); null = not loaded yet. */
+  profiles: ModelProfile[] | null;
   busy: boolean;
   onEnter: () => void;
   onAction: (a: "start" | "stop" | "restart") => void;
@@ -242,6 +250,38 @@ function SandboxCard({
   onDelete: () => void;
 }): JSX.Element {
   const created = new Date(sb.created_at * 1000);
+  // S2 quick-assign popover state. Popover edits are LOCAL (profileSel /
+  // agentsSel) until Save fires the PUT; the card then refetches via the
+  // parent's 4s poll, so the chip reflects the change shortly after.
+  const [open, setOpen] = useState(false);
+  const [profileSel, setProfileSel] = useState<string>(sb.model_profile ?? "");
+  const [agentsSel, setAgentsSel] = useState<string[] | null>(sb.model_agents ?? null);
+  const [saving, setSaving] = useState(false);
+  const [popErr, setPopErr] = useState("");
+  // Keep local state in sync when the polled payload changes (assignment
+  // edited elsewhere, or this popover's own save landing on the refresh).
+  useEffect(() => {
+    if (!open) {
+      setProfileSel(sb.model_profile ?? "");
+      setAgentsSel(sb.model_agents ?? null);
+    }
+  }, [sb.model_profile, sb.model_agents, open]);
+
+  const saveAssign = async () => {
+    if (saving) return;
+    setSaving(true);
+    setPopErr("");
+    try {
+      await putSandboxModelProfile(sb.name, profileSel === "" ? null : profileSel, agentsSel);
+      setOpen(false);
+    } catch (e) {
+      setPopErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const subset = agentSubsetSummary(sb.model_agents ?? null);
   return (
     <article className="sbx-card">
       <div className="sbx-head">
@@ -282,11 +322,54 @@ function SandboxCard({
         </span>
         <span>
           {t(lang, "mpAssignTo")}:{" "}
-          <code>
-            {sb.model_profile === null
-              ? t(lang, "sbProfileNone")
-              : (profileNames?.[sb.model_profile] ?? sb.model_profile)}
-          </code>
+          <button
+            type="button"
+            className="mp-chip"
+            title={t(lang, "mpQuickAssignHint")}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <code>
+              {sb.model_profile === null
+                ? t(lang, "sbProfileNone")
+                : (profileNames?.[sb.model_profile] ?? sb.model_profile)}
+            </code>
+            {subset !== "" && <em className="mp-subset">· {subset}</em>}
+          </button>
+          {open && (
+            <span className="mp-popover" onClick={(e) => e.stopPropagation()}>
+              <span className="mp-popover-head">
+                <strong>{t(lang, "mpQuickAssign")}</strong>
+              </span>
+              <select
+                value={profileSel}
+                disabled={profiles === null}
+                onChange={(e) => setProfileSel(e.target.value)}
+              >
+                <option value="">{t(lang, "mpUnassigned")}</option>
+                {(profiles ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              {profileSel !== "" && (
+                <AgentAssignControl
+                  lang={lang}
+                  value={agentsSel}
+                  onChange={setAgentsSel}
+                />
+              )}
+              {popErr && <em className="mp-popover-err">{popErr}</em>}
+              <span className="mp-popover-actions">
+                <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveAssign()}>
+                  {saving ? t(lang, "wzSubmitting") : t(lang, "mpQuickSave")}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>
+                  {t(lang, "cancel")}
+                </button>
+              </span>
+            </span>
+          )}
         </span>
         {sb.installed_services && (
           <span className="sbx-svc-badges">

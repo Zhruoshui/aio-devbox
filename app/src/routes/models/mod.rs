@@ -304,25 +304,69 @@ fn render_agent(agent_kind: Agent, home: &Path, canonical: &CanonicalConfig) -> 
     }
 }
 
-/// Render EVERY agent that has an assignment (mgr-sync's post-write render
-/// pass, Phase 4b). Absent assignments are skipped — the per-agent endpoint
-/// 400s on those ("no <agent> assignment"), a full pass just leaves that
-/// agent's files untouched. Caller holds models_lock. Returns per-agent
-/// results for the caller's logging.
+/// Render EVERY agent that has an assignment (full pass). Since S2 the
+/// production path goes through `apply_selected_agents(…, None)` (mgr_sync),
+/// so this stays as the tests' equivalence anchor — `None` must behave
+/// EXACTLY like the full pass for legacy / pre-S2 mgr pulls (AC4).
+#[cfg(test)]
 pub(crate) fn apply_all_agents(
     canonical: &CanonicalConfig,
     home: &Path,
 ) -> Vec<(&'static str, ApplyResult)> {
-    let agents: [(&'static str, Agent, bool); 4] = [
+    apply_selected_agents(canonical, home, None)
+}
+
+/// Agent-subset variant of the mgr-sync render pass (S2,
+/// 09-10-mgr-models-agent-assign, design §3.2). `agents: None` = full pass
+/// (every assigned agent — legacy semantics, pre-S2 mgr); `Some(subset)`
+/// renders ONLY agents that are both in the subset AND assigned in the
+/// canonical config — agents outside the sandbox's assignment subset keep
+/// their native files untouched (PRD R3: "未指派 agent 的本地配置不动").
+///
+/// The renderers themselves are untouched (R4): filtering happens entirely
+/// at the pass level, before any render_agent call. Agents REMOVED from the
+/// subset are NOT cleaned up — re-adding them re-renders their files, but a
+/// removed agent's last-written config stays (deliberate, design §3.3).
+/// Unknown names in `subset` are ignored with a warn (defensive — mgr
+/// validates against its own whitelist before sending).
+pub(crate) fn apply_selected_agents(
+    canonical: &CanonicalConfig,
+    home: &Path,
+    agents: Option<&[Agent]>,
+) -> Vec<(&'static str, ApplyResult)> {
+    let all: [(&'static str, Agent, bool); 4] = [
         ("pi", Agent::Pi, canonical.agents.pi.is_some()),
         ("opencode", Agent::Opencode, canonical.agents.opencode.is_some()),
         ("claude", Agent::Claude, canonical.agents.claude.is_some()),
         ("codex", Agent::Codex, canonical.agents.codex.is_some()),
     ];
-    agents
-        .into_iter()
-        .filter(|&(_, _, assigned)| assigned)
-        .map(|(name, kind, _)| (name, render_agent(kind, home, canonical)))
+    let iter = all.into_iter().filter(|&(_, _, assigned)| assigned);
+    match agents {
+        None => iter
+            .map(|(name, kind, _)| (name, render_agent(kind, home, canonical)))
+            .collect(),
+        Some(subset) => iter
+            .filter(|&(_, kind, _)| subset.contains(&kind))
+            .map(|(name, kind, _)| (name, render_agent(kind, home, canonical)))
+            .collect(),
+    }
+}
+
+/// Parse mgr's agent-name subset (design §3.2): unknown names are ignored
+/// with a warn (never fail the whole pull over one bad entry); an empty
+/// result is legitimate (Some([]) = zero agents — mgr 404s that case, but a
+/// subset that only contains unknown names degrades to the same keep-local
+/// render-nothing outcome naturally).
+pub(crate) fn parse_agent_subset(names: &[String]) -> Vec<Agent> {
+    names
+        .iter()
+        .filter_map(|n| match Agent::from_str(n) {
+            Some(a) => Some(a),
+            None => {
+                tracing::warn!("mgr sync: unknown agent '{n}' in sync payload; ignoring");
+                None
+            }
+        })
         .collect()
 }
 
@@ -1029,5 +1073,92 @@ mod tests {
         let results = apply_all_agents(&CanonicalConfig::default(), &empty_home);
         assert!(results.is_empty());
         assert!(!empty_home.join(".pi/agent/models.json").exists());
+    }
+
+    // ── S2: apply_selected_agents (agent-subset render pass) ──────
+
+    use crate::routes::models::render::Agent as TestAgent;
+
+    fn subset_config() -> CanonicalConfig {
+        // pi + opencode assigned; claude/codex absent.
+        let mut canonical = CanonicalConfig::default();
+        canonical.providers.insert(
+            "prov-a".to_string(),
+            ProviderEntry {
+                name: "Prov A".into(),
+                base_url: "https://a.example/v1".into(),
+                api_key: Some("sk-test".into()),
+                models: vec![aio_models::store::ModelEntry {
+                    id: "model-a".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        canonical.agents.pi = Some(AgentAssignment {
+            provider: "prov-a".into(),
+            model: "model-a".into(),
+        });
+        canonical.agents.opencode = Some(AgentAssignment {
+            provider: "prov-a".into(),
+            model: "model-a".into(),
+        });
+        canonical
+    }
+
+    #[test]
+    fn apply_selected_agents_none_matches_apply_all_agents() {
+        // None = full pass: identical results to apply_all_agents for the
+        // same input (the legacy call is now a thin wrapper, AC4).
+        let home = temp_home();
+        let canonical = subset_config();
+        let all = apply_all_agents(&canonical, &home);
+        let none = apply_selected_agents(&canonical, &home, None);
+        assert_eq!(all.len(), none.len());
+        assert!(all
+            .iter()
+            .zip(none.iter())
+            .all(|((an, ar), (bn, br))| an == bn && ar.ok == br.ok));
+    }
+
+    #[test]
+    fn apply_selected_agents_subset_renders_only_intersection() {
+        // Subset [pi]: opencode is assigned but outside the subset -> not
+        // rendered, its native file stays absent (PRD R3).
+        let home = temp_home();
+        let canonical = subset_config();
+        let results = apply_selected_agents(&canonical, &home, Some(&[TestAgent::Pi]));
+        assert_eq!(results.len(), 1, "only pi (in subset AND assigned)");
+        assert_eq!(results[0].0, "pi");
+        assert!(results[0].1.ok, "pi render must succeed: {:?}", results[0].1);
+        assert!(home.join(".pi/agent/settings.json").exists());
+        assert!(
+            !home.join(".config/opencode/opencode.jsonc").exists(),
+            "opencode assigned but outside the subset: untouched"
+        );
+    }
+
+    #[test]
+    fn apply_selected_agents_subset_unassigned_agent_dropped() {
+        // Subset names claude (no assignment): intersection drops it without
+        // error — same as the full pass's absent-assignment skip.
+        let home = temp_home();
+        let canonical = subset_config();
+        let results =
+            apply_selected_agents(&canonical, &home, Some(&[TestAgent::Claude, TestAgent::Pi]));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "pi");
+        assert!(!home.join(".claude/settings.json").exists());
+    }
+
+    #[test]
+    fn apply_selected_agents_empty_subset_renders_nothing() {
+        // Some([]) = zero agents: nothing renders, nothing errors.
+        let home = temp_home();
+        let canonical = subset_config();
+        let results = apply_selected_agents(&canonical, &home, Some(&[]));
+        assert!(results.is_empty());
+        assert!(!home.join(".pi/agent/models.json").exists());
+        assert!(!home.join(".config/opencode/opencode.jsonc").exists());
     }
 }

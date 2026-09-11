@@ -220,12 +220,20 @@ export function deleteModelProfile(id: string): Promise<{ ok: boolean; id: strin
 
 /** PUT /api/sandboxes/:name/model_profile — assign (`{profile: id}`) or
  * UNassign (`{profile: null}`). A pure kv write on the backend: the
- * sandbox's 60s pull picks it up, no recreate job. */
+ * sandbox's 60s pull picks it up, no recreate job.
+ *
+ * S2 agent subset: `agents` narrows which agent configs the pull renders —
+ * null/absent = all four (legacy wire shape), [] = zero agents (the sandbox
+ * keeps its local configs untouched), an array = the explicit subset. */
 export function putSandboxModelProfile(
   name: string,
   profile: string | null,
+  agents?: string[] | null,
 ): Promise<{ ok: boolean; name: string; model_profile: string | null }> {
-  return send(`/api/sandboxes/${enc(name)}/model_profile`, "PUT", { profile });
+  return send(`/api/sandboxes/${enc(name)}/model_profile`, "PUT", {
+    profile,
+    ...(agents !== undefined ? { agents } : {}),
+  });
 }
 
 export function getUsage(window: "today" | "7d" | "all"): Promise<UsageFanout> {
