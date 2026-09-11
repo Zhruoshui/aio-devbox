@@ -854,3 +854,62 @@ cc-switch 心智重构落地:全局供应商库(不变)× profile × agent 卡�
 
 [OK] S2 实现+检查+spec 更新完成,已提交 `20d6831`(task 仍 in_progress,
 待实机 AC 后归档)。
+
+## Session 7: S3 镜像页增强——组合说明 + 删除 + 一键清理 (D3)
+
+### Summary
+
+images 表从只读列表升级为可管理:每镜像显示组合清单+体积,支持删除未引用
+镜像组(异步 job)与一键清理(含构建缓存)。
+
+### Main Changes
+
+- **db**: images 表幂等增 combo 列(pragma 迁移,仿 services_json 范式);
+  upsert_image 5 参(combo,ON CONFLICT COALESCE 不覆盖旧描述);
+  list_images 返回 combo;新增 delete_image_row
+- **envhash**: describe_combo(env, services)——场景+版本+服务开关可读描述。
+  关键发现:db::Services 仅含 cs/vnc,**pi/pi-web 是 scenario**(S1
+  normalize_services 折叠进 env.scenarios),须从 scenarios 推导
+- **docker**: image_rmi(is_owned_image_tag 白名单,仅 sandbox- 前缀,防误删
+  宿主镜像)/image_size/builder_prune 三原语
+- **jobs**: spawn_image_delete(预检 refcount>0=409 + job 内重查兜底 + 三 tag
+  顺序 rmi + 全成功才删行 + 失败保行 R5 不半删 + 不碰全局共享 vnc);
+  spawn_image_cleanup(refcount=0 逐行删组 + builder prune + 回收 bytes 汇总)
+- **routes**: GET /api/images 增 combo+size_bytes(实时 inspect 失败 null);
+  POST /:env_hash/delete 与 /cleanup 走 202+job(迭代 Jobs 任务);
+  env_hash 64-hex 校验
+- **前端**: ImagesPage 加组合/体积列、行删(refcount>0 disabled+title)、
+  一键清理、内联 job 轮询、confirm;Image/Job 类型扩
+
+### Key Findings
+
+- 先写了 describe_combo 5 布尔签名后撞上 db::Services 只有 cs/vnc 的事实
+  → 改为 &Services + scenarios 推导,测试断言同步修正。
+- list_images 返回类型变化连累 routes 消费处一一适配。
+- cleanup 的回收 bytes 统计放进 run_image_delete 返回值(rmi 前逐个 size),
+  避免 rmi 后 inspect 失败。
+- ImagesPage 删除用内联 job 轮询(不整页跳 JobView,页内保留进度)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba68d3d` | feat(mgr): S3 镜像页组合说明 + 删除 + 一键清理 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-mgr: 92 绿(新增 combo 迁移/describe_combo/docker
+  白名单/delete_image_row 等)
+- [OK] cargo test -p aio-app: 223 绿(未受影响)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] make mgr-up 重建后 AC1-AC4 目视:组合+体积显示、禁用态原因、
+  docker images 真删、清理分列报告
+
+### Next Steps
+
+- S4 usage 图表/S5 侧栏折叠仍在规划。
+- S3 实机 AC 复核留宿主机(S2 亦同)。
+### Status
+
+[OK] S3 实现+检查+spec 更新完成,已提交 `ba68d3d`(task 仍 in_progress,
+待实机 AC 后归档)。
