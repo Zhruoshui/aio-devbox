@@ -462,6 +462,56 @@ pub async fn image_exists(tag: &str) -> Result<bool> {
     }
 }
 
+/// The image-name prefixes mgr owns and may delete (S3). Anything else is
+/// refused by image_rmi — a defensive line against deleting host/user
+/// images through the web UI (which only ever lists these prefixes).
+pub const OWNED_IMAGE_PREFIXES: [&str; 4] = [
+    "sandbox-base-",
+    "sandbox-app-",
+    "sandbox-code-server-",
+    "sandbox-vnc",
+];
+
+/// Whether a tag is one mgr may delete (S3 whitelist, see OWNED_IMAGE_PREFIXES).
+pub fn is_owned_image_tag(tag: &str) -> bool {
+    OWNED_IMAGE_PREFIXES.iter().any(|p| tag.starts_with(p))
+}
+
+/// `docker rmi -f <tag>` — forced because base/app/cs share a FROM chain,
+/// so deleting a group sequentially would otherwise trip "image is being
+/// used by ..." on the intermediate tags. Refuses tags outside the mgr-owned
+/// prefixes. The exit-on-missing-tag is NOT an error here (delete job
+/// iterates a group where a service may be off — skip it), so callers use
+/// image_exists() first.
+pub async fn image_rmi(tag: &str) -> Result<String> {
+    if !is_owned_image_tag(tag) {
+        bail!("refusing to delete non-mgr image {tag:?}");
+    }
+    run_capture("docker", &["rmi", "-f", tag]).await
+}
+
+/// `docker image inspect --format {{.Size}} <tag>` → size in bytes. A missing
+/// tag errors (the delete job uses image_exists() to skip; the list route
+/// turns an inspect failure into "—").
+pub async fn image_size(tag: &str) -> Result<u64> {
+    let out = run_capture(
+        "docker",
+        &["image", "inspect", "--format", "{{.Size}}", tag],
+    )
+    .await?;
+    let trimmed = out.trim();
+    let size: u64 = trimmed
+        .parse()
+        .with_context(|| format!("parse image size {trimmed:?} for {tag}"))?;
+    Ok(size)
+}
+
+/// `docker builder prune -f` — build-cache cleanup. Returns the full output
+/// (the "Total reclaimed space: <X>" line is what the cleanup job reports).
+pub async fn builder_prune() -> Result<String> {
+    run_capture("docker", &["builder", "prune", "-f"]).await
+}
+
 /// Captured run: stdout on success; anyhow error with stderr tail on failure.
 async fn run_capture(program: &str, args: &[&str]) -> Result<String> {
     let out = Command::new(program)
@@ -542,6 +592,21 @@ mod tests {
     fn parse_ps_blank_output_is_empty() {
         // No services at all (fresh project, everything down + pruned).
         assert!(parse_ps_output("  \n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn owned_image_tag_whitelist() {
+        // S3: only mgr-owned prefixes are deletable through the web UI.
+        assert!(is_owned_image_tag("sandbox-base-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-app-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-code-server-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-vnc"));
+        assert!(!is_owned_image_tag("ubuntu:24.04"));
+        assert!(!is_owned_image_tag("debian:bookworm-slim"));
+        assert!(!is_owned_image_tag("node:20"));
+        assert!(!is_owned_image_tag("registry.local/my-image"));
+        // Prefix must be exact - "sandbox-app2" is NOT "sandbox-app-".
+        assert!(!is_owned_image_tag("sandbox-app2-foo"));
     }
 
     #[test]

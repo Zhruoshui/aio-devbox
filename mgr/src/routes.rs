@@ -54,6 +54,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/sandboxes/:name/model_profile", put(put_model_profile))
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
+        .route("/api/images/cleanup", post(cleanup_images))
+        .route("/api/images/:env_hash/delete", post(delete_image))
         .route("/api/jobs/:id", get(get_job))
         // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
         // Each module owns its sub-router; merge keeps them ahead of the
@@ -1149,26 +1151,77 @@ async fn entry_url(
 
 // ── images / jobs ──────────────────────────────────────────────────
 
+/// GET /api/images — one row per recorded image (S3: + combo description and
+/// live size. `combo` is NULL on pre-S3 rows (the frontend falls back to the
+/// env_hash); `size_bytes` is a live docker inspect that the frontend shows
+/// as "—" when it fails / the image is gone, never an error here).
 async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
     let rows = {
         let conn = state.db.lock().unwrap();
         db::list_images(&conn)?
     };
     let mut out = Vec::with_capacity(rows.len());
-    for (env_hash, tag, built_at, build_log) in rows {
+    for (env_hash, tag, built_at, build_log, combo) in rows {
         let refcount = {
             let conn = state.db.lock().unwrap();
             db::image_refcount(&conn, &env_hash)?
         };
+        // Live size of the base image (the row's tag): best-effort, "—" on
+        // failure (image deleted behind our back, docker down).
+        let size_bytes = docker::image_size(&tag).await.ok();
         out.push(json!({
             "env_hash": env_hash,
             "tag": tag,
             "built_at": built_at,
             "refcount": refcount,
             "build_log": build_log,
+            "combo": combo,
+            "size_bytes": size_bytes,
         }));
     }
     Ok(Json(json!({ "images": out })))
+}
+
+/// POST /api/images/:env_hash/delete — delete one recorded image's tag group
+/// (base/app/code-server), 202 + job (S3 R3: async, progress via GET
+/// /api/jobs/:id). Pre-check is synchronous: unknown row 404, referenced
+/// image 409 (refcount>0 — also covers a create/recreate in flight, whose
+/// sandbox already wrote env_hash by the time it holds the image).
+async fn delete_image(State(state): State<Arc<AppState>>, Path(h): Path<String>) -> ApiResult<Json<serde_json::Value>> {
+    if !valid_env_hash(&h) {
+        return Err(ApiError::bad("env_hash must be 64 hex chars"));
+    }
+    {
+        let conn = state.db.lock().unwrap();
+        // row existence + refcount in one lock: check row first (404), then
+        // the count (409). A missing row = already deleted = 404 (client
+        // refreshes).
+        let exists: bool = db::list_images(&conn)?.iter().any(|(eh, _, _, _, _)| eh == &h);
+        if !exists {
+            return Err(ApiError::bad(format!("image {h} not found")));
+        }
+        let rc = db::image_refcount(&conn, &h)?;
+        if rc > 0 {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                message: format!("image is referenced by {rc} sandbox(es)"),
+            });
+        }
+    }
+    let job = crate::jobs::spawn_image_delete(state.clone(), h).await?;
+    Ok(Json(json!({ "ok": true, "job": job })))
+}
+
+/// POST /api/images/cleanup — delete every refcount=0 image group + builder
+/// cache, 202 + job (S3 R4).
+async fn cleanup_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
+    let job = crate::jobs::spawn_image_cleanup(state.clone()).await?;
+    Ok(Json(json!({ "ok": true, "job": job })))
+}
+
+/// env_hash is a full sha256 hex digest (64 chars).
+fn valid_env_hash(h: &str) -> bool {
+    h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 async fn get_job(

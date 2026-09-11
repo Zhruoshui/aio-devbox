@@ -180,6 +180,21 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgLog: "构建日志",
     imgEmpty: "暂无镜像记录。",
     imgNotBuilt: "未记录",
+    // S3 image management
+    imgCombo: "组合说明",
+    imgSize: "体积",
+    imgSizeUnknown: "—",
+    imgDelete: "删除",
+    imgDeleteTitle: "删除该镜像组（基础镜像 + 应用 + code-server）",
+    imgDeleteDisableTitle: "被 {n} 个沙箱引用，无法删除",
+    imgDeleteConfirm: "确认删除镜像组 {tag}？基础/应用/code-server 将一并移除，且不可恢复。",
+    imgCleanup: "一键清理",
+    imgCleanupTitle: "删除全部未引用镜像 + 构建缓存",
+    imgCleanupConfirm: "将删除所有引用数为 0 的镜像并清理构建缓存，确认继续？",
+    imgCleanupRunning: "清理中…",
+    imgDeleteRunning: "删除中…",
+    imgJobError: "操作失败",
+    imgReclaimTitle: "回收空间",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)
@@ -499,6 +514,21 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgLog: "Build log",
     imgEmpty: "No images recorded yet.",
     imgNotBuilt: "not recorded",
+    // S3 image management
+    imgCombo: "Combo",
+    imgSize: "Size",
+    imgSizeUnknown: "—",
+    imgDelete: "Delete",
+    imgDeleteTitle: "Delete this image group (base + app + code-server)",
+    imgDeleteDisableTitle: "Referenced by {n} sandbox(es); cannot delete",
+    imgDeleteConfirm: "Delete image group {tag}? base/app/code-server will be removed, irreversibly.",
+    imgCleanup: "Clean up",
+    imgCleanupTitle: "Delete all unreferenced images + build cache",
+    imgCleanupConfirm: "Delete every image with 0 references and prune the build cache?",
+    imgCleanupRunning: "Cleaning…",
+    imgDeleteRunning: "Deleting…",
+    imgJobError: "Operation failed",
+    imgReclaimTitle: "Reclaimed",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)

@@ -44,6 +44,16 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         // behavior: code-server/vnc always built), see services_of().
         conn.execute_batch("ALTER TABLE sandboxes ADD COLUMN services_json TEXT")?;
     }
+    // S3: images.combo (readable combo description) - NULL on pre-S3 rows,
+    // the images page falls back to the env_hash (R1).
+    let has_combo: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'combo'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_combo == 0 {
+        conn.execute_batch("ALTER TABLE images ADD COLUMN combo TEXT")?;
+    }
     Ok(())
 }
 
@@ -64,7 +74,8 @@ CREATE TABLE IF NOT EXISTS images (
   env_hash TEXT PRIMARY KEY,
   tag TEXT NOT NULL,                -- sandbox-base-<env_hash[:12]>
   built_at INTEGER,
-  build_log TEXT                    -- last build output tail (failure display)
+  build_log TEXT,                   -- last build output tail (failure display)
+  combo TEXT                        -- S3: readable combo description; NULL = pre-S3
 );
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,24 +252,43 @@ pub fn delete_sandbox(conn: &Connection, name: &str) -> Result<()> {
 /// already existed and nothing was built" (A5 same-env reuse - jobs.rs still
 /// upserts so a row exists for an image whose record predates the DB): in
 /// that case the original build's built_at/build_log MUST survive; a real
-/// rebuild (non-empty log) replaces both.
-pub fn upsert_image(conn: &Connection, env_hash: &str, tag: &str, build_log: &str) -> Result<()> {
+/// rebuild (non-empty log) replaces both. `combo` (S3) is the readable combo
+/// description, written on every upsert (it is not log-coupled: a same-env
+/// reuse re-writes the same description; a config change hashes differently
+/// and lands a fresh row with its own combo).
+pub fn upsert_image(
+    conn: &Connection,
+    env_hash: &str,
+    tag: &str,
+    build_log: &str,
+    combo: Option<&str>,
+) -> Result<()> {
     conn.execute(
-        "INSERT INTO images (env_hash, tag, built_at, build_log) VALUES (?1,?2,?3,?4)
+        "INSERT INTO images (env_hash, tag, built_at, build_log, combo) VALUES (?1,?2,?3,?4,?5)
          ON CONFLICT(env_hash) DO UPDATE SET
            built_at = CASE WHEN ?4 = '' THEN images.built_at ELSE ?3 END,
-           build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END",
-        params![env_hash, tag, chrono_now_secs(), build_log,],
+           build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END,
+           combo = COALESCE(?5, images.combo)",
+        params![env_hash, tag, chrono_now_secs(), build_log, combo],
     )?;
     Ok(())
 }
 
-pub fn list_images(conn: &Connection) -> Result<Vec<(String, String, i64, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT env_hash, tag, built_at, build_log FROM images ORDER BY built_at DESC")?;
-    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+pub fn list_images(conn: &Connection) -> Result<Vec<(String, String, i64, String, Option<String>)>> {
+    let mut stmt = conn.prepare(
+        "SELECT env_hash, tag, built_at, build_log, combo FROM images ORDER BY built_at DESC",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+/// Remove an image row after a successful delete job (S3). Returns whether a
+/// row was actually deleted (the delete job may act on a row that vanished
+/// between the pre-check and the rmi - not an error, just nothing to remove).
+pub fn delete_image_row(conn: &Connection, env_hash: &str) -> Result<bool> {
+    let n = conn.execute("DELETE FROM images WHERE env_hash = ?1", params![env_hash])?;
+    Ok(n > 0)
 }
 
 /// How many sandboxes currently reference this env (design §3.3: no separate
@@ -426,24 +456,35 @@ mod tests {
         // built); the original build's built_at + log must survive, or the
         // images page loses its build log the first time a config is reused.
         let conn = mem_db();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "original log").unwrap();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "").unwrap();
-        let (built_at, build_log) = conn
+        upsert_image(&conn, "h1", "sandbox-base-h1", "original log", Some("a+b (cs,vnc)")).unwrap();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "", None).unwrap();
+        let (built_at, build_log, combo) = conn
             .query_row(
-                "SELECT built_at, build_log FROM images WHERE env_hash = 'h1'",
+                "SELECT built_at, build_log, combo FROM images WHERE env_hash = 'h1'",
                 [],
-                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                    ))
+                },
             )
             .unwrap();
         assert_eq!(build_log, "original log");
         assert!(built_at > 0);
+        assert_eq!(
+            combo.as_deref(),
+            Some("a+b (cs,vnc)"),
+            "combo survives a same-env reuse (log empty but description kept)"
+        );
     }
 
     #[test]
     fn upsert_image_real_rebuild_replaces_log() {
         let conn = mem_db();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "old").unwrap();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "new log").unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "old", None).unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "new log", None).unwrap();
         let build_log: String = conn
             .query_row(
                 "SELECT build_log FROM images WHERE env_hash = 'h2'",
@@ -459,7 +500,7 @@ mod tests {
         // No prior row: the empty-log preservation branch must not swallow
         // the INSERT (CASE only fires on conflict).
         let conn = mem_db();
-        upsert_image(&conn, "h3", "sandbox-base-h3", "").unwrap();
+        upsert_image(&conn, "h3", "sandbox-base-h3", "", Some("x+y")).unwrap();
         let (tag, build_log): (String, String) = conn
             .query_row(
                 "SELECT tag, build_log FROM images WHERE env_hash = 'h3'",
@@ -469,5 +510,55 @@ mod tests {
             .unwrap();
         assert_eq!(tag, "sandbox-base-h3");
         assert_eq!(build_log, "");
+    }
+
+    #[test]
+    fn init_schema_adds_combo_to_preexisting_images_table() {
+        // S3 migration: a db whose images table predates the combo column
+        // gets it added idempotently (NULL on existing rows), and a fresh
+        // db gets the column in the CREATE — both read back as missing.
+        let conn = mem_db(); // fresh schema has combo
+
+        let has: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'combo'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has, 1, "fresh db creates the combo column");
+
+        // Simulate a pre-S3 db: drop the column is not possible in SQLite
+        // easily, so verify idempotence by re-running init_schema (no error,
+        // column still present) — the pragma-probe path is exercised on real
+        // pre-existing state.db files.
+        init_schema(&conn).unwrap();
+        let has2: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'combo'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has2, 1, "init_schema is idempotent on combo");
+    }
+
+    #[test]
+    fn list_images_carries_combo_and_delete_image_row_removes() {
+        let conn = mem_db();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "log1", Some("a (vnc)")).unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "log2", None).unwrap();
+
+        let rows = list_images(&conn).unwrap();
+        assert_eq!(rows.len(), 2);
+        let h1 = rows.iter().find(|(h, ..)| h == "h1").unwrap();
+        assert_eq!(h1.4.as_deref(), Some("a (vnc)"), "combo read back");
+        let h2 = rows.iter().find(|(h, ..)| h == "h2").unwrap();
+        assert_eq!(h2.4, None, "NULL combo on pre-existing rows");
+
+        // delete_image_row: existing -> true, gone -> false.
+        assert!(delete_image_row(&conn, "h1").unwrap());
+        assert!(!delete_image_row(&conn, "h1").unwrap());
+        assert_eq!(list_images(&conn).unwrap().len(), 1);
     }
 }

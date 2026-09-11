@@ -173,6 +173,11 @@ export interface Image {
   built_at: number | null;
   refcount: number;
   build_log: string;
+  /** S3: readable combo description; null on pre-S3 rows (page falls back
+   * to the env_hash). */
+  combo: string | null;
+  /** S3: live image size in bytes (docker inspect); null = failed / gone. */
+  size_bytes: number | null;
 }
 
 export interface ImageList {
@@ -184,7 +189,7 @@ export interface ImageList {
 /** One job's status - mirrors mgr/src/state.rs JobShared EXACTLY. */
 export type Job = {
   id: number;
-  kind: "create" | "recreate" | "delete";
+  kind: "create" | "recreate" | "delete" | "image-delete" | "image-cleanup";
   sandbox: string | null;
   status: "running" | "ok" | "error";
   error: string | null;

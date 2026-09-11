@@ -336,7 +336,31 @@ piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
 同 env 第二个沙箱复用镜像(A5)时,`upsert_image` 以**空 log**命中
 `ON CONFLICT DO UPDATE`——必须 CASE WHEN 保留旧 build_log/built_at,否则
 原始构建日志被空值覆盖,镜像页日志按钮永久禁用。`mgr/src/db.rs` 单测
-锁语义(3 个)。
+锁语义(3 个)。S3 起 `upsert_image` 增 `combo` 参数(5 参):组合描述随
+每写携带,ON CONFLICT 时 `COALESCE(?5, images.combo)`——NULL combo 不覆盖
+已有描述(旧行 A5 复用场景)。
+
+## images 管理端点(S3,D3)
+
+- `GET /api/images` — 每行 `{env_hash, tag, built_at, refcount, build_log,
+  combo, size_bytes}`。`combo` 为可读组合描述(create 时 envhash:
+  `describe_combo(env, services)` 写入;旧行 NULL,前端回退 env_hash[:12]。
+  pi/pi-web 服务开关从 env.scenarios 推导,S1 折叠后 Services 仅含
+  cs/vnc)。`size_bytes` = 实时 `docker image inspect {{.Size}}`(base tag),
+  查询失败/镜像不存在 → null(前端显示 —),**永不因此报错**。
+- `POST /api/images/:env_hash/delete` → **202 {job}**(kind `image-delete`)。
+  预检同步:env_hash 必须 64 hex(否则 400);行不存在 404;`refcount > 0`
+  → **409**(R3,含构建中引用——create/recreate 沙箱在 run_create 写
+  env_hash 后 refcount 即含之)。job 内**重查 refcount**(竞争窗口兜底),
+  `image_tags(hash)` 三 tag 依次 `image_rmi -f`(缺失跳过),全成功才
+  `delete_image_row`;任一 rmi 失败 → 中止报错、**DB 行保留**(下次构建
+  upsert 重建,R5 不半删)。**不碰 vnc**(全局共享无行可查)。
+- `POST /api/images/cleanup` → **202 {job}**(kind `image-cleanup`)。job
+  遍历 refcount=0 行逐行按上法删组(单行失败报告后继续,R4),累计回收
+  bytes + `docker builder prune`,log 汇总 `cleanup done: N image(s)
+  removed, M failed, reclaimed X bytes of images`。
+- rmi 安全:只允许 `image_tags(hash)` 产出的 `sandbox-` 前缀 tag
+  (`docker::is_owned_image_tag`),任意 tag 注入被拒。
 
 ## /api seam 404(app 与 mgr 同构)
 

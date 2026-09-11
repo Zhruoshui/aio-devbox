@@ -112,6 +112,19 @@ export function listImages(): Promise<ImageList> {
   return get("/api/images");
 }
 
+/** POST /api/images/:env_hash/delete — one image's tag group (base/app/cs),
+ * 202 {job} (S3 R3: async, poll getJob for progress). The backend 409s a
+ * referenced image; the page disables those rows anyway. */
+export function deleteImage(envHash: string): Promise<{ ok: boolean; job: number }> {
+  return send(`/api/images/${enc(envHash)}/delete`, "POST");
+}
+
+/** POST /api/images/cleanup — every refcount=0 image group + builder cache,
+ * 202 {job} (S3 R4). */
+export function cleanupImages(): Promise<{ ok: boolean; job: number }> {
+  return send("/api/images/cleanup", "POST");
+}
+
 export function getJob(id: number): Promise<Job> {
   return get(`/api/jobs/${id}`);
 }

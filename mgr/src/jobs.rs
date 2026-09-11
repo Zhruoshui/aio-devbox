@@ -196,7 +196,8 @@ async fn run_create(
 
     {
         let conn = state.db.lock().unwrap();
-        db::upsert_image(&conn, &hash, &base_tag, &base_build_log)
+        let combo = envhash::describe_combo(&env, &services);
+        db::upsert_image(&conn, &hash, &base_tag, &base_build_log, Some(&combo))
             .with_context(|| "record image")?;
     }
 
@@ -351,6 +352,191 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
         let _ = db::persist_job(&st.db.lock().unwrap(), &job);
     });
     Ok(job_id)
+}
+
+/// Spawn a job that deletes one image's tag group (base/app/code-server, S3
+/// R3). Async (kind "image-delete", no sandbox) so the images page shows
+/// progress via GET /api/jobs/:id; a row is only removed after ALL group
+/// rmi succeed (R5: no half-removed row — a mid-group failure keeps the row
+/// so a future build upsert re-creates it).
+pub async fn spawn_image_delete(
+    state: Arc<AppState>,
+    env_hash: String,
+) -> Result<i64> {
+    let job_id = {
+        let conn = state.db.lock().unwrap();
+        db::insert_job(&conn, "image-delete", None)?
+    };
+    let shared = Arc::new(TokioMutex::new(JobShared {
+        id: job_id,
+        kind: "image-delete".into(),
+        sandbox: None,
+        status: "running".into(),
+        error: None,
+        log: String::new(),
+    }));
+    {
+        let mut jobs = state.jobs.lock().unwrap();
+        jobs.insert(job_id, shared.clone());
+    }
+
+    let st = state.clone();
+    tokio::spawn(async move {
+        let result = run_image_delete(&st, &env_hash, &shared).await;
+        let mut job = shared.lock().await;
+        match result {
+            Ok(reclaimed) => {
+                job.status = "ok".into();
+                job.log.push_str(&format!(
+                    "image-delete done: reclaimed {reclaimed} bytes\n"
+                ));
+            }
+            Err(e) => {
+                let msg = format!("{e:#}");
+                tracing::error!(env_hash = %env_hash, error = %msg, "image delete job failed");
+                job.status = "error".into();
+                job.error = Some(msg);
+            }
+        }
+        let _ = db::persist_job(&st.db.lock().unwrap(), &job);
+    });
+    Ok(job_id)
+}
+
+/// Delete ONE image's tag group. Re-checks refcount (the pre-check in the
+/// handler was synchronous; a sandbox may have been created since). Then
+/// rmi base -> app -> code-server, skipping missing tags (services off).
+/// Returns the total RECLAIMED bytes (sum of each deleted tag's pre-rmi
+/// size; missing tags contribute 0).
+async fn run_image_delete(
+    st: &Arc<AppState>,
+    env_hash: &str,
+    log: &Arc<TokioMutex<JobShared>>,
+) -> Result<u64> {
+    {
+        let conn = st.db.lock().unwrap();
+        let rc = db::image_refcount(&conn, env_hash)?;
+        if rc > 0 {
+            anyhow::bail!("image is referenced by {rc} sandbox(es); refusing to delete");
+        }
+    }
+    let (base, app, cs) = envhash::image_tags(env_hash);
+    let mut reclaimed = 0u64;
+    for tag in [&base, &app, &cs] {
+        if !docker::image_exists(tag).await? {
+            append_log(log, &format!("{tag}: not present, skip\n")).await;
+            continue;
+        }
+        if let Ok(sz) = docker::image_size(tag).await {
+            reclaimed += sz;
+        }
+        match docker::image_rmi(tag).await {
+            Ok(out) => append_log(log, &format!("rmi {tag}: {out}")).await,
+            Err(e) => {
+                anyhow::bail!(
+                    "rmi {tag} failed (row kept for rebuild): {e:#}"
+                );
+            }
+        }
+    }
+    let deleted = db::delete_image_row(&st.db.lock().unwrap(), env_hash)?;
+    append_log(
+        log,
+        &format!("image row {env_hash} removed ({deleted})\n"),
+    )
+    .await;
+    Ok(reclaimed)
+}
+
+/// Spawn the one-shot image cleanup job (S3 R4): delete every refcount=0
+/// image group + builder cache, reporting reclaimed space per column.
+pub async fn spawn_image_cleanup(state: Arc<AppState>) -> Result<i64> {
+    let job_id = {
+        let conn = state.db.lock().unwrap();
+        db::insert_job(&conn, "image-cleanup", None)?
+    };
+    let shared = Arc::new(TokioMutex::new(JobShared {
+        id: job_id,
+        kind: "image-cleanup".into(),
+        sandbox: None,
+        status: "running".into(),
+        error: None,
+        log: String::new(),
+    }));
+    {
+        let mut jobs = state.jobs.lock().unwrap();
+        jobs.insert(job_id, shared.clone());
+    }
+
+    let st = state.clone();
+    tokio::spawn(async move {
+        let result = run_image_cleanup(&st, &shared).await;
+        let mut job = shared.lock().await;
+        match result {
+            Ok(()) => job.status = "ok".into(),
+            Err(e) => {
+                let msg = format!("{e:#}");
+                tracing::error!(error = %msg, "image cleanup job failed");
+                job.status = "error".into();
+                job.error = Some(msg);
+            }
+        }
+        let _ = db::persist_job(&st.db.lock().unwrap(), &job);
+    });
+    Ok(job_id)
+}
+
+/// Delete every refcount=0 image group + builder cache. Per-row failures are
+/// logged and continue (one bad row must not block the rest of the cleanup);
+/// the summary line reports images reclaimed (bytes) + cache reclaimed.
+async fn run_image_cleanup(
+    st: &Arc<AppState>,
+    log: &Arc<TokioMutex<JobShared>>,
+) -> Result<()> {
+    let rows = {
+        let conn = st.db.lock().unwrap();
+        db::list_images(&conn)?
+    };
+    let mut images_reclaimed: u64 = 0;
+    let mut deleted_rows = 0u64;
+    let mut failed_rows = 0u64;
+    for (env_hash, _, _, _, _) in rows {
+        {
+            let conn = st.db.lock().unwrap();
+            let rc = db::image_refcount(&conn, &env_hash)?;
+            if rc > 0 {
+                continue;
+            }
+        }
+        // The delete helper re-checks refcount + removes the row; failures
+        // are logged against THIS job and don't abort the rest (R4: one bad
+        // row must not block the cleanup).
+        match run_image_delete(st, &env_hash, log).await {
+            Ok(reclaimed) => {
+                deleted_rows += 1;
+                images_reclaimed += reclaimed;
+            }
+            Err(e) => {
+                failed_rows += 1;
+                append_log(log, &format!("{env_hash}: {e:#}\n")).await;
+            }
+        }
+    }
+    // Builder cache prune + summary.
+    let prune = match docker::builder_prune().await {
+        Ok(out) => out,
+        Err(e) => format!("builder prune failed: {e:#}\n"),
+    };
+    append_log(log, &prune).await;
+    append_log(
+        log,
+        &format!(
+            "cleanup done: {deleted_rows} image(s) removed, {failed_rows} failed, \
+             reclaimed {images_reclaimed} bytes of images"
+        ),
+    )
+    .await;
+    Ok(())
 }
 
 async fn append_log(log: &Arc<TokioMutex<JobShared>>, chunk: &str) {
