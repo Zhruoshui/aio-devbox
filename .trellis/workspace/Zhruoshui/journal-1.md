@@ -913,3 +913,65 @@ images 表从只读列表升级为可管理:每镜像显示组合清单+体积,�
 
 [OK] S3 实现+检查+spec 更新完成,已提交 `ba68d3d`(task 仍 in_progress,
 待实机 AC 后归档)。
+
+## Session 8: S4 用量图表——分沙箱条形 + 按天趋势 (D5)
+
+### Summary
+
+用量页补两图+时间维度:合计视图加「分沙箱」横向条形(点条跳沙箱视图);
+单沙箱视图加「近 14 天趋势」(token 双系列柱 + 成本折线);明细表加日期
+列 + 按日筛选(独立于窗口 chip)。
+
+### Main Changes
+
+- **app usage.rs byDay**: 新增 `DayUsage`/`UsageScan` 结构、`day_label`/
+  `build_14_day_series` 纯函数;四个扫描器返回 `UsageScan{rows, by_day}`,
+  **日桶累加移到 window cutoff 之前**(S4 关键语义:byDay 与窗口解耦);
+  handler 合并日桶后按 `now_day-13..=now_day` 裁剪(修掉初版把 `_now_secs`
+  弃用、today/7d 窗口截断趋势、all 窗口吐全史的 bug);无数据日不发合成行
+  (前端 gap-fill)。cache 增 by_day。
+- **mgr usage.rs**: 新增 `assemble_totals(entries)` 纯函数——对非 error
+  entry 的 `usage.rows` sum in/out/cost(cost 缺失→0),error entry 全 0;
+  GET /api/usage 响应增 `totals`。不入缓存(由 30s 缓存的 entries 派生)。
+- **前端**: types.ts 增 `DayUsage`/`SandboxTotal` + byDay/totals 解码
+  (旧后端缺字段→undefined 降级);charts.tsx 增 `SandboxBars`(点击条跳沙箱、
+  hasCost 着色区分)+ `DayTrend`(SVG 柱状双系列 + 成本 polyline,无成本不画,
+  gap-fill 14 天);UsagePage 增沙箱条形(合计视图)、按天趋势(单沙箱)、
+  日期列+筛选;切沙箱重置筛选。i18n 5 个新 key + CSS。
+
+### Key Findings
+
+- 初版 `build_14_day_series` 把 `now_secs` 命名为 `_now_secs` 弃用——裁剪
+  逻辑根本没写;且四扫描器 day 桶累加都在 `if t < cutoff { continue }` 之后,
+  违反 design §1.2「恒定 14 天、与窗口解耦」。修复 = 累加前置 + `[today-13,
+  today]` 字符串裁剪(`YYYY-MM-DD` 字典序即日序)。
+- **DayTrend 初版漏渲染 `{bars}`**(只 push 不画)——bar 数组构建了但 JSX
+  从未输出,检查 prd 的「柱状双系列」时发现。已补。
+- JSON 数字比较坑:mgr 测试 `assert_eq!(json["cost"], 0)` 时 `Number(0.0)`
+  ≠ 整数 0,须 `as_f64()`。
+- 前端日期跨度用浏览器 UTC 计算(`Date.UTC`),与后端 UTC 裁剪一致;跨时区
+  时按用户视角呈现(可接受)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38dad12` | feat(mgr): S4 用量图表 byDay + 分沙箱条形 + 按天趋势 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-app: 226 绿(新增 day_label/build_14_day_series/
+  pi_scan by_day 3 测)
+- [OK] cargo test -p aio-mgr: 94 绿(新增 assemble_totals 2 测)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] make mgr-up 重建后 AC1-AC4 目视:条形跳转、趋势数据与明细一致、
+  日期筛选、无成本降级
+
+### Next Steps
+
+- S5 侧栏折叠仍在规划(09-10-mgr-sidebar-collapse)。
+- S4 实机 AC 复核留宿主机(S2/S3 亦同,一批复核)。
+### Status
+
+[OK] S4 实现+检查+spec 更新完成,已提交 `38dad12`(task 仍 in_progress,
+待实机 AC 后归档)。
