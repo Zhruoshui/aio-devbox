@@ -267,6 +267,54 @@ body {
   text-overflow: ellipsis;
 }
 
+/* S5/R1: collapsed sidebar — icons only (~48px). Text labels fade out, the
+ * brand icon stays, nav icons centre in the rail. The collapse button lives
+ * in the head (always visible); its chevron flips by state via the icon name. */
+.sb-collapse-btn {
+  flex-shrink: 0;
+}
+.sidebar.collapsed {
+  width: 48px;
+}
+.sidebar.collapsed .sb-head {
+  padding: var(--space-2);
+  justify-content: center;
+}
+.sidebar.collapsed .sb-brand {
+  display: none;
+}
+.sidebar.collapsed .sb-collapse-btn {
+  margin-left: 0;
+}
+.sidebar.collapsed .sb-title,
+.sidebar.collapsed .sb-group-label,
+.sidebar.collapsed .launch-label {
+  display: none;
+}
+.sidebar.collapsed .sb-list {
+  align-items: center;
+  gap: var(--space-1);
+}
+.sidebar.collapsed .sb-group-label {
+  margin: 0;
+  height: 0;
+}
+.sidebar.collapsed .sb-row {
+  width: 100%;
+  justify-content: center;
+}
+.sidebar.collapsed .launch-btn {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+  width: 36px;
+}
+.sidebar.collapsed .sb-foot {
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .icon-btn {
   width: 32px;
   height: 32px;
@@ -2623,6 +2671,141 @@ body {
 }
 .ws-start-btn.spin svg {
   animation: rot 0.9s linear infinite;
+}
+
+/* ── S5: collapsed tree rail (icons-only + hover flyout) ─────────── */
+.ws-tree.collapsed {
+  width: 48px;
+  position: relative;
+}
+.ws-tree.collapsed .sb-list {
+  align-items: center;
+  padding: var(--space-2) var(--space-1);
+}
+.ws-tree-collapse-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-1) 0;
+}
+.ws-tree.collapsed .ws-tree-collapse-head {
+  justify-content: center;
+  padding: var(--space-2) 0 var(--space-1);
+}
+.ws-collapse-btn {
+  width: 28px;
+  height: 28px;
+}
+.ws-cnode {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+  border-radius: var(--radius-md);
+}
+.ws-cnode:hover {
+  background: color-mix(in oklch, var(--fg) 7%, transparent);
+}
+.ws-cavatar {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--fg) 12%, transparent);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.ws-cavatar.is-stopped {
+  opacity: 0.5;
+}
+.ws-cnode.is-fly .ws-cavatar {
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+/* The flyout: anchored to the icon's right edge, a standalone floating
+ * panel that stays open while the pointer is anywhere inside it (the
+ * .ws-cnode :hover region includes the flyout — it is a DOM child). */
+.ws-flyout {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 6px);
+  z-index: 60;
+  width: 264px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-ring), var(--elev-raised);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ws-flyout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+.ws-flyout-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-flyout .badge {
+  transform: scale(0.85);
+  transform-origin: right center;
+  flex-shrink: 0;
+}
+.ws-flyout-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-flyout .launch-btn {
+  height: 30px;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.ws-flyout .launch-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+.ws-flyout-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+}
+.ws-flyout-foot .ws-start-btn {
+  flex-shrink: 0;
+}
+.ws-flyout .del-btn {
+  display: none;
+}
+.ws-flyout .sb-row:hover .del-btn {
+  display: inline-flex;
+}
+/* R5: on narrow viewports a right-anchored flyout would spill past the
+ * viewport edge — flip it to open LEFT of the rail instead. */
+@media (max-width: 560px) {
+  .ws-flyout {
+    left: auto;
+    right: calc(100% + 6px);
+  }
 }
 
 /* Children: the sandbox's manifest buttons, indented under the node. */

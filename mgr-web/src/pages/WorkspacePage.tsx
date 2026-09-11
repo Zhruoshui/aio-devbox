@@ -75,6 +75,8 @@ const TERMINAL_ID = "terminal";
 const HEADER_HEIGHT = 40;
 const LAYOUT_KEY = "mgr.layout";
 const GL_WINDOW_PARAM = "gl-window";
+/** S5/R2: workspace tree collapsed state (icons-only + hover flyout). */
+const TREE_COLLAPSED_KEY = "mgr.treeCollapsed";
 const POLL_MS = 4000;
 
 /**
@@ -176,6 +178,11 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
   const [startErr, setStartErr] = useState("");
   const [registerFor, setRegisterFor] = useState<string | null>(null);
   const [boot, setBoot] = useState<Boot>({ kind: "loading" });
+  // S5/R2: workspace tree collapsed (icons-only + hover flyout). Independent
+  // of the app sidebar collapse (R4) — own key, own state.
+  const [treeCollapsed, setTreeCollapsed] = useState<boolean>(
+    () => localStorage.getItem(TREE_COLLAPSED_KEY) === "1",
+  );
 
   // ── sandbox list: 4s poll (same pattern as SandboxListPage) ───────
 
@@ -195,6 +202,11 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
     const timer = setInterval(() => void fetchList(), POLL_MS);
     return () => clearInterval(timer);
   }, [fetchList]);
+
+  // S5/R2: persist the tree collapsed state.
+  useEffect(() => {
+    localStorage.setItem(TREE_COLLAPSED_KEY, treeCollapsed ? "1" : "0");
+  }, [treeCollapsed]);
 
   // ── tab glyphs ────────────────────────────────────────────────────
 
@@ -600,6 +612,8 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
         expanded={expanded}
         starting={starting}
         focus={focus}
+        collapsed={treeCollapsed}
+        onCollapseToggle={() => setTreeCollapsed((c) => !c)}
         onToggle={onToggle}
         onLaunch={launch}
         onStart={(name) => void onStart(name)}

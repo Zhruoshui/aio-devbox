@@ -15,7 +15,8 @@ mgr-web/src/
 ├── gl-kumo.css         # golden-layout Kumo 主题覆盖
 ├── styles.css          # Kumo token 层([data-mode] 深浅色不变)
 ├── App.tsx             # shell: 侧边导航(工作区/沙箱/镜像/模型/用量) +
-│                       # 主题/语言(键前缀 mgr.*); wsFocus = goWorkspace 聚焦
+│                       # 主题/语言(键前缀 mgr.*); wsFocus = goWorkspace 聚焦;
+│                       # S5/R1: 侧栏可折叠为图标栏(mgr.sidebarCollapsed,独立键)
 └── pages/
     ├── WorkspacePage.tsx    # golden-layout 工作区(默认落地页): 布局键
     │                        # mgr.layout / seq 池 / popout / 拖拽遮罩
@@ -26,7 +27,9 @@ mgr-web/src/
     ├── models/             # ModelsPage: profile 选择栏(D8) + 五个 tab
     │                        # (providers/pi/opencode/claude/codex)
     └── workspace/          # SandboxTree(沙箱树+展开懒加载 manifest +
-        ├── paneUrl.ts      #   注册按钮) / RegisterDialog / types
+        ├── paneUrl.ts      #   注册按钮; S5/R2: 可折叠为竖向图标条+
+        │                   #   hover flyout, 键 mgr.treeCollapsed 独立记忆)
+        ├── panes/          #   (flyout 内按钮组 = buttonsOf 展开态同源)
         ├── panes/          # XtermPane / IframePane / CodeServerPane
         │                   #   (per-sandbox 绑定, componentState.sandbox)
         └── types.ts        # manifest + RegisterButtonInput 契约

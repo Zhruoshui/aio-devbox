@@ -19,6 +19,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     toLight: "切换到浅色主题",
     toDark: "切换到深色主题",
     switchLang: "Switch to English",
+    // S5/R1: sidebar / tree collapse
+    collapseSidebar: "折叠侧栏",
+    expandSidebar: "展开侧栏",
+    collapseTree: "折叠沙箱树",
+    expandTree: "展开沙箱树",
     loading: "正在加载…",
     loadFailed: "加载失败：",
     // nav
@@ -359,6 +364,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     toLight: "Switch to light theme",
     toDark: "Switch to dark theme",
     switchLang: "切换到中文",
+    // S5/R1: sidebar / tree collapse
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
+    collapseTree: "Collapse sandbox tree",
+    expandTree: "Expand sandbox tree",
     loading: "Loading…",
     loadFailed: "Failed to load: ",
     // nav

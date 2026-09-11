@@ -21,7 +21,7 @@
 // existing POST /api/sandboxes/:name/start). The tree never auto-starts
 // anything (D6: stopped greys out, start is explicit).
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { t, type Lang } from "../../i18n";
 import { Icon } from "../../icons";
@@ -48,6 +48,10 @@ interface Props {
   focus: string | null;
   /** Rendered at the bottom of the tree column (reset-layout lives here). */
   footer?: ReactNode;
+  /** S5/R2: icons-only collapsed rail w/ hover flyouts. State is owned by
+   * WorkspacePage (persisted separately from the app sidebar collapse, R4). */
+  collapsed: boolean;
+  onCollapseToggle: () => void;
   onToggle: (name: string) => void;
   onLaunch: (sandbox: string, service: ServiceEntry) => void;
   onStart: (name: string) => void;
@@ -108,6 +112,8 @@ export function SandboxTree({
   expanded,
   starting,
   focus,
+  collapsed,
+  onCollapseToggle,
   footer,
   onToggle,
   onLaunch,
@@ -115,11 +121,123 @@ export function SandboxTree({
   onRegister,
   onDeleteButton,
 }: Props): JSX.Element {
+  // S5/R2: the collapsed rail's hover flyout. State keeps the flyout open
+  // across clicks (clicking a launch button must NOT close it — R2 "open
+  // several in a row"); it dismisses only on mouseleave of the whole node.
+  const [hoverSb, setHoverSb] = useState<string | null>(null);
+
   return (
-    <aside className="ws-tree" aria-label={t(lang, "wsTreeLabel")}>
+    <aside className={`ws-tree${collapsed ? " collapsed" : ""}`} aria-label={t(lang, "wsTreeLabel")}>
+      <div className="ws-tree-collapse-head">
+        <button
+          className="icon-btn ws-collapse-btn"
+          title={collapsed ? t(lang, "expandTree") : t(lang, "collapseTree")}
+          aria-label={collapsed ? t(lang, "expandTree") : t(lang, "collapseTree")}
+          aria-expanded={!collapsed}
+          onClick={onCollapseToggle}
+        >
+          <Icon name={collapsed ? "chev-r" : "chev-l"} />
+        </button>
+      </div>
       <div className="sb-list">
         {sandboxes.length === 0 && <p className="sb-empty">{t(lang, "wsTreeEmpty")}</p>}
         {sandboxes.map((sb) => {
+          if (collapsed) {
+            const stopped = sb.live !== "running";
+            const m = manifests[sb.name];
+            const buttons = m && m.services !== null ? buttonsOf(m.services) : null;
+            const fly = hoverSb === sb.name;
+            return (
+              <div
+                key={sb.name}
+                className={`ws-cnode${fly ? " is-fly" : ""}`}
+                onMouseEnter={() => setHoverSb(sb.name)}
+                onMouseLeave={() => setHoverSb(null)}
+              >
+                <button
+                  className={`ws-cavatar${stopped ? " is-stopped" : ""}`}
+                  title={sb.name}
+                  /* Collapsed rail: the avatar is the whole node — clicking
+                   * it expands the tree (R2: actions live in the flyout). */
+                  onClick={onCollapseToggle}
+                >
+                  {sb.name.slice(0, 1).toUpperCase()}
+                </button>
+                {fly && (
+                  <div className="ws-flyout" role="tooltip">
+                    <div className="ws-flyout-head">
+                      <span className="ws-flyout-name" title={sb.name}>
+                        {sb.name}
+                      </span>
+                      <span className={`badge ${liveCls(sb.live)}`}>
+                        <span className="dot" />
+                        {t(lang, liveKey(sb.live))}
+                      </span>
+                    </div>
+                    <div className="ws-flyout-actions">
+                      {buttons === null ? (
+                        <p className="sb-empty">
+                          {m === undefined || m.status === "idle" || m.status === "loading"
+                            ? t(lang, "loading")
+                            : stopped
+                              ? t(lang, "wsStoppedHint")
+                              : `${t(lang, "wsTreeLoadFailed")}${m.error}`}
+                        </p>
+                      ) : buttons.length === 0 ? (
+                        <p className="sb-empty">{t(lang, "sidebarEmpty")}</p>
+                      ) : (
+                        buttons.map((s) => (
+                          <div key={s.id} className={`sb-row${stopped ? " ws-disabled" : ""}`}>
+                            <button
+                              className="launch-btn"
+                              title={`${s.label}@${sb.name}${t(lang, "openInstanceSuffix")}`}
+                              disabled={stopped}
+                              onClick={() => onLaunch(sb.name, s)}
+                            >
+                              <Icon name={serviceIcon(s.id, s.type)} />
+                              <span className="launch-label">{s.label}</span>
+                            </button>
+                            {s.deletable && !stopped && (
+                              <button
+                                className="del-btn"
+                                title={`${t(lang, "removePrefix")}${s.label}`}
+                                aria-label={`${t(lang, "removePrefix")}${s.label}`}
+                                onClick={() => onDeleteButton(sb.name, s.id)}
+                              >
+                                <Icon name="x" />
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      )}
+                      <div className="sb-row ws-flyout-foot">
+                        {stopped && (
+                          <button
+                            className={`icon-btn ws-start-btn${starting === sb.name ? " spin" : ""}`}
+                            title={t(lang, "start")}
+                            aria-label={`${t(lang, "start")} ${sb.name}`}
+                            disabled={starting !== ""}
+                            onClick={() => onStart(sb.name)}
+                          >
+                            <Icon name={starting === sb.name ? "refresh" : "play"} />
+                          </button>
+                        )}
+                        <button
+                          className="launch-btn ws-register-btn"
+                          disabled={stopped}
+                          title={t(lang, "register")}
+                          onClick={() => onRegister(sb.name)}
+                        >
+                          <Icon name="plus" />
+                          <span className="launch-label">{t(lang, "register")}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
           const open = expanded.has(sb.name);
           const stopped = sb.live !== "running";
           const m = manifests[sb.name];

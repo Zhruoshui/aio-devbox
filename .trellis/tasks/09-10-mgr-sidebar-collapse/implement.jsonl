@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "React 组件约定（presentational/imperative、file-level comment）——SandboxTree 折叠分支的基线"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "state 本地、向下流动——折叠状态由 WorkspacePage/App 持有并传入的基线"}

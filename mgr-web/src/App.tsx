@@ -56,6 +56,8 @@ export type SbxView =
 
 const THEME_KEY = "mgr.theme";
 const LANG_KEY = "mgr.lang";
+/** S5/R1: sidebar collapsed state (icons-only, ~48px), persisted. */
+const SIDEBAR_KEY = "mgr.sidebarCollapsed";
 
 export function App(): JSX.Element {
   // The workspace is the default landing page: the sandbox manager is now
@@ -71,6 +73,11 @@ export function App(): JSX.Element {
   const [lang, setLang] = useState<Lang>(
     () => (localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh-CN"),
   );
+  // S5/R1: sidebar collapsed (icons-only). Independent of the workspace tree
+  // collapse (R4: two collapses remember their own state).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
+    () => localStorage.getItem(SIDEBAR_KEY) === "1",
+  );
   // Scenario catalog, fetched once for the create wizard / env editor.
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
 
@@ -85,6 +92,11 @@ export function App(): JSX.Element {
     document.documentElement.lang = lang;
     localStorage.setItem(LANG_KEY, lang);
   }, [lang]);
+
+  // S5/R1: persist the sidebar collapsed state.
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   const nav = (p: Page) => {
     setPage(p);
@@ -112,12 +124,21 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <IconSprite />
-      <aside className="sidebar" aria-label={t(lang, "brand")}>
+      <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} aria-label={t(lang, "brand")}>
         <div className="sb-head">
           <div className="sb-brand">
             <Icon name="cube" large />
             <span className="sb-title">{t(lang, "brand")}</span>
           </div>
+          <button
+            className="icon-btn sb-collapse-btn"
+            title={sidebarCollapsed ? t(lang, "expandSidebar") : t(lang, "collapseSidebar")}
+            aria-label={sidebarCollapsed ? t(lang, "expandSidebar") : t(lang, "collapseSidebar")}
+            aria-expanded={!sidebarCollapsed}
+            onClick={() => setSidebarCollapsed((c) => !c)}
+          >
+            <Icon name={sidebarCollapsed ? "chev-r" : "chev-l"} />
+          </button>
         </div>
         <nav className="sb-list">
           <div>
