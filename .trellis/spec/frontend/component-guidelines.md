@@ -67,3 +67,33 @@ Headless-test note: puppeteer cannot reliably READ the clipboard
 (`readText()` returns "" or throws `NotAllowedError` even with overridden
 permissions). Assert the write contract instead: stub
 `navigator.clipboard.writeText` in-page and assert its argument.
+
+## Component layer first: reach for `components.css` classes (09-11)
+
+The prototype redesign moved every shared visual to the designer component
+layer (`components.css`, sourced from `docs/Web-Prototype/mgr-web.css`).
+Before writing any page-local CSS, check the component layer for an
+equivalent: `.page`/`.page-head` (admin-page scaffold), `.btn` family,
+`.badge`, `.segmented`, `.tabs`, `.chip`, `.card`, `.field`+`.input`+`.err`,
+`.overlay`+`.dialog`, `.menu`, `.pop`, `.drawer`, `.table`, `.tree-*`,
+`.statusbar`, `.spinner`. Page-local classes in `styles.css` are for layout
+the component layer genuinely does not cover (e.g. usage charts,
+golden-layout integration) — and they may only consume tokens, never
+hardcoded colors (dark/light both come from `[data-mode]`).
+
+Overlay components (menu/popover/drawer/dialog) share one contract —
+copy it from an existing one:
+
+- `role` semantics: `menu`+`menuitem` (NodeMenu), `dialog` (pop/drawer),
+  `alertdialog` (destructive confirms).
+- Escape closes; outside `pointerdown` (menu/pop) or scrim click (drawer/
+  overlay) closes; focus returns to the opener where practical.
+- Anchored overlays are `position: fixed` with caller-computed coordinates
+  (NodeMenu's `useLayoutEffect` measure pattern); full-screen ones use the
+  `.overlay`/`.drawer` wrappers.
+
+Icons come from `icons.tsx` (`IconName` keys aligned with the prototype's
+`mgr-shell.js`): add the path there, never inline a one-off `<svg>` in a
+page. New user-facing strings go through `i18n.ts` — `t()` is typed
+`keyof Strings`, so a missing key (or a missing language column) fails
+`tsc`; the build gate doubles as the bilingual gate.

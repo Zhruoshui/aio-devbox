@@ -1,6 +1,10 @@
 // EditPage - environment-config editor for one sandbox (design §4 page 3),
 // plus the model-profile ASSIGNMENT select (unified Phase 4, D8).
 //
+// S7 (prototype redesign): .page-head gets the h1+sub.actions shape (sandbox
+// name as mono sub), inputs/selects move to the component layer (.input,
+// .field.invalid/.err), loading uses .ml-loading instead of the old
+// full-height .status.
 // Loads the sandbox (GET /api/sandboxes/:name), shows the same EnvPicker as
 // the create wizard seeded with the CURRENT env (so always_on versions and
 // enabled scenarios are reflected), plus editable resource inputs. Submit =
@@ -203,7 +207,7 @@ export function EditPage({
   if (loadErr !== "") {
     return (
       <div className="page">
-        <div className="status error">
+        <div className="ml-error">
           {t(lang, "loadFailed")}
           {loadErr}
         </div>
@@ -214,19 +218,19 @@ export function EditPage({
   return (
     <div className="page">
       <div className="page-head">
-        <h1>
-          {t(lang, "edTitle")} — <code>{name}</code>
-        </h1>
+        <div>
+          <h1>{t(lang, "edTitle")}</h1>
+          <p className="sub mono">{name}</p>
+        </div>
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={onCancel}>
             {t(lang, "cancel")}
           </button>
         </div>
-        <p className="sub">{t(lang, "edSub")}</p>
       </div>
       <div className="wizard">
         {scenarios === null || env === null ? (
-          <div className="status">{t(lang, "loading")}</div>
+          <div className="ml-loading">{t(lang, "loading")}</div>
         ) : (
           <>
             {installed !== null && (
@@ -255,37 +259,41 @@ export function EditPage({
           <label>{t(lang, "wzResources")}</label>
           <span className="hint">{t(lang, "wzResHint")}</span>
         </div>
-        <div className="field-row">
-          <div className="field">
+        <div className="field-row" style={{ maxWidth: 480 }}>
+          <div className={`field${resErr !== "" && cpus.trim() !== "" ? " invalid" : ""}`}>
             <label>{t(lang, "wzCpus")}</label>
             <input
+              className="input mono"
               value={cpus}
               placeholder={t(lang, "wzCpusPh")}
               inputMode="decimal"
               aria-invalid={resErr !== "" && cpus.trim() !== ""}
               onChange={(e) => setCpus(e.target.value)}
             />
+            <span className="err">{t(lang, "wzResErr")}</span>
           </div>
-          <div className="field">
+          <div className={`field${resErr !== "" && memMb.trim() !== "" ? " invalid" : ""}`}>
             <label>{t(lang, "wzMem")}</label>
             <input
+              className="input mono"
               value={memMb}
               placeholder={t(lang, "wzMemPh")}
               inputMode="numeric"
               aria-invalid={resErr !== "" && memMb.trim() !== ""}
               onChange={(e) => setMemMb(e.target.value)}
             />
+            <span className="err">{t(lang, "wzResErr")}</span>
           </div>
         </div>
-        {resErr && <span className="field-error">{resErr}</span>}
 
         {/* Model-profile assignment (D8): a pure kv write on submit - the
          * sandbox's 60s pull picks it up, NO recreate. "" = unassign (the
          * sandbox keeps its local models.json untouched). */}
-        <div className="field">
+        <div className="field" style={{ maxWidth: 480 }}>
           <label>{t(lang, "mpAssignTo")}</label>
           <span className="hint">{t(lang, "mpAssignHint")}</span>
           <select
+            className="input"
             value={profileSel ?? ""}
             disabled={profiles === null}
             onChange={(e) => setProfileSel(e.target.value)}
@@ -308,7 +316,7 @@ export function EditPage({
                 onChange={setAgentsSel}
               />
               {agentsSel !== null && agentsSel.length === 0 && (
-                <span className="field-error">{t(lang, "mpAgentsNone")}</span>
+                <span className="err" role="alert">{t(lang, "mpAgentsNone")}</span>
               )}
             </div>
           )}

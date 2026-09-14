@@ -220,15 +220,16 @@ body {
 }
 
 /* ─── loading / error states ─────────────────────────────────────── */
+/* Inline page-level notice (S7: was min-height:100vh full-screen centering,
+ * which the rail shell's non-scrolling .main broke — now a padded block). */
 .status {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  padding: var(--space-6);
   font-size: var(--text-base);
   color: var(--muted);
   text-align: center;
-  padding: var(--space-6);
 }
 .status.error {
   color: var(--danger);
@@ -238,118 +239,12 @@ body {
   font-size: 0.9em;
 }
 
-/* ─── sidebar (nav) ─────────────────────────────────────────────── */
-.sidebar {
-  width: 216px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-warm);
-  border-right: 1px solid var(--border-soft);
-  position: sticky;
-  top: 0;
-  height: 100vh;
-}
+/* ─── sidebar (nav) — RETIRED S2/S7 ──────────────────────────────────
+ * The 216px sidebar (and its S5 collapsed icon-rail form) is gone: the
+ * shell is the 48px .rail + workspace side panel (components.css, App.tsx).
+ * Only the tree-consumed row classes (.sb-list/.sb-row/.launch-btn/
+ * .launch-label) survive below. */
 
-.sb-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
-  min-height: 48px;
-}
-.sb-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
-}
-.sb-brand .icon-lg {
-  color: var(--fg);
-}
-.sb-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* S5/R1: collapsed sidebar — icons only (~48px). Text labels fade out, the
- * brand icon stays, nav icons centre in the rail. The collapse button lives
- * in the head (always visible); its chevron flips by state via the icon name. */
-.sb-collapse-btn {
-  flex-shrink: 0;
-}
-.sidebar.collapsed {
-  width: 48px;
-}
-.sidebar.collapsed .sb-head {
-  padding: var(--space-2);
-  justify-content: center;
-}
-.sidebar.collapsed .sb-brand {
-  display: none;
-}
-.sidebar.collapsed .sb-collapse-btn {
-  margin-left: 0;
-}
-.sidebar.collapsed .sb-title,
-.sidebar.collapsed .sb-group-label,
-.sidebar.collapsed .launch-label {
-  display: none;
-}
-.sidebar.collapsed .sb-list {
-  align-items: center;
-  gap: var(--space-1);
-}
-.sidebar.collapsed .sb-group-label {
-  margin: 0;
-  height: 0;
-}
-.sidebar.collapsed .sb-row {
-  width: 100%;
-  justify-content: center;
-}
-.sidebar.collapsed .launch-btn {
-  justify-content: center;
-  padding: 0;
-  gap: 0;
-  width: 36px;
-}
-.sidebar.collapsed .sb-foot {
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: var(--muted);
-  border: 0;
-  border-radius: var(--radius-md);
-}
-.icon-btn:hover {
-  background: color-mix(in oklch, var(--fg) 7%, transparent);
-  color: var(--fg);
-}
-.icon-btn:active {
-  color: var(--fg);
-}
-.icon-btn:disabled {
-  color: var(--muted);
-  opacity: 0.55;
-  cursor: default;
-}
-.icon-btn:disabled:hover {
-  background: transparent;
-}
 .icon-btn.spin svg {
   animation: rot 0.9s linear infinite;
   animation-duration: max(0.9s, 2 * var(--motion-fast));
@@ -367,12 +262,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-.sb-group-label {
-  margin: 0 0 var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--muted);
-  white-space: nowrap;
 }
 .sb-row {
   display: flex;
@@ -413,15 +302,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sb-foot {
-  padding: var(--space-2);
-  border-top: 1px solid var(--border-soft);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-1);
 }
 
 /* ─── main / page scaffold ───────────────────────────────────────── */
@@ -495,16 +375,6 @@ body {
 .statusbar .icon-btn .icon {
   width: 14px;
   height: 14px;
-}
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  background: var(--success);
-  flex-shrink: 0;
-}
-.dot.down {
-  background: var(--danger);
 }
 
 /* ─── buttons ────────────────────────────────────────────────────── */
@@ -630,33 +500,11 @@ body {
   font-size: var(--text-xs);
   color: var(--muted);
 }
-.field input,
-.field select {
-  height: 34px;
-  width: 100%;
-  min-width: 0;
-  padding: 0 var(--space-3);
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  font-size: var(--text-sm);
-}
-.field input.mono,
-.field select.mono {
-  font-family: var(--font-mono);
-}
-.field input:hover,
-.field select:hover {
-  border-color: color-mix(in oklch, var(--border) 60%, var(--fg));
-}
-.field input:focus-visible,
-.field select:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-.field input[aria-invalid="true"] {
-  border-color: var(--danger);
-}
+/* S7: bare `.field input` styling is RETIRED — every form control now
+ * carries the component-layer `.input` class (components.css), which this
+ * higher-specificity rule silently used to override (S1 risk1 leftover).
+ * Errors: `.field .err` + `.field.invalid` (components.css) is the standard;
+ * `.field-error` below remains for RegisterDialog's conditional-alert form. */
 .field-error {
   font-size: var(--text-xs);
   color: var(--danger);
@@ -831,44 +679,8 @@ body {
   font-size: var(--text-sm);
 }
 
-/* status badge */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.badge .dot {
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-}
-.badge-ok {
-  background: color-mix(in oklch, var(--success) 14%, transparent);
-  color: var(--success);
-}
-.badge-warn {
-  background: color-mix(in oklch, var(--warn) 16%, transparent);
-  color: var(--warn);
-}
-.badge-danger {
-  background: color-mix(in oklch, var(--danger) 16%, transparent);
-  color: var(--danger);
-}
-.badge-info {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
-  color: var(--accent);
-}
-.badge-neutral {
-  background: var(--surface-warm);
-  color: var(--muted);
-  border: 1px solid var(--border-soft);
-}
+/* status badge: the .badge family and .dot are owned by components.css
+ * (S7 removed this pre-prototype duplicate). */
 
 /* ─── create wizard / env picker (09-11 prototype redesign) ──────── */
 /* Page-level styles from create-sandbox.html's prototype: the two-column
@@ -1172,22 +984,14 @@ body {
 }
 
 /* ─── job progress ──────────────────────────────────────────────── */
+/* S7: the head moved to the shared .page-head (h1 + sub + status in
+ * .page-actions, spinner = components.css .spinner); what remains here is
+ * the body column (banners / log tail / back). */
 .job {
   max-width: 860px;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-.job-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.job-head h1 {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 600;
 }
 .job-status-line {
   display: flex;
@@ -1195,24 +999,6 @@ body {
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--muted);
-}
-.job-status-line .spin {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in oklch, var(--fg) 30%, transparent);
-  border-top-color: var(--fg);
-  border-radius: 50%;
-  animation: ml-rot 0.8s linear infinite;
-}
-@keyframes ml-rot {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .job-status-line .spin {
-    animation: none;
-  }
 }
 .job-error {
   padding: var(--space-3);
@@ -1254,42 +1040,7 @@ body {
   gap: var(--space-2);
 }
 
-/* ─── images page (table) ────────────────────────────────────────── */
-.img-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--elev-ring), var(--elev-raised);
-}
-.img-table th {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--muted);
-  background: var(--surface-warm);
-  border-bottom: 1px solid var(--border-soft);
-  white-space: nowrap;
-}
-.img-table td {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-soft);
-  vertical-align: middle;
-}
-.img-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-.img-table td.mono {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-.img-table td.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
+/* ─── images page (table moved to shared .table in a .card, S7) ──── */
 .img-log-toggle {
   height: 24px;
   padding: 0 var(--space-2);
@@ -1326,24 +1077,8 @@ body {
 
 /* ─── responsive guard ───────────────────────────────────────────── */
 @media (max-width: 880px) {
-  .sidebar {
-    width: 52px;
-  }
-  .sidebar .sb-brand,
-  .sidebar .sb-title,
-  .sidebar .sb-group-label,
-  .sidebar .launch-label {
-    display: none;
-  }
-  .sidebar .launch-btn {
-    justify-content: center;
-    padding: 0;
-  }
   .page {
     padding: var(--space-4) var(--space-4) var(--space-8);
-  }
-  .scn-ver {
-    width: 110px;
   }
 }
 
@@ -1734,7 +1469,7 @@ body {
   accent-color: var(--accent);
 }
 
-/* test pill: play → spin → ok/fail (spin keyframes: ml-rot, job section) */
+/* test pill: play → spin → ok/fail (spin keyframes: ml-rot below) */
 .ml-test-pill {
   display: inline-flex;
   align-items: center;
@@ -1760,6 +1495,13 @@ body {
 }
 .ml-test-pill:disabled {
   cursor: default;
+}
+/* ml-rot lives here (S7 moved the job-section spinners to the shared
+ * .spinner; this keyframes remains for the test pill's 10px variant). */
+@keyframes ml-rot {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .ml-test-pill .spin {
   width: 10px;
@@ -2051,37 +1793,13 @@ body {
 }
 
 /* ── usage page (multi-sandbox) ──────────────────────────────────── */
-.ml-window-switch {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  background: var(--surface-warm);
-  border-radius: var(--radius-pill);
-}
-.ml-window-switch button {
-  height: 28px;
-  padding: 0 var(--space-3);
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  font-size: var(--text-xs);
-  color: var(--muted);
-  cursor: pointer;
-}
-.ml-window-switch button:hover {
-  color: var(--fg);
-}
-.ml-window-switch button[aria-pressed="true"] {
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--elev-ring);
-}
+/* S7: the window switch is the shared .segmented and the sandbox selector
+ * is button.chip (+ .is-selected); only page-local pieces stay here. */
 .ml-usage-gen {
   margin-left: auto;
   font-size: var(--text-xs);
   color: var(--muted);
 }
-/* sandbox selector chips */
 .mu-sbx-row {
   display: flex;
   align-items: center;
@@ -2089,37 +1807,12 @@ body {
   gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
-.mu-sbx-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-pill);
-  background: var(--surface-warm);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.mu-sbx-chip:hover {
-  color: var(--fg);
-  border-color: var(--border);
-}
-.mu-sbx-chip.is-selected {
+/* chip selector states (usage page): lifted-on-surface active, mirroring
+ * .segmented button[aria-pressed=true] (components.css). */
+.chip.is-selected {
   background: var(--surface);
   color: var(--fg);
-  box-shadow: var(--elev-ring);
-  border-color: var(--border);
-}
-.mu-sbx-chip .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: var(--warn);
-  flex-shrink: 0;
+  box-shadow: var(--elev-ring), var(--elev-raised);
 }
 .ml-stats {
   display: grid;
@@ -2387,7 +2080,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* S4 day filter (per-sandbox detail table) */
+/* S4 day filter (per-sandbox detail table; select = shared .input.sm, S7) */
 .mu-day-filter {
   display: flex;
   align-items: center;
@@ -2398,19 +2091,8 @@ body {
   font-size: var(--text-xs);
   color: var(--muted);
 }
-.mu-day-select {
-  padding: 4px 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-sm);
+.mu-day-filter .input {
   max-width: 160px;
-}
-.mu-day-select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 /* ── discover modal ──────────────────────────────────────────────── */
@@ -2457,10 +2139,8 @@ body {
   border-radius: var(--radius-lg);
   font-size: var(--text-sm);
 }
-/* the search input is also used bare (ModelPicker) — no icon padding then */
-.ml-model-picker .ml-discover-search {
-  padding: 0 var(--space-3);
-}
+/* the discover search input (ModelPicker bare-use override retired with
+ * ModelPicker in S6) */
 .ml-discover-search-wrap .icon {
   position: absolute;
   left: 10px;
@@ -2594,53 +2274,8 @@ body {
   gap: var(--space-1);
   overflow-y: auto;
 }
-.ws-node {
-  display: flex;
-  flex-direction: column;
-}
-.ws-node.ws-focus > .ws-node-row {
-  background: color-mix(in oklch, var(--accent) 10%, transparent);
-}
-.ws-node-row {
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius-md);
-}
-.ws-node-row:hover {
-  background: color-mix(in oklch, var(--fg) 7%, transparent);
-}
-.ws-node-btn {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 32px;
-  padding: 0 var(--space-2);
-  background: transparent;
-  border: 0;
-  color: var(--fg);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  text-align: left;
-}
-.ws-node-btn .icon {
-  color: var(--muted);
-  width: 14px;
-  height: 14px;
-}
-.ws-node-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ws-node-btn .badge {
-  flex-shrink: 0;
-  transform: scale(0.85);
-  transform-origin: right center;
-}
+/* pre-S3 tree row classes (.ws-node/.ws-node-row/.ws-node-btn/.ws-node-name/
+ * .ws-focus) retired with the .tree-* redesign (S3/S7 cleanup). */
 .ws-start-btn {
   width: 26px;
   height: 26px;
@@ -2671,10 +2306,6 @@ body {
 .ws-tree.collapsed .ws-tree-collapse-head {
   justify-content: center;
   padding: var(--space-2) 0 var(--space-1);
-}
-.ws-collapse-btn {
-  width: 28px;
-  height: 28px;
 }
 .ws-cnode {
   position: relative;
@@ -2789,25 +2420,8 @@ body {
   }
 }
 
-/* Children: the sandbox's manifest buttons, indented under the node. */
-.ws-children {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 var(--space-1) var(--space-2) var(--space-4);
-}
-.ws-children .launch-btn {
-  height: 30px;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-}
-.ws-children .launch-btn .icon {
-  width: 14px;
-  height: 14px;
-}
-.ws-children .sb-group-label {
-  margin: var(--space-1) 0 0 var(--space-2);
-}
+/* Children rows: the S3 .tree-kids/.leaf structure replaced .ws-children
+ * (the .launch-btn row styling above still serves them). */
 /* Stopped sandbox: the whole subtree greys out (buttons also disabled). */
 .ws-disabled {
   opacity: 0.55;
@@ -2950,22 +2564,4 @@ body {
   border-radius: var(--radius-lg);
   padding: 3px;
 }
-.dialog .seg-btn {
-  height: 30px;
-  border: 0;
-  border-radius: calc(var(--radius-lg) - 3px);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
-}
-.dialog .seg-btn:hover {
-  color: var(--fg);
-}
-.dialog .seg-btn.active {
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--elev-ring);
-}
+

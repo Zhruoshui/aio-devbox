@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工作区 · Sandbox 管理器</title>
+  <script>document.documentElement.dataset.mode = localStorage.getItem("mgr.theme") === "light" ? "light" : "dark";</script>
+  <link rel="stylesheet" href="mgr-web.css" />
+  <style>
+    /* ── 工作区页专属 ─────────────────────────────────────────── */
+    .ws-search { padding: var(--space-2) var(--space-2) 0; }
+    .gl-empty { flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); color: var(--muted); text-align: center; padding: var(--space-8); }
+    .gl-empty p { max-width: 36ch; font-size: var(--text-sm); }
+    .gl.is-empty .gl-row { display: none; }
+    .gl.is-empty .gl-empty { display: flex; }
+
+    /* 终端窗格（XtermPane 的视觉；颜色来自 --term-* token） */
+    .term { flex: 1; background: var(--term-bg); color: var(--term-fg); font-family: var(--font-mono); font-size: 13px; line-height: 1.5; padding: var(--space-3) var(--space-4); overflow: hidden; white-space: pre-wrap; word-break: break-all; }
+    .term .p { color: var(--success); }
+    .term .d { color: var(--muted); }
+    .term .k { color: var(--warn); }
+    .term .cur { display: inline-block; width: 7px; height: 15px; background: var(--term-fg); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .term .cur { animation: none; } }
+
+    /* iframe 窗格（IframePane：地址条 + 沙箱内部应用） */
+    .frame { flex: 1; display: flex; flex-direction: column; background: var(--surface); }
+    .frame-bar { display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-2) 0 var(--space-3); border-bottom: 1px solid var(--border-soft); font-size: var(--text-xs); color: var(--muted); background: var(--bg); }
+    .frame-bar .url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--fg-2); }
+    .frame-bar .icon-btn { width: 24px; height: 24px; }
+    .frame-bar .icon-btn .icon { width: 13px; height: 13px; }
+    .frame-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); color: var(--muted); text-align: center; padding: var(--space-6); font-size: var(--text-sm); background: repeating-linear-gradient(45deg, transparent 0 14px, color-mix(in oklch, var(--fg) 2.5%, transparent) 14px 15px); }
+    .frame-body .icon { width: 28px; height: 28px; stroke-width: 1.4; margin-bottom: var(--space-1); }
+    .frame-body strong { color: var(--fg); font-weight: 500; }
+    .frame-body p { max-width: 40ch; }
+
+    /* code-server 按需启动状态机（CodeServerPane，D4） */
+    .cs { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--space-6); background: var(--bg); }
+    .cs-card { width: 100%; max-width: 380px; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+    .cs-card h3 { font-size: var(--text-base); display: flex; align-items: center; gap: var(--space-2); }
+    .cs-steps { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); }
+    .cs-step { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); }
+    .cs-step .ok { width: 16px; height: 16px; border-radius: 50%; background: color-mix(in oklch, var(--success) 18%, transparent); color: var(--success); display: grid; place-items: center; flex-shrink: 0; }
+    .cs-step .ok .icon { width: 10px; height: 10px; stroke-width: 2.4; }
+    .cs-step .pend { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border); flex-shrink: 0; }
+    .cs-step.now { color: var(--fg); }
+    .cs-step.done { color: var(--fg-2); }
+    .cs-card .foot { font-size: var(--text-xs); color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+
+    /* 拖拽中的 iframe 遮罩（IframePane .drag-overlay） */
+    .drag-hint { position: absolute; inset: 0; display: none; }
+    .statusbar .kbd { font-family: var(--font-mono); font-size: 10px; padding: 0 4px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--border-soft); color: var(--muted); }
+    .dialog .type-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+    .type-opt { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-lg); box-shadow: var(--elev-ring); cursor: pointer; }
+    .type-opt:has(:checked) { box-shadow: 0 0 0 2px var(--fg); }
+    .type-opt .radio { margin-top: 3px; }
+    .type-opt small { display: block; color: var(--muted); font-size: var(--text-xs); }
+    .probe { font-size: var(--text-xs); display: flex; align-items: center; gap: 6px; min-height: 18px; }
+  </style>
+</head>
+<body data-page="workspace">
+<div class="app" id="app">
+  <div data-rail></div>
+
+  <!-- 侧面板：沙箱树（SandboxTree） -->
+  <aside class="panel" aria-label="沙箱树" data-od-id="sandbox-panel">
+    <div class="panel-head">
+      <div class="panel-title">沙箱 <span class="panel-count" id="sb-count"></span></div>
+      <button class="icon-btn" title="刷新沙箱列表（每 4 秒自动轮询）" aria-label="刷新沙箱列表">
+        <svg class="icon sm"><use href="#i-refresh"/></svg>
+      </button>
+      <button class="icon-btn" id="panel-hide" title="收起侧面板（再次点击图标栏「工作区」可展开）" aria-label="收起侧面板">
+        <svg class="icon sm"><use href="#i-panel"/></svg>
+      </button>
+    </div>
+    <div class="ws-search">
+      <div class="input-wrap">
+        <svg class="icon sm"><use href="#i-search"/></svg>
+        <input class="input sm" id="tree-filter" type="search" placeholder="筛选沙箱…" aria-label="筛选沙箱" />
+      </div>
+    </div>
+    <div class="panel-body" id="tree" role="tree" data-od-id="sandbox-tree"></div>
+    <div class="panel-foot">
+      <button class="btn btn-ghost btn-sm" id="reset-layout" title="恢复默认布局：第一个运行中沙箱的终端">
+        <svg class="icon"><use href="#i-reset"/></svg>重置布局
+      </button>
+      <a class="btn btn-ghost btn-sm" href="sandbox-list.html" style="margin-left:auto" title="新建、导入、编辑或删除沙箱">
+        管理沙箱<svg class="icon"><use href="#i-arrowr"/></svg>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区：golden-layout 多窗格 -->
+  <main class="main" data-od-id="workspace-main">
+    <div class="gl" id="gl">
+      <div class="gl-row" id="gl-root">
+        <!-- 左列：dev1 的终端 + 编辑器 -->
+        <div class="gl-stack" style="flex: 3" data-od-id="stack-left">
+          <div class="gl-header">
+            <div class="gl-tabs" role="tablist">
+              <button class="gl-tab active" role="tab" data-pane="p1" data-sb="dev1" data-svc="terminal"><svg class="icon"><use href="#i-terminal"/></svg><span class="t">终端<span class="sb">@dev1</span></span><span class="close" role="button" aria-label="关闭 终端@dev1"><svg class="icon"><use href="#i-x"/></svg></span></button>
+              <button class="gl-tab" role="tab" data-pane="p2" data-sb="dev1" data-svc="codeServer"><svg class="icon"><use href="#i-code"/></svg><span class="t">编辑器<span class="sb">@dev1</span></span><span class="close" role="button" aria-label="关闭 编辑器@dev1"><svg class="icon"><use href="#i-x"/></svg></span></button>
+            </div>
+            <div class="gl-controls">
+              <button class="gl-ctl" title="弹出为独立窗口" aria-label="弹出为独立窗口"><svg class="icon"><use href="#i-popout"/></svg></button>
+              <button class="gl-ctl" title="最大化" aria-label="最大化"><svg class="icon"><use href="#i-maximise"/></svg></button>
+              <button class="gl-ctl close" title="关闭整组" aria-label="关闭整组"><svg class="icon"><use href="#i-x"/></svg></button>
+            </div>
+          </div>
+          <div class="gl-content">
+            <div class="gl-pane active" id="p1">
+              <div class="term" aria-label="dev1 终端"><span class="p">dev@dev1</span><span class="d">:~/work</span>$ node -v
+v22.23.2
+<span class="p">dev@dev1</span><span class="d">:~/work</span>$ python3 --version
+Python 3.12.7
+<span class="p">dev@dev1</span><span class="d">:~/work</span>$ make dev
+<span class="d">▸ vite dev server 已启动</span>
+<span class="d">▸ Local:</span>   http://localhost:<span class="k">5173</span>/
+<span class="d">▸ 提示：可在左侧沙箱树「注册自定义按钮」把该端口固定为 Web 预览窗格</span>
+<span class="p">dev@dev1</span><span class="d">:~/work</span>$ <span class="cur"></span></div>
+            </div>
+            <div class="gl-pane" id="p2">
+              <div class="cs">
+                <div class="card cs-card" role="status" aria-live="polite">
+                  <h3><span class="spinner" aria-hidden="true"></span>正在按需启动 code-server@dev1</h3>
+                  <div class="cs-steps">
+                    <div class="cs-step done"><span class="ok"><svg class="icon"><use href="#i-check"/></svg></span>检查 8200 端口状态</div>
+                    <div class="cs-step now"><span class="spinner" aria-hidden="true"></span>拉起容器（镜像已构建，秒级就绪）</div>
+                    <div class="cs-step"><span class="pend"></span>等待端口监听后载入编辑器</div>
+                  </div>
+                  <div class="foot"><span>容器随沙箱 stop 一并停止</span><button class="btn btn-ghost btn-sm" type="button">重试</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="gl-splitter v" role="separator" aria-orientation="vertical"></div>
+        <!-- 右列：dev2 的 opencode + pi Web / VNC -->
+        <div class="gl-col" style="flex: 2">
+          <div class="gl-stack" style="flex: 1" data-od-id="stack-right-top">
+            <div class="gl-header">
+              <div class="gl-tabs" role="tablist">
+                <button class="gl-tab active" role="tab" data-pane="p3" data-sb="dev2" data-svc="opencode"><svg class="icon"><use href="#i-chat"/></svg><span class="t">opencode<span class="sb">@dev2</span></span><span class="close" role="button" aria-label="关闭 opencode@dev2"><svg class="icon"><use href="#i-x"/></svg></span></button>
+              </div>
+              <div class="gl-controls">
+                <button class="gl-ctl" title="弹出为独立窗口" aria-label="弹出为独立窗口"><svg class="icon"><use href="#i-popout"/></svg></button>
+                <button class="gl-ctl" title="最大化" aria-label="最大化"><svg class="icon"><use href="#i-maximise"/></svg></button>
+                <button class="gl-ctl close" title="关闭整组" aria-label="关闭整组"><svg class="icon"><use href="#i-x"/></svg></button>
+              </div>
+            </div>
+            <div class="gl-content">
+              <div class="gl-pane active" id="p3">
+                <div class="term" aria-label="dev2 opencode"><span class="d">opencode · dev2 · 模型 <span class="k">claude-sonnet-5</span>（Anthropic，来自 profile「research」）</span>
+
+<span class="p">›</span> 解释 mgr-web/src/pages/workspace/paneUrl.ts 的职责
+
+<span class="d">● 正在读取 paneUrl.ts …</span>
+它是每沙箱 URL 工厂：给定沙箱名与服务条目，拼出经 mgr 代理的
+iframe / WebSocket 地址（/api/sbx/&lt;name&gt;/…），窗格组件不再各自拼 URL。
+
+<span class="p">›</span> <span class="cur"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="gl-splitter h" role="separator" aria-orientation="horizontal"></div>
+          <div class="gl-stack" style="flex: 1" data-od-id="stack-right-bottom">
+            <div class="gl-header">
+              <div class="gl-tabs" role="tablist">
+                <button class="gl-tab active" role="tab" data-pane="p4" data-sb="dev2" data-svc="piWeb"><svg class="icon"><use href="#i-browser"/></svg><span class="t">pi Web<span class="sb">@dev2</span></span><span class="close" role="button" aria-label="关闭 pi Web@dev2"><svg class="icon"><use href="#i-x"/></svg></span></button>
+                <button class="gl-tab" role="tab" data-pane="p5" data-sb="dev2" data-svc="vnc"><svg class="icon"><use href="#i-desktop"/></svg><span class="t">VNC 桌面<span class="sb">@dev2</span></span><span class="close" role="button" aria-label="关闭 VNC 桌面@dev2"><svg class="icon"><use href="#i-x"/></svg></span></button>
+              </div>
+              <div class="gl-controls">
+                <button class="gl-ctl" title="弹出为独立窗口" aria-label="弹出为独立窗口"><svg class="icon"><use href="#i-popout"/></svg></button>
+                <button class="gl-ctl" title="最大化" aria-label="最大化"><svg class="icon"><use href="#i-maximise"/></svg></button>
+                <button class="gl-ctl close" title="关闭整组" aria-label="关闭整组"><svg class="icon"><use href="#i-x"/></svg></button>
+              </div>
+            </div>
+            <div class="gl-content">
+              <div class="gl-pane active" id="p4">
+                <div class="frame">
+                  <div class="frame-bar"><svg class="icon xs"><use href="#i-link"/></svg><span class="url">sbx-dev2.mgr.localhost/</span><button class="icon-btn" title="刷新" aria-label="刷新"><svg class="icon"><use href="#i-refresh"/></svg></button><button class="icon-btn" title="在新标签页打开" aria-label="在新标签页打开"><svg class="icon"><use href="#i-external"/></svg></button></div>
+                  <div class="frame-body"><svg class="icon"><use href="#i-browser"/></svg><strong>pi Web（沙箱内部应用）</strong><p>以 iframe 嵌入，页面内容由沙箱自身提供，不在本次重构范围内。</p></div>
+                </div>
+              </div>
+              <div class="gl-pane" id="p5">
+                <div class="frame">
+                  <div class="frame-bar"><svg class="icon xs"><use href="#i-link"/></svg><span class="url">sbx-dev2.mgr.localhost/vnc/</span><button class="icon-btn" title="刷新" aria-label="刷新"><svg class="icon"><use href="#i-refresh"/></svg></button><button class="icon-btn" title="在新标签页打开" aria-label="在新标签页打开"><svg class="icon"><use href="#i-external"/></svg></button></div>
+                  <div class="frame-body"><svg class="icon"><use href="#i-desktop"/></svg><strong>VNC 桌面（noVNC）</strong><p>Xvnc + Chromium 侧车留在沙箱内，此处仅为该沙箱网关 /vnc/ 的 iframe。</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="gl-empty" data-od-id="workspace-empty">
+        <svg class="icon" style="width:28px;height:28px;stroke-width:1.4"><use href="#i-grid"/></svg>
+        <p>没有打开的窗格。在左侧沙箱树点选一个工具，即可在此打开新窗格；窗格可拖拽分屏或弹出为独立窗口。</p>
+        <button class="btn btn-secondary btn-sm" id="empty-open">打开 dev1 的终端</button>
+      </div>
+    </div>
+    <div class="statusbar" data-od-id="statusbar">
+      <span class="seg">
+        <span><span class="sdot"></span>已连接 mgr-api</span>
+        <span id="st-sb"></span>
+        <span id="st-panes"></span>
+      </span>
+      <span class="seg">
+        <span>布局已保存 · 刚刚</span>
+        <span>mgr.localhost</span>
+      </span>
+    </div>
+  </main>
+</div>
+
+<!-- 节点「更多」菜单（固定定位，避免被侧面板裁切） -->
+<div class="menu" id="node-menu" role="menu"></div>
+
+<!-- 注册自定义按钮对话框（RegisterDialog） -->
+<div class="overlay" id="reg-overlay">
+  <form class="dialog" role="dialog" aria-labelledby="reg-title" id="reg-form" data-od-id="register-dialog">
+    <div>
+      <h2 id="reg-title">注册自定义按钮 <span class="muted" style="font-weight:400;font-size:var(--text-sm)">· <span id="reg-sb">dev1</span></span></h2>
+      <p class="desc" style="margin-top:6px">按钮持久保存到该沙箱的工作区卷，重建容器后仍然可用。终端按钮在沙箱内执行命令；Web 按钮预览你在这个沙箱里起的 dev server 端口。</p>
+    </div>
+    <div class="type-row" role="radiogroup" aria-label="按钮类型">
+      <label class="type-opt"><input class="radio" type="radio" name="rtype" value="agent" checked /><span>终端命令<small>在登录 shell 中执行</small></span></label>
+      <label class="type-opt"><input class="radio" type="radio" name="rtype" value="web" /><span>Web 端口预览<small>iframe 嵌入该端口</small></span></label>
+    </div>
+    <div class="field" id="f-label"><label for="reg-label">按钮名称</label><input class="input" id="reg-label" placeholder="例如：跟踪日志" /><span class="err">请填写按钮名称。</span></div>
+    <div class="field" id="f-cmd"><label for="reg-cmd">启动命令</label><input class="input mono" id="reg-cmd" placeholder="例如：make logs" /><span class="hint">在登录 shell 的 PATH 中执行；命令真实存在时按钮才会出现。</span><span class="err">请填写启动命令。</span></div>
+    <div class="field" id="f-port" hidden><label for="reg-port">端口号</label><input class="input mono" id="reg-port" inputmode="numeric" placeholder="例如：5173" /><span class="hint">dev server 在该沙箱终端里监听的端口；有服务监听时按钮才会出现。</span><span class="err">请填写 1-65535 之间的端口号（8088 为沙箱 app 自身端口，不可用）。</span><span class="probe" id="probe"></span></div>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" type="button" id="reg-cancel">取消</button>
+      <button class="btn btn-primary" type="submit">添加按钮</button>
+    </div>
+  </form>
+</div>
+
+<script src="mgr-shell.js"></script>
+<script>
+(function () {
+  const I = window.icon;
+  // ── 示例数据（对应 GET /api/sandboxes + 每沙箱 manifest）
+  const SVC = {
+    codeServer: { label: "编辑器", icon: "code", kind: "web" },
+    terminal: { label: "终端", icon: "terminal", kind: "agent" },
+    vnc: { label: "VNC 桌面", icon: "desktop", kind: "web" },
+    piWeb: { label: "pi Web", icon: "browser", kind: "web" },
+    opencode: { label: "opencode", icon: "chat", kind: "agent" },
+  };
+  const SANDBOXES = [
+    { name: "dev1", live: "running", open: true, focus: true, services: ["codeServer", "terminal", "vnc", "piWeb", "opencode"], custom: [{ id: "c1", label: "跟踪日志", kind: "agent" }, { id: "c2", label: "Vite 5173", kind: "web" }] },
+    { name: "dev2", live: "running", open: true, services: ["terminal", "vnc", "piWeb", "opencode"], custom: [] },
+    { name: "exp-rust", live: "stopped", open: false, services: ["codeServer", "terminal", "opencode"], custom: [] },
+    { name: "legacy-stack", live: "running", adopted: true, open: false, services: ["terminal", "piWeb"], custom: [] },
+  ];
+  const app = document.getElementById("app");
+  const tree = document.getElementById("tree");
+  const gl = document.getElementById("gl");
+
+  // ── 侧面板显隐（图标栏「工作区」在本页充当面板开关）
+  if (localStorage.getItem("mgr.panelHidden") === "1") app.classList.add("panel-hidden");
+  const setPanel = (hidden) => { app.classList.toggle("panel-hidden", hidden); localStorage.setItem("mgr.panelHidden", hidden ? "1" : "0"); };
+  document.getElementById("panel-hide").addEventListener("click", () => setPanel(true));
+  const wsNav = document.querySelector('[data-nav="workspace"]');
+  wsNav.addEventListener("click", (e) => { e.preventDefault(); setPanel(!app.classList.contains("panel-hidden")); });
+  wsNav.dataset.tip = "工作区 · 点击切换侧面板";
+
+  // ── 沙箱树渲染
+  const openPanes = (sb) => document.querySelectorAll(`.gl-tab[data-sb="${sb}"]`).length;
+  function leaf(sb, id, label, icon, custom) {
+    return `<div class="leaf" role="treeitem">
+      <button class="leaf-btn" data-launch="${id}" data-sb="${sb.name}" ${sb.live !== "running" ? "disabled" : ""} title="${label}@${sb.name}，点击打开新实例">${I(icon)}<span>${label}</span>${custom ? '<span class="leaf-tag">自定义</span>' : ""}</button>
+      ${custom && sb.live === "running" ? `<button class="icon-btn danger del" data-del="${id}" data-sb="${sb.name}" title="移除 ${label}" aria-label="移除 ${label}">${I("x", "xs")}</button>` : ""}
+    </div>`;
+  }
+  function renderTree() {
+    const q = (document.getElementById("tree-filter").value || "").trim().toLowerCase();
+    tree.innerHTML = SANDBOXES.filter((s) => !q || s.name.includes(q)).map((sb) => {
+      const stopped = sb.live !== "running";
+      const n = openPanes(sb.name);
+      const kids = stopped
+        ? `<p class="tree-hint">沙箱未运行——启动后可加载工具清单。</p>`
+        : sb.services.map((id) => leaf(sb, id, SVC[id].label, SVC[id].icon, false)).join("") +
+          (sb.custom.length ? `<div class="leaf-sep"></div>` + sb.custom.map((c) => leaf(sb, c.id, c.label, c.kind === "web" ? "browser" : "terminal", true)).join("") : "") +
+          `<div class="leaf"><button class="leaf-btn muted" data-register="${sb.name}">${I("plus")}<span>注册自定义按钮</span></button></div>`;
+      return `<div class="tree-node${sb.open ? " open" : ""}${stopped ? " stopped" : ""}${sb.focus ? " is-focus" : ""}" data-sb="${sb.name}" role="treeitem" aria-expanded="${sb.open}">
+        <div class="tree-row">
+          <button class="tree-toggle" data-toggle="${sb.name}" aria-expanded="${sb.open}">${I("chev-r", "chev")}<span class="sdot${stopped ? " stopped" : ""}"></span><span class="tree-name">${sb.name}</span><span class="tree-meta">${sb.adopted ? "外部栈 · " : ""}${stopped ? "已停止" : n ? n + " 窗格" : "运行中"}</span></button>
+          <div class="tree-acts${stopped ? " always" : ""}">
+            ${stopped ? `<button class="icon-btn" data-start="${sb.name}" title="启动 ${sb.name}" aria-label="启动 ${sb.name}">${I("play")}</button>` : ""}
+            <button class="icon-btn" data-more="${sb.name}" title="更多操作" aria-label="${sb.name} 更多操作">${I("more")}</button>
+          </div>
+        </div>
+        <div class="tree-kids" role="group">${kids}</div>
+      </div>`;
+    }).join("") || `<p class="tree-hint">没有匹配的沙箱。</p>`;
+    const running = SANDBOXES.filter((s) => s.live === "running").length;
+    document.getElementById("sb-count").textContent = `${SANDBOXES.length} · ${running} 运行中`;
+    document.getElementById("st-sb").textContent = `${SANDBOXES.length} 个沙箱 · ${running} 运行中`;
+    const tabs = document.querySelectorAll(".gl-tab");
+    const sbs = new Set([...tabs].map((t) => t.dataset.sb));
+    document.getElementById("st-panes").textContent = tabs.length ? `${tabs.length} 个窗格 · 来自 ${sbs.size} 个沙箱` : "无窗格";
+    gl.classList.toggle("is-empty", tabs.length === 0);
+  }
+  document.getElementById("tree-filter").addEventListener("input", renderTree);
+
+  tree.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-toggle],[data-launch],[data-start],[data-more],[data-register],[data-del]");
+    if (!t) return;
+    const sb = SANDBOXES.find((s) => s.name === (t.dataset.sb || t.dataset.toggle || t.dataset.start || t.dataset.more || t.dataset.register));
+    if (t.dataset.toggle) { sb.open = !sb.open; renderTree(); }
+    else if (t.dataset.launch) launch(sb.name, t.dataset.launch);
+    else if (t.dataset.start) startSandbox(sb, t);
+    else if (t.dataset.more) openMenu(sb, t);
+    else if (t.dataset.register) openRegister(sb);
+    else if (t.dataset.del) { sb.custom = sb.custom.filter((c) => c.id !== t.dataset.del); renderTree(); }
+  });
+
+  function startSandbox(sb, btn) {
+    btn.classList.add("spin"); btn.innerHTML = I("refresh"); btn.disabled = true;
+    setTimeout(() => { sb.live = "running"; sb.open = true; renderTree(); }, 1400);
+  }
+
+  // ── 更多菜单
+  const menu = document.getElementById("node-menu");
+  function openMenu(sb, btn) {
+    const running = sb.live === "running";
+    menu.innerHTML = `
+      <button data-act="terminal" ${running ? "" : "disabled"}>${I("terminal")}打开终端</button>
+      <button data-act="enter">${I("dock")}在沙箱列表中查看</button>
+      <hr/>
+      <button data-act="start" ${running ? "disabled" : ""}>${I("play")}启动</button>
+      <button data-act="stop" ${running ? "" : "disabled"}>${I("stop")}停止</button>
+      <button data-act="restart" ${running ? "" : "disabled"}>${I("restart")}重启</button>
+      ${sb.adopted ? "" : `<button data-act="edit">${I("edit")}编辑配置</button>`}
+      <hr/>
+      <button data-act="register" ${running ? "" : "disabled"}>${I("plus")}注册自定义按钮</button>`;
+    const r = btn.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = Math.min(r.left, window.innerWidth - 190) + "px";
+    menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 300) + "px";
+    menu.classList.add("open");
+    menu.onclick = (e) => {
+      const a = e.target.closest("[data-act]"); if (!a) return;
+      menu.classList.remove("open");
+      const act = a.dataset.act;
+      if (act === "terminal") launch(sb.name, "terminal");
+      else if (act === "enter" || act === "edit") location.href = "sandbox-list.html";
+      else if (act === "start") { sb.live = "running"; sb.open = true; renderTree(); }
+      else if (act === "stop") { sb.live = "stopped"; document.querySelectorAll(`.gl-tab[data-sb="${sb.name}"]`).forEach(closeTab); renderTree(); }
+      else if (act === "register") openRegister(sb);
+    };
+  }
+
+  // ── 窗格：激活 / 关闭 / 新开（序号池按 (沙箱, 服务) 复用，R5）
+  let seq = 6;
+  function activate(tab) {
+    const stack = tab.closest(".gl-stack");
+    stack.querySelectorAll(".gl-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    stack.querySelectorAll(".gl-pane").forEach((p) => p.classList.toggle("active", p.id === tab.dataset.pane));
+  }
+  function closeTab(tab) {
+    const stack = tab.closest(".gl-stack");
+    const pane = document.getElementById(tab.dataset.pane);
+    const wasActive = tab.classList.contains("active");
+    tab.remove(); pane && pane.remove();
+    const rest = stack.querySelectorAll(".gl-tab");
+    if (rest.length === 0) {
+      const sib = stack.previousElementSibling?.classList.contains("gl-splitter") ? stack.previousElementSibling : stack.nextElementSibling;
+      sib && sib.classList.contains("gl-splitter") && sib.remove();
+      const parent = stack.parentElement; stack.remove();
+      if (parent.classList.contains("gl-col") && !parent.querySelector(".gl-stack")) {
+        const s2 = parent.previousElementSibling; s2 && s2.classList.contains("gl-splitter") && s2.remove(); parent.remove();
+      }
+    } else if (wasActive) activate(rest[rest.length - 1]);
+    renderTree();
+  }
+  gl.addEventListener("click", (e) => {
+    const close = e.target.closest(".gl-tab .close");
+    if (close) { e.stopPropagation(); closeTab(close.closest(".gl-tab")); return; }
+    const tab = e.target.closest(".gl-tab");
+    if (tab) activate(tab);
+    const grp = e.target.closest(".gl-ctl.close");
+    if (grp) [...grp.closest(".gl-stack").querySelectorAll(".gl-tab")].forEach(closeTab);
+  });
+  function titleFor(sb, svcId) {
+    const label = SVC[svcId] ? SVC[svcId].label : (SANDBOXES.find((s) => s.name === sb).custom.find((c) => c.id === svcId) || {}).label || svcId;
+    const used = [...document.querySelectorAll(`.gl-tab[data-sb="${sb}"][data-svc="${svcId}"]`)].map((t) => Number(t.dataset.seq || 1));
+    let n = 1; while (used.includes(n)) n++;
+    return { label, n };
+  }
+  function paneBody(sb, svcId, label) {
+    const svc = SVC[svcId]; const kind = svc ? svc.kind : (SANDBOXES.find((s) => s.name === sb).custom.find((c) => c.id === svcId) || {}).kind;
+    if (svcId === "codeServer") return document.getElementById("p2") ? document.getElementById("p2").innerHTML : "";
+    if (kind === "agent") return `<div class="term"><span class="d">已连接 ${label}@${sb} · pty 经 mgr 代理 /api/sbx/${sb}/… (WebSocket)</span>\n<span class="p">dev@${sb}</span><span class="d">:~/work</span>$ <span class="cur"></span></div>`;
+    const path = svcId === "vnc" ? "/vnc/" : svcId === "piWeb" ? "/" : "/preview/";
+    return `<div class="frame"><div class="frame-bar">${I("link", "xs")}<span class="url">sbx-${sb}.mgr.localhost${path}</span><button class="icon-btn" title="刷新" aria-label="刷新">${I("refresh")}</button><button class="icon-btn" title="在新标签页打开" aria-label="在新标签页打开">${I("external")}</button></div><div class="frame-body">${I("browser")}<strong>${label}（沙箱内部应用）</strong><p>以 iframe 嵌入，内容由沙箱自身提供。</p></div></div>`;
+  }
+  function launch(sb, svcId) {
+    let stack = document.querySelector(".gl-stack");
+    if (!stack) {
+      document.getElementById("gl-root").innerHTML = `<div class="gl-stack" style="flex:1"><div class="gl-header"><div class="gl-tabs" role="tablist"></div><div class="gl-controls"><button class="gl-ctl" title="弹出为独立窗口" aria-label="弹出为独立窗口">${I("popout")}</button><button class="gl-ctl" title="最大化" aria-label="最大化">${I("maximise")}</button><button class="gl-ctl close" title="关闭整组" aria-label="关闭整组">${I("x")}</button></div></div><div class="gl-content"></div></div>`;
+      stack = document.querySelector(".gl-stack");
+    }
+    const { label, n } = titleFor(sb, svcId);
+    const id = "p" + (++seq);
+    const icon = SVC[svcId] ? SVC[svcId].icon : (paneBody(sb, svcId, label).includes("frame") ? "browser" : "terminal");
+    const title = `${label}@${sb}${n > 1 ? ` (${n})` : ""}`;
+    stack.querySelector(".gl-tabs").insertAdjacentHTML("beforeend", `<button class="gl-tab" role="tab" data-pane="${id}" data-sb="${sb}" data-svc="${svcId}" data-seq="${n}">${I(icon)}<span class="t">${label}<span class="sb">@${sb}</span>${n > 1 ? ` (${n})` : ""}</span><span class="close" role="button" aria-label="关闭 ${title}">${I("x")}</span></button>`);
+    stack.querySelector(".gl-content").insertAdjacentHTML("beforeend", `<div class="gl-pane" id="${id}">${paneBody(sb, svcId, label)}</div>`);
+    activate(stack.querySelector(`[data-pane="${id}"]`));
+    renderTree();
+  }
+  document.getElementById("empty-open").addEventListener("click", () => launch("dev1", "terminal"));
+  document.getElementById("reset-layout").addEventListener("click", () => {
+    [...document.querySelectorAll(".gl-tab")].forEach(closeTab);
+    launch("dev1", "terminal");
+  });
+
+  // ── 注册对话框
+  const ov = document.getElementById("reg-overlay"), form = document.getElementById("reg-form");
+  let regFor = null;
+  function openRegister(sb) { regFor = sb; document.getElementById("reg-sb").textContent = sb.name; form.reset(); syncType(); form.querySelectorAll(".field").forEach((f) => f.classList.remove("invalid")); ov.classList.add("open"); document.getElementById("reg-label").focus(); }
+  function syncType() {
+    const web = form.rtype.value === "web";
+    document.getElementById("f-cmd").hidden = web; document.getElementById("f-port").hidden = !web;
+  }
+  form.addEventListener("change", (e) => { if (e.target.name === "rtype") syncType(); });
+  document.getElementById("reg-port").addEventListener("input", (e) => {
+    const v = Number(e.target.value); const p = document.getElementById("probe");
+    if (!v) { p.innerHTML = ""; return; }
+    p.innerHTML = v === 5173 ? `<span class="sdot"></span>端口 ${v} 检测到服务运行中。` : `<span class="sdot warn"></span>端口 ${v} 当前无服务监听：注册后按钮将不可用（预览返回 502）。可以先注册、后启动。`;
+  });
+  document.getElementById("reg-cancel").addEventListener("click", () => ov.classList.remove("open"));
+  ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.remove("open"); });
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const web = form.rtype.value === "web";
+    const label = document.getElementById("reg-label").value.trim();
+    const cmd = document.getElementById("reg-cmd").value.trim();
+    const port = Number(document.getElementById("reg-port").value);
+    let ok = true;
+    document.getElementById("f-label").classList.toggle("invalid", !label); ok &&= !!label;
+    if (!web) { document.getElementById("f-cmd").classList.toggle("invalid", !cmd); ok &&= !!cmd; }
+    else { const bad = !(port >= 1 && port <= 65535) || port === 8088; document.getElementById("f-port").classList.toggle("invalid", bad); ok &&= !bad; }
+    if (!ok) return;
+    regFor.custom.push({ id: "c" + Date.now(), label, kind: web ? "web" : "agent" });
+    regFor.open = true; ov.classList.remove("open"); renderTree();
+  });
+
+  renderTree();
+})();
+</script>
+</body>
+</html>

@@ -384,8 +384,12 @@ function SandboxCard({
   };
 
   // Chip label: "<profile> · <agents>" (null agents = all four, prototype
-  // spells them out; [] = none).
-  const agentsText = (sb.model_agents === null ? [...ASSIGN_AGENTS] : sb.model_agents)
+  // spells them out; [] = none). `?? null` tolerates an older mgr-api that
+  // omits the field entirely (EditPage guards the same way).
+  const agentsText = ((sb.model_agents ?? null) === null
+    ? [...ASSIGN_AGENTS]
+    : sb.model_agents!
+  )
     .map(agentLabel)
     .join(", ");
   const chipLabel =

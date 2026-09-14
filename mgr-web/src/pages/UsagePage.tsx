@@ -1,5 +1,10 @@
 // UsagePage — multi-sandbox usage view over GET /api/usage (Phase 4c).
 //
+// S7 (prototype redesign): window switch -> .segmented, sandbox selector
+// chips -> the shared .chip (error dot -> .sdot.warn), day filter select ->
+// .input.sm; the chart/stat classes (.ml-*/.mu-*) stay (real chart CSS, not
+// in the prototype's component layer).
+//
 // Data source is mgr's fan-out shape {sandboxes: [{name, error, usage}]}
 // where `usage` is each sandbox app's /api/models/usage payload verbatim
 // (mgr/src/usage.rs). Because every row is a per-(agent, provider?, model)
@@ -226,7 +231,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
       <div className="page-head">
         <h1>{t(lang, "navUsage")}</h1>
         <div className="page-actions">
-          <div className="ml-window-switch" role="group" aria-label="time window">
+          <div className="segmented" role="group" aria-label="time window">
             {WINDOWS.map((w) => (
               <button
                 key={w.key}
@@ -257,7 +262,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
       {entries !== null && entries.length > 0 && (
         <div className="mu-sbx-row">
           <button
-            className={`mu-sbx-chip${selected === "" ? " is-selected" : ""}`}
+            className={`chip${selected === "" ? " is-selected" : ""}`}
             aria-pressed={selected === ""}
             onClick={() => setSelected("")}
           >
@@ -266,12 +271,12 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
           {entries.map((e) => (
             <button
               key={e.name}
-              className={`mu-sbx-chip${selected === e.name ? " is-selected" : ""}${e.error ? " is-error" : ""}`}
+              className={`chip${selected === e.name ? " is-selected" : ""}${e.error ? " is-error" : ""}`}
               aria-pressed={selected === e.name}
               title={e.error ?? e.name}
               onClick={() => setSelected(e.name)}
             >
-              {e.error && <span className="dot" />}
+              {e.error && <span className="sdot warn" />}
               {e.name}
             </button>
           ))}
@@ -370,7 +375,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
                 </label>
                 <select
                   id="mu-day-filter"
-                  className="mu-day-select"
+                  className="input sm"
                   value={dayFilter}
                   onChange={(e) => setDayFilter(e.target.value)}
                 >

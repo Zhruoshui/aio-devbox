@@ -201,6 +201,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
             <label htmlFor="f-label">{t(lang, "fieldLabel")}</label>
             <input
               id="f-label"
+              className="input"
               ref={firstFieldRef}
               name="label"
               maxLength={64}
@@ -224,6 +225,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
               <label htmlFor="f-cmd">{t(lang, "fieldCmd")}</label>
               <input
                 id="f-cmd"
+                className="input"
                 name="cmd"
                 maxLength={64}
                 placeholder={t(lang, "fieldCmdPh")}
@@ -247,6 +249,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
               <label htmlFor="f-port">{t(lang, "fieldPort")}</label>
               <input
                 id="f-port"
+                className="input"
                 name="port"
                 inputMode="numeric"
                 pattern="[0-9]*"

@@ -7,6 +7,10 @@
 // Both run as mgr jobs (202 -> poll GET /api/jobs/:id inline), so progress
 // stays on the page; the row delete is disabled while refcount>0 (with the
 // reason in the title).
+//
+// S7 (prototype redesign): the table moves to the shared .table inside a
+// .card (right-aligned numeric cells via .r); the head/actions already use
+// the component layer (.page-head/.sec-acts/.dialog).
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
@@ -138,19 +142,20 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
       {images !== null && images.length === 0 && <div className="status">{t(lang, "imgEmpty")}</div>}
 
       {images !== null && images.length > 0 && (
-        <table className="img-table">
-          <thead>
-            <tr>
-              <th>{t(lang, "imgTag")}</th>
-              <th>env hash</th>
-              <th>{t(lang, "imgCombo")}</th>
-              <th>{t(lang, "imgSize")}</th>
-              <th>{t(lang, "imgBuiltAt")}</th>
-              <th style={{ textAlign: "right" }}>{t(lang, "imgRefcount")}</th>
-              <th>{t(lang, "imgLog")}</th>
-              <th />
-            </tr>
-          </thead>
+        <div className="card card-pad">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{t(lang, "imgTag")}</th>
+                <th>env hash</th>
+                <th>{t(lang, "imgCombo")}</th>
+                <th>{t(lang, "imgSize")}</th>
+                <th>{t(lang, "imgBuiltAt")}</th>
+                <th className="r">{t(lang, "imgRefcount")}</th>
+                <th>{t(lang, "imgLog")}</th>
+                <th />
+              </tr>
+            </thead>
           <tbody>
             {images.map((img) => {
               const built = img.built_at !== null ? new Date(img.built_at * 1000) : null;
@@ -167,11 +172,11 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                     <td className="mono" title={img.combo ?? img.env_hash}>
                       {img.combo ?? img.env_hash.slice(0, 12)}
                     </td>
-                    <td className="num">
+                    <td className="r">
                       {img.size_bytes !== null ? fmtBytes(img.size_bytes) : t(lang, "imgSizeUnknown")}
                     </td>
                     <td>{built !== null ? built.toLocaleString() : t(lang, "imgNotBuilt")}</td>
-                    <td className="num">{img.refcount}</td>
+                    <td className="r">{img.refcount}</td>
                     <td>
                       <button
                         className="img-log-toggle"
@@ -209,7 +214,8 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
 
       {/* S3: delete / cleanup confirmation */}

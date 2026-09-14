@@ -11,6 +11,9 @@
 // POST /api/sandboxes/adopt is synchronous (no JobView); success returns to
 // the list. NAME_RE is shared with CreatePage (same slug contract as
 // routes.rs validate_name).
+//
+// S7 (prototype redesign): inputs move to the component layer (.input +
+// .field.invalid/.err pattern from CreatePage); flow unchanged.
 
 import { useState } from "react";
 
@@ -79,10 +82,10 @@ export function AdoptPage({ lang, onCancel, onAdopted }: Props): JSX.Element {
         <p className="sub">{t(lang, "adSub")}</p>
       </div>
       <div className="wizard">
-        <div className="field">
+        <div className={`field${nameErr !== "" ? " invalid" : ""}`} style={{ maxWidth: 480 }}>
           <label>{t(lang, "wzName")}</label>
           <input
-            className="mono"
+            className="input mono"
             value={name}
             placeholder={t(lang, "wzNamePh")}
             aria-invalid={nameErr !== ""}
@@ -90,20 +93,20 @@ export function AdoptPage({ lang, onCancel, onAdopted }: Props): JSX.Element {
             onChange={(e) => setName(e.target.value.trim())}
           />
           <span className="hint">{t(lang, "wzNameHint")}</span>
-          {nameErr && <span className="field-error">{nameErr}</span>}
+          <span className="err">{t(lang, "wzNameErr")}</span>
         </div>
 
-        <div className="field">
+        <div className={`field${pathErr !== "" ? " invalid" : ""}`} style={{ maxWidth: 480 }}>
           <label>{t(lang, "adComposePath")}</label>
           <input
-            className="mono"
+            className="input mono"
             value={composePath}
             placeholder={t(lang, "adPathPh")}
             aria-invalid={pathErr !== ""}
             onChange={(e) => setComposePath(e.target.value)}
           />
           <span className="hint">{t(lang, "adPathHint")}</span>
-          {pathErr && <span className="field-error">{pathErr}</span>}
+          <span className="err">{t(lang, "adPathErr")}</span>
         </div>
 
         <div>
@@ -117,29 +120,30 @@ export function AdoptPage({ lang, onCancel, onAdopted }: Props): JSX.Element {
           </button>
         </div>
         {advanced && (
-          <div className="field-row">
-            <div className="field">
+          <div className="field-row" style={{ maxWidth: 480 }}>
+            <div className={`field${svcErr !== "" && gatewayService.trim() === "" ? " invalid" : ""}`}>
               <label>{t(lang, "adGwService")}</label>
               <input
-                className="mono"
+                className="input mono"
                 value={gatewayService}
                 aria-invalid={svcErr !== "" && gatewayService.trim() === ""}
                 onChange={(e) => setGatewayService(e.target.value)}
               />
               <span className="hint">{t(lang, "adSvcHint")}</span>
+              <span className="err">{t(lang, "adSvcErr")}</span>
             </div>
-            <div className="field">
+            <div className={`field${svcErr !== "" && appService.trim() === "" ? " invalid" : ""}`}>
               <label>{t(lang, "adAppService")}</label>
               <input
-                className="mono"
+                className="input mono"
                 value={appService}
                 aria-invalid={svcErr !== "" && appService.trim() === ""}
                 onChange={(e) => setAppService(e.target.value)}
               />
+              <span className="err">{t(lang, "adSvcErr")}</span>
             </div>
           </div>
         )}
-        {svcErr && <span className="field-error">{svcErr}</span>}
 
         <div className="status">{t(lang, "adNotice")}</div>
 
