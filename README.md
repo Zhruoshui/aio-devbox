@@ -20,7 +20,8 @@ now, filled in progressively).
 
 ## Features
 
-- **One command to a browser IDE.** `make up` → open `http://localhost:8080`.
+- **One command to a browser IDE.** `make up` → open `http://localhost:8080`
+  (entry port configurable — set `AIO_GATEWAY_PORT` in `.env`; default 8080).
   A collapsible left sidebar lists your buttons; every click
   launches a NEW instance as a tab (terminal opens by default), and tabs can be
   dragged into split/tiled layouts (golden-layout) or closed via their ✕.
@@ -67,7 +68,7 @@ now, filled in progressively).
 ```sh
 make config                            # (optional) TUI: pick scenarios + Node/Python versions
 make up PROFILES="code-server vnc"     # start with web buttons (terminal always on)
-# → open http://localhost:8080
+# → open http://localhost:8080   (or $AIO_GATEWAY_PORT if set in .env)
 ```
 
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so
@@ -291,7 +292,7 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)
 make up NOBUILD=1 PROFILES="code-server vnc"   # start without building
-# → open http://localhost:8080
+# → open http://localhost:8080   (or $AIO_GATEWAY_PORT if set in .env)
 ```
 
 `make pull` fetches `sandbox-base` / `sandbox-app` / `sandbox-code-server` at

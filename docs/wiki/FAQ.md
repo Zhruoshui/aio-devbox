@@ -24,7 +24,7 @@ make up PROFILES="code-server vnc"
 
 **哪些端口要发布到宿主?**(在 `sbx` 类沙箱环境里跑时)
 
-- 宿主只需 `8080`(网关)——code-server / vnc 都走网关子路径;
+- 宿主只需 `8080`(网关,默认值,可在 `.env` 用 `AIO_GATEWAY_PORT` 改)——code-server / vnc 都走网关子路径;
 - `30141`(pi-web)是例外,端口直发不经网关;宿主侧换端口用
   `PI_WEB_HOST_PORT=30142 make up`,注意 `sbx ports --publish` 两端都要配成
   同一个端口号。

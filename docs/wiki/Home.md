@@ -26,6 +26,7 @@
 make up                              # 起网关 + 工作区(app)
 make up PROFILES="code-server vnc"   # 需要浏览器 IDE / Chromium 时
 # 打开 http://localhost:8080(无认证,面向本机/受信内网)
+# 入口端口可在 .env 用 AIO_GATEWAY_PORT 修改(默认 8080)
 ```
 
 - 侧边栏按钮分三类(`web` / `agent` / `page`),全部自动探测,**没有死面板**;
