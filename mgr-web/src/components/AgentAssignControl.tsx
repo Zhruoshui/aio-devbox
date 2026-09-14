@@ -42,6 +42,7 @@ export function AgentAssignControl({
   value,
   onChange,
   disabled,
+  grid,
 }: {
   lang: Lang;
   /** null = all agents (all boxes checked, locked semantics "all"); an
@@ -49,6 +50,10 @@ export function AgentAssignControl({
   value: string[] | null;
   onChange: (agents: string[] | null) => void;
   disabled?: boolean;
+  /** 09-11 prototype compact variant: the 2-column `.agents` grid used by
+   * the sandbox-card quick-assign popover (sandbox-list.html), instead of
+   * the editor page's scn-list rows. */
+  grid?: boolean;
 }): JSX.Element {
   // null renders as every box checked. The FIRST interaction on a null value
   // materializes the explicit all-four subset, so unchecking one box of a
@@ -65,6 +70,26 @@ export function AgentAssignControl({
       : base.filter((a) => a !== agent);
     onChange(next);
   };
+
+  if (grid) {
+    return (
+      <div className="agents" role="group" aria-label={t(lang, "mpAgents")}>
+        {ASSIGN_AGENTS.map((agent) => (
+          <label key={agent}>
+            <input
+              className="check"
+              type="checkbox"
+              checked={checked(agent)}
+              disabled={disabled}
+              aria-label={agentLabel(agent)}
+              onChange={(e) => toggle(agent, e.target.checked)}
+            />
+            <span>{agentLabel(agent)}</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="scn-list" role="group" aria-label={t(lang, "mpAgents")}>

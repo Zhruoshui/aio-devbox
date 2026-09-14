@@ -214,7 +214,7 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
 
       {/* S3: delete / cleanup confirmation */}
       {confirm !== null && (
-        <div className="overlay" role="presentation" onClick={() => setConfirm(null)}>
+        <div className="overlay open" role="presentation" onClick={() => setConfirm(null)}>
           <div
             className="dialog"
             role="dialog"

@@ -28,8 +28,8 @@
 
 import { useEffect, useState } from "react";
 
-import { t, type Lang } from "./i18n";
-import { Icon, IconSprite } from "./icons";
+import { t, type Lang, type StringKey } from "./i18n";
+import { Icon, IconSprite, type IconName } from "./icons";
 import { SandboxListPage } from "./pages/SandboxListPage";
 import { AdoptPage } from "./pages/AdoptPage";
 import { CreatePage } from "./pages/CreatePage";
@@ -56,8 +56,24 @@ export type SbxView =
 
 const THEME_KEY = "mgr.theme";
 const LANG_KEY = "mgr.lang";
-/** S5/R1: sidebar collapsed state (icons-only, ~48px), persisted. */
-const SIDEBAR_KEY = "mgr.sidebarCollapsed";
+/**
+ * Prototype redesign (09-11): the 216px sidebar is replaced by a 48px rail
+ * + a workspace-only side panel. The panel's hidden state is persisted under
+ * mgr.panelHidden (the prototype's own key). The old S5/R1
+ * mgr.sidebarCollapsed key is retired — its state is subsumed by the panel.
+ */
+const PANEL_HIDDEN_KEY = "mgr.panelHidden";
+
+/** Rail navigation: matches the prototype's mgr-shell.js NAV array
+ * (workspace/grid, sandboxes/terminal, images/layers, models/sliders,
+ * usage/chart). Each entry carries its i18n key (keyof Strings). */
+const RAIL_NAV: { page: Page; icon: IconName; labelKey: StringKey }[] = [
+  { page: "workspace", icon: "grid", labelKey: "navWorkspace" },
+  { page: "sandboxes", icon: "terminal", labelKey: "navSandboxes" },
+  { page: "images", icon: "layers", labelKey: "navImages" },
+  { page: "models", icon: "sliders", labelKey: "navModels" },
+  { page: "usage", icon: "chart", labelKey: "navUsage" },
+];
 
 export function App(): JSX.Element {
   // The workspace is the default landing page: the sandbox manager is now
@@ -73,10 +89,9 @@ export function App(): JSX.Element {
   const [lang, setLang] = useState<Lang>(
     () => (localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh-CN"),
   );
-  // S5/R1: sidebar collapsed (icons-only). Independent of the workspace tree
-  // collapse (R4: two collapses remember their own state).
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
-    () => localStorage.getItem(SIDEBAR_KEY) === "1",
+  // Prototype redesign: the sandbox-tree side panel (workspace only).
+  const [panelHidden, setPanelHidden] = useState<boolean>(
+    () => localStorage.getItem(PANEL_HIDDEN_KEY) === "1",
   );
   // Scenario catalog, fetched once for the create wizard / env editor.
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
@@ -93,10 +108,26 @@ export function App(): JSX.Element {
     localStorage.setItem(LANG_KEY, lang);
   }, [lang]);
 
-  // S5/R1: persist the sidebar collapsed state.
+  // Prototype redesign: persist the workspace panel's hidden state.
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
+    localStorage.setItem(PANEL_HIDDEN_KEY, panelHidden ? "1" : "0");
+  }, [panelHidden]);
+
+  /** Toggle the workspace sandbox-tree panel. The rail's "workspace" button
+   * flip-flops this when already on the workspace page (prototype
+   * workspace.html wsNav behavior); the panel's own head button too. */
+  const togglePanel = () => setPanelHidden((h) => !h);
+  /** Rail "workspace" click: if already on workspace, toggle the panel;
+   * otherwise navigate (and reveal the panel). */
+  const goOrToggleWorkspace = () => {
+    if (page === "workspace") {
+      togglePanel();
+    } else {
+      setWsFocus(null);
+      setPage("workspace");
+      setPanelHidden(false);
+    }
+  };
 
   const nav = (p: Page) => {
     setPage(p);
@@ -122,99 +153,71 @@ export function App(): JSX.Element {
   }
 
   return (
-    <div className="app">
+    <div className={`app${panelHidden ? " panel-hidden" : ""}`}>
       <IconSprite />
-      <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} aria-label={t(lang, "brand")}>
-        <div className="sb-head">
-          <div className="sb-brand">
-            <Icon name="cube" large />
-            <span className="sb-title">{t(lang, "brand")}</span>
-          </div>
-          <button
-            className="icon-btn sb-collapse-btn"
-            title={sidebarCollapsed ? t(lang, "expandSidebar") : t(lang, "collapseSidebar")}
-            aria-label={sidebarCollapsed ? t(lang, "expandSidebar") : t(lang, "collapseSidebar")}
-            aria-expanded={!sidebarCollapsed}
-            onClick={() => setSidebarCollapsed((c) => !c)}
-          >
-            <Icon name={sidebarCollapsed ? "chev-r" : "chev-l"} />
-          </button>
+      <nav className="rail" aria-label={t(lang, "brand")}>
+        <a
+          className="rail-brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            nav("workspace");
+          }}
+          title={t(lang, "brand")}
+          aria-label={t(lang, "brand")}
+        >
+          <Icon name="cube" large />
+        </a>
+        <div className="rail-nav">
+          {RAIL_NAV.map(({ page: p, icon, labelKey }) => {
+            const active = page === p;
+            const label = t(lang, labelKey);
+            const onClick = p === "workspace" ? goOrToggleWorkspace : () => nav(p);
+            return (
+              <button
+                key={p}
+                className={`rail-btn${active ? " active" : ""}`}
+                data-tip={label}
+                aria-label={label}
+                aria-current={active ? "page" : undefined}
+                onClick={onClick}
+              >
+                <Icon name={icon} />
+              </button>
+            );
+          })}
         </div>
-        <nav className="sb-list">
-          <div>
-            <p className="sb-group-label">{t(lang, "navWorkspace")}</p>
-            <div className="sb-row">
-              <button
-                className={`launch-btn${page === "workspace" ? " active" : ""}`}
-                onClick={() => nav("workspace")}
-              >
-                <Icon name="grid" />
-                <span className="launch-label">{t(lang, "navWorkspace")}</span>
-              </button>
-            </div>
-          </div>
-          <div>
-            <p className="sb-group-label">Sandbox-mgr</p>
-            <div className="sb-row">
-              <button
-                className={`launch-btn${page === "sandboxes" ? " active" : ""}`}
-                onClick={() => nav("sandboxes")}
-              >
-                <Icon name="terminal" />
-                <span className="launch-label">{t(lang, "navSandboxes")}</span>
-              </button>
-            </div>
-            <div className="sb-row">
-              <button
-                className={`launch-btn${page === "images" ? " active" : ""}`}
-                onClick={() => nav("images")}
-              >
-                <Icon name="box" />
-                <span className="launch-label">{t(lang, "navImages")}</span>
-              </button>
-            </div>
-            <div className="sb-row">
-              <button
-                className={`launch-btn${page === "models" ? " active" : ""}`}
-                onClick={() => nav("models")}
-              >
-                <Icon name="sliders" />
-                <span className="launch-label">{t(lang, "navModels")}</span>
-              </button>
-            </div>
-            <div className="sb-row">
-              <button
-                className={`launch-btn${page === "usage" ? " active" : ""}`}
-                onClick={() => nav("usage")}
-              >
-                <Icon name="chart" />
-                <span className="launch-label">{t(lang, "navUsage")}</span>
-              </button>
-            </div>
-          </div>
-        </nav>
-        <div className="sb-foot">
+        <div className="rail-foot">
           <button
-            className="icon-btn"
-            title={theme === "dark" ? t(lang, "toLight") : t(lang, "toDark")}
+            className="rail-btn"
+            data-tip={theme === "dark" ? t(lang, "toLight") : t(lang, "toDark")}
             aria-label={theme === "dark" ? t(lang, "toLight") : t(lang, "toDark")}
             onClick={() => setTheme((m) => (m === "dark" ? "light" : "dark"))}
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </button>
           <button
-            className="icon-btn"
-            title={t(lang, "switchLang")}
+            className="rail-btn"
+            data-tip={t(lang, "switchLang")}
             aria-label={t(lang, "switchLang")}
             onClick={() => setLang((l) => (l === "zh-CN" ? "en" : "zh-CN"))}
           >
             <Icon name="globe" />
           </button>
         </div>
-      </aside>
-      <main className="main">
+      </nav>
+      <main className={`main${page !== "workspace" ? " scroll" : ""}`}>
         {page === "workspace" ? (
-          <WorkspacePage lang={lang} focus={wsFocus} onManage={() => nav("sandboxes")} />
+          <WorkspacePage
+            lang={lang}
+            focus={wsFocus}
+            onManage={() => nav("sandboxes")}
+            panelOnToggle={togglePanel}
+            onEditSandbox={(name) => {
+              setSbxView({ view: "edit", name });
+              setPage("sandboxes");
+            }}
+          />
         ) : page === "sandboxes" ? (
           <SandboxesPage
             view={sbxView}

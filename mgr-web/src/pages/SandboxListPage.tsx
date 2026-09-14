@@ -1,34 +1,57 @@
-// SandboxListPage - the sandboxes admin page (design §4 page 1).
+// SandboxListPage - the sandboxes admin page, redesigned per the 09-11
+// prototype (docs/Web-Prototype/sandbox-list.html).
 //
-// Cards per sandbox: name + status badges (DB intent `status` + live compose
-// state `live`), resources, image tag, creation date, running services, and
-// the entry button ("进入沙箱" - switches to the WORKSPACE page focused on
-// that sandbox, prd D2: no more new-tab per-sandbox workbench; the unified
-// workspace embeds every sandbox's panes). Actions: start/stop/restart
-// (synchronous POSTs), edit config (parent switches to the env editor) and
-// delete (confirm dialog with the volumes checkbox - volumes=1 runs compose
-// down -v, A7).
+// Structure: toolbar (status segmented filter + name search) over a card
+// grid. Each card is the prototype's `.card.sbx`: header (live dot + name +
+// status badges + "open workspace"), body (entry URL, a facts grid —
+// image/resources/created/model-profile chip for native rows, registered +
+// profile for adopted ones —, installed services chips, runtime container
+// states), footer actions (start/stop/restart/edit/delete).
 //
-// Adopted (external) stacks: same card minus the edit button; their delete is
-// a synchronous UN-REGISTRATION (dialog says so, no volumes checkbox, no
-// JobView - types.ts DeleteReply branches on {ok} vs {job}). The page header
-// carries the adopt-wizard entry next to "new sandbox".
+// Status filtering follows the prototype's multi-membership semantics: an
+// adopted-and-running card matches BOTH the "running" and "external stack"
+// segments. "stopped" is the live-not-running bucket (stopped/gone/unknown —
+// anything compose doesn't report as running). Search is a plain name
+// substring match, case-insensitive.
 //
-// The list auto-refreshes every 4s while mounted: `live` merges compose ps
-// state at read time, and a sandbox created via the job view should appear
-// (or transition running) without a manual reload (useStats-style polling in
-// state-management.md's spirit: local hook, results into state).
+// The quick-assign popover (S2, 09-10) is upgraded to the prototype's
+// fixed-position `.pop`: profile select + agent checkboxes + save, fired at
+// the profile chip in the facts grid. Edits stay LOCAL until Save issues the
+// PUT; the 4s poll then refreshes the chip.
+//
+// Data contracts are unchanged: `live` merges compose ps state at read time,
+// the page auto-refreshes every 4s, start/stop/restart are synchronous
+// POSTs, delete is a confirm dialog (volumes checkbox for native rows —
+// compose down -v; adopted rows are a synchronous un-registration, dialog
+// says so, no JobView - types.ts DeleteReply branches on {ok} vs {job}).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { deleteSandbox, listModelProfiles, listSandboxes, putSandboxModelProfile, sandboxAction, type ModelProfile } from "../api";
 import { withMgrPort } from "./workspace/paneUrl";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
-import { agentSubsetSummary, AgentAssignControl } from "../components/AgentAssignControl";
+import { AgentAssignControl, ASSIGN_AGENTS, agentLabel } from "../components/AgentAssignControl";
 import { isJobReply, type Sandbox } from "../types";
 
 const POLL_MS = 4000;
+
+type Filter = "all" | "running" | "stopped" | "adopted";
+
+/** Whether a sandbox matches the active status segment (prototype's
+ * data-status multi-membership: adopted-running matches both segments). */
+function matchesFilter(sb: Sandbox, f: Filter): boolean {
+  switch (f) {
+    case "all":
+      return true;
+    case "running":
+      return sb.live === "running";
+    case "stopped":
+      return sb.live !== "running";
+    case "adopted":
+      return sb.adopted;
+  }
+}
 
 interface Props {
   lang: Lang;
@@ -47,6 +70,9 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
   const [confirm, setConfirm] = useState<Sandbox | null>(null);
   const [confirmVolumes, setConfirmVolumes] = useState(true);
   const [actionErr, setActionErr] = useState("");
+  // Toolbar state (prototype: segmented status filter + name search).
+  const [filter, setFilter] = useState<Filter>("all");
+  const [q, setQ] = useState("");
   // id -> display name for the cards' model-profile chip (D8); fetched once
   // per mount - profile renames without a page visit are not a real case.
   const [profileNames, setProfileNames] = useState<Record<string, string> | null>(null);
@@ -122,20 +148,43 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
     }
   };
 
+  // Filtered view + segment counts (same predicate for both, so the count
+  // never disagrees with what the segment shows).
+  const list = sandboxes ?? [];
+  const query = q.trim().toLowerCase();
+  const visible = list.filter(
+    (sb) => matchesFilter(sb, filter) && (query === "" || sb.name.toLowerCase().includes(query)),
+  );
+  const counts: Record<Filter, number> = {
+    all: list.length,
+    running: list.filter((sb) => matchesFilter(sb, "running")).length,
+    stopped: list.filter((sb) => matchesFilter(sb, "stopped")).length,
+    adopted: list.filter((sb) => matchesFilter(sb, "adopted")).length,
+  };
+  const segs: { id: Filter; label: string }[] = [
+    { id: "all", label: t(lang, "filterAll") },
+    { id: "running", label: t(lang, "stRunning") },
+    { id: "stopped", label: t(lang, "stStopped") },
+    { id: "adopted", label: t(lang, "sbAdopted") },
+  ];
+
   return (
     <div className="page">
       <div className="page-head">
-        <h1>{t(lang, "navSandboxes")}</h1>
+        <div>
+          <h1>{t(lang, "navSandboxes")}</h1>
+          <p className="sub">{t(lang, "listSub")}</p>
+        </div>
         <div className="page-actions">
           <button
-            className="btn btn-ghost btn-sm"
+            className="icon-btn lg"
             onClick={() => void fetchList()}
             aria-label={t(lang, "refresh")}
             title={t(lang, "refresh")}
           >
             <Icon name="refresh" />
           </button>
-          <button className="btn btn-ghost" onClick={onAdopt}>
+          <button className="btn btn-secondary" onClick={onAdopt}>
             <Icon name="box" />
             {t(lang, "adoptExisting")}
           </button>
@@ -153,58 +202,89 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
         <div className="status">{t(lang, "emptySandboxes")}</div>
       )}
 
-      {sandboxes !== null && sandboxes.length > 0 && (
-        <div className="sbx-grid">
-          {sandboxes.map((sb) => (
-            <SandboxCard
-              key={sb.name}
-              sb={sb}
-              lang={lang}
-              profileNames={profileNames}
-              profiles={profiles}
-              busy={busy === sb.name}
-              onEnter={() => onEnter(sb.name)}
-              onAction={(a) => void act(sb, a)}
-              onEdit={() => onEdit(sb.name)}
-              onDelete={() => {
-                setConfirmVolumes(true);
-                setActionErr("");
-                setConfirm(sb);
-              }}
-            />
-          ))}
-        </div>
+      {list.length > 0 && (
+        <>
+          <div className="toolbar">
+            <div className="segmented" role="group" aria-label={t(lang, "filterByStatus")}>
+              {segs.map((s) => (
+                <button key={s.id} aria-pressed={filter === s.id} onClick={() => setFilter(s.id)}>
+                  {s.label} <span className="cnt">{counts[s.id]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="input-wrap">
+              <Icon name="search" />
+              <input
+                className="input sm"
+                type="search"
+                placeholder={t(lang, "searchNamePh")}
+                aria-label={t(lang, "searchNamePh")}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <section className="sbx-grid" aria-label={t(lang, "navSandboxes")}>
+            {visible.map((sb) => (
+              <SandboxCard
+                key={sb.name}
+                sb={sb}
+                lang={lang}
+                profileNames={profileNames}
+                profiles={profiles}
+                busy={busy === sb.name}
+                onEnter={() => onEnter(sb.name)}
+                onAction={(a) => void act(sb, a)}
+                onEdit={() => onEdit(sb.name)}
+                onDelete={() => {
+                  setConfirmVolumes(true);
+                  setActionErr("");
+                  setConfirm(sb);
+                }}
+              />
+            ))}
+          </section>
+
+          {visible.length === 0 && <p className="empty">{t(lang, "sbNoMatch")}</p>}
+        </>
       )}
 
       {/* Delete confirmation (A7: explicit confirm + volumes checkbox).
        * Adopted rows swap the copy: nothing of theirs is torn down, so no
        * volumes checkbox and an "unregister" action instead. */}
       {confirm && (
-        <div className="overlay" role="presentation" onClick={() => setConfirm(null)}>
+        <div className="overlay open" role="presentation" onClick={() => setConfirm(null)}>
           <div
             className="dialog"
-            role="dialog"
+            role="alertdialog"
             aria-modal="true"
-            aria-label={confirm.adopted ? t(lang, "confirmUnadoptTitle") : t(lang, "confirmDeleteTitle")}
+            aria-labelledby="del-dialog-title"
+            aria-describedby="del-dialog-desc"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>
-              {confirm.adopted ? t(lang, "confirmUnadoptTitle") : t(lang, "confirmDeleteTitle")} —{" "}
-              <code>{confirm.name}</code>
-            </h2>
-            <p className="sub">
-              {confirm.adopted ? t(lang, "confirmUnadoptSub") : t(lang, "confirmDeleteSub")}
-            </p>
+            <div>
+              <h2 id="del-dialog-title">
+                {confirm.adopted ? t(lang, "confirmUnadoptTitle") : t(lang, "confirmDeleteTitle")}{" "}
+                <span className="mono">{confirm.name}</span>
+              </h2>
+              <p className="desc" id="del-dialog-desc">
+                {confirm.adopted ? t(lang, "confirmUnadoptSub") : t(lang, "confirmDeleteSub")}
+              </p>
+            </div>
             {!confirm.adopted && (
-              <label className="scn-row" style={{ border: 0, padding: 0, marginBottom: "var(--space-4)" }}>
+              <label className="tsm" style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-start" }}>
                 <input
                   className="check"
                   type="checkbox"
+                  style={{ marginTop: 2 }}
                   checked={confirmVolumes}
                   onChange={(e) => setConfirmVolumes(e.target.checked)}
                 />
-                <span style={{ fontSize: "var(--text-sm)", color: "var(--danger)" }}>
+                <span style={{ color: "var(--danger)" }}>
                   {t(lang, "deleteVolumes")}
+                  <br />
+                  <span className="muted txs">{t(lang, "sbVolLoss")}</span>
                 </span>
               </label>
             )}
@@ -250,22 +330,44 @@ function SandboxCard({
   onDelete: () => void;
 }): JSX.Element {
   const created = new Date(sb.created_at * 1000);
+  const running = sb.live === "running";
   // S2 quick-assign popover state. Popover edits are LOCAL (profileSel /
   // agentsSel) until Save fires the PUT; the card then refetches via the
   // parent's 4s poll, so the chip reflects the change shortly after.
-  const [open, setOpen] = useState(false);
+  // `anchor !== null` doubles as the open flag (the chip's rect, captured
+  // on click — the .pop is fixed-positioned like the prototype's).
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [profileSel, setProfileSel] = useState<string>(sb.model_profile ?? "");
   const [agentsSel, setAgentsSel] = useState<string[] | null>(sb.model_agents ?? null);
   const [saving, setSaving] = useState(false);
   const [popErr, setPopErr] = useState("");
+  const popRef = useRef<HTMLDivElement>(null);
   // Keep local state in sync when the polled payload changes (assignment
   // edited elsewhere, or this popover's own save landing on the refresh).
   useEffect(() => {
-    if (!open) {
+    if (anchor === null) {
       setProfileSel(sb.model_profile ?? "");
       setAgentsSel(sb.model_agents ?? null);
     }
-  }, [sb.model_profile, sb.model_agents, open]);
+  }, [sb.model_profile, sb.model_agents, anchor]);
+
+  // Popover dismissal: Escape + outside pointerdown (the same contract as
+  // the prototype's document-level listeners, scoped to its open lifetime).
+  useEffect(() => {
+    if (anchor === null) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setAnchor(null);
+    };
+    const onDown = (e: PointerEvent): void => {
+      if (popRef.current !== null && !popRef.current.contains(e.target as Node)) setAnchor(null);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [anchor]);
 
   const saveAssign = async () => {
     if (saving) return;
@@ -273,7 +375,7 @@ function SandboxCard({
     setPopErr("");
     try {
       await putSandboxModelProfile(sb.name, profileSel === "" ? null : profileSel, agentsSel);
-      setOpen(false);
+      setAnchor(null);
     } catch (e) {
       setPopErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -281,98 +383,110 @@ function SandboxCard({
     }
   };
 
-  const subset = agentSubsetSummary(sb.model_agents ?? null);
-  return (
-    <article className="sbx-card">
-      <div className="sbx-head">
-        <span className="sbx-name" title={sb.name}>
-          {sb.name}
-        </span>
-        <StatusBadges sb={sb} lang={lang} />
-        <a
-          className="sbx-entry"
-          href={withMgrPort(sb.entry_url)}
-          title={t(lang, "enterWorkspace")}
-          onClick={(e) => {
-            e.preventDefault();
-            onEnter();
-          }}
-        >
-          <Icon name="dock" />
-          {t(lang, "enter")}
-        </a>
-      </div>
+  // Chip label: "<profile> · <agents>" (null agents = all four, prototype
+  // spells them out; [] = none).
+  const agentsText = (sb.model_agents === null ? [...ASSIGN_AGENTS] : sb.model_agents)
+    .map(agentLabel)
+    .join(", ");
+  const chipLabel =
+    sb.model_profile === null
+      ? t(lang, "sbProfileNone")
+      : `${profileNames?.[sb.model_profile] ?? sb.model_profile}${agentsText !== "" ? ` · ${agentsText}` : ""}`;
 
-      <div className="sbx-meta">
-        <span>
-          {t(lang, "sbCpus")}:{" "}
-          <code>{sb.cpus !== null ? String(sb.cpus) : t(lang, "sbUnlimited")}</code>
-        </span>
-        <span>
-          {t(lang, "sbMem")}:{" "}
-          <code>
-            {sb.mem_mb !== null ? `${sb.mem_mb}M` : t(lang, "sbUnlimited")}
-          </code>
-        </span>
-        <span>
-          {t(lang, "sbImage")}: <code>{sb.image}</code>
-        </span>
-        <span>
-          {t(lang, "sbCreated")}: <code>{created.toLocaleDateString()}</code>
-        </span>
-        <span>
-          {t(lang, "mpAssignTo")}:{" "}
-          <button
-            type="button"
-            className="mp-chip"
-            title={t(lang, "mpQuickAssignHint")}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <code>
-              {sb.model_profile === null
-                ? t(lang, "sbProfileNone")
-                : (profileNames?.[sb.model_profile] ?? sb.model_profile)}
-            </code>
-            {subset !== "" && <em className="mp-subset">· {subset}</em>}
-          </button>
-          {open && (
-            <span className="mp-popover" onClick={(e) => e.stopPropagation()}>
-              <span className="mp-popover-head">
-                <strong>{t(lang, "mpQuickAssign")}</strong>
-              </span>
-              <select
-                value={profileSel}
-                disabled={profiles === null}
-                onChange={(e) => setProfileSel(e.target.value)}
-              >
-                <option value="">{t(lang, "mpUnassigned")}</option>
-                {(profiles ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              {profileSel !== "" && (
-                <AgentAssignControl
-                  lang={lang}
-                  value={agentsSel}
-                  onChange={setAgentsSel}
-                />
-              )}
-              {popErr && <em className="mp-popover-err">{popErr}</em>}
-              <span className="mp-popover-actions">
-                <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveAssign()}>
-                  {saving ? t(lang, "wzSubmitting") : t(lang, "mpQuickSave")}
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>
-                  {t(lang, "cancel")}
-                </button>
-              </span>
-            </span>
+  // Resources line: "4 核 · 8192 MB" or the unlimited placeholder.
+  const res =
+    sb.cpus === null && sb.mem_mb === null
+      ? t(lang, "sbUnlimited")
+      : `${sb.cpus !== null ? `${sb.cpus} ${t(lang, "sbCores")}` : "—"} · ${sb.mem_mb !== null ? `${sb.mem_mb} MB` : "—"}`;
+
+  return (
+    <article className={`card sbx${running ? "" : " stopped"}`}>
+      <header className="sbx-head">
+        <span className="sdot live" title={sb.status} />
+        <h2 className="sbx-name" title={sb.name}>
+          {sb.name}
+        </h2>
+        <StatusBadges sb={sb} lang={lang} />
+        <button
+          className="btn btn-secondary btn-sm"
+          title={t(lang, "enterWorkspace")}
+          onClick={onEnter}
+        >
+          {t(lang, "sbEnterWs")}
+          <Icon name="arrowr" />
+        </button>
+      </header>
+
+      <div className="sbx-body">
+        <a className="sbx-url" href={withMgrPort(sb.entry_url)} title={t(lang, "sbxUrlTitle")}>
+          <span className="mono">{sb.entry_url.replace(/^https?:\/\//, "").replace(/\/+$/, "")}</span>
+          <Icon name="external" />
+        </a>
+
+        <dl className="facts">
+          {sb.adopted ? (
+            <>
+              <div>
+                <dt>{t(lang, "sbRegisteredAt")}</dt>
+                <dd>{created.toLocaleDateString()}</dd>
+              </div>
+              <div>
+                <dt>{t(lang, "mpAssignTo")}</dt>
+                <dd>
+                  <button
+                    type="button"
+                    className={`chip${sb.model_profile === null ? " off" : ""}`}
+                    title={t(lang, "mpQuickAssignHint")}
+                    onClick={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
+                  >
+                    {chipLabel}
+                  </button>
+                </dd>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <dt>{t(lang, "sbImage")}</dt>
+                <dd>
+                  <span className="mono">{sb.image}</span>
+                </dd>
+              </div>
+              <div>
+                <dt>{t(lang, "sbResources")}</dt>
+                <dd>{res}</dd>
+              </div>
+              <div>
+                <dt>{t(lang, "sbCreated")}</dt>
+                <dd>{created.toLocaleDateString()}</dd>
+              </div>
+              <div>
+                <dt>{t(lang, "mpAssignTo")}</dt>
+                <dd>
+                  <button
+                    type="button"
+                    className={`chip${sb.model_profile === null ? " off" : ""}`}
+                    title={t(lang, "mpQuickAssignHint")}
+                    onClick={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
+                  >
+                    {chipLabel}
+                  </button>
+                </dd>
+              </div>
+            </>
           )}
-        </span>
-        {sb.installed_services && (
-          <span className="sbx-svc-badges">
+        </dl>
+
+        {sb.adopted && (
+          <div className="notice notice-warn" style={{ fontSize: "var(--text-xs)", padding: "6px var(--space-2)" }}>
+            <Icon name="info" />
+            <span>{t(lang, "sbExternalNote")}</span>
+          </div>
+        )}
+
+        {sb.installed_services && !sb.adopted && (
+          <div className="line">
+            <span className="lbl">{t(lang, "svcOn")}</span>
             {(
               [
                 ["code_server", t(lang, "svcCode_server")],
@@ -383,79 +497,106 @@ function SandboxCard({
             ).map(([key, label]) => (
               <span
                 key={key}
-                title={
-                  sb.installed_services[key]
-                    ? label + " · " + t(lang, "svcOn")
-                    : label + " · " + t(lang, "svcOff")
-                }
+                className={`chip${sb.installed_services[key] ? "" : " off"}`}
+                title={label + " · " + t(lang, sb.installed_services[key] ? "svcOn" : "svcOff")}
               >
-                <span className={`svc-dot${sb.installed_services[key] ? " on" : " off"}`} />
+                <span className={`sdot${sb.installed_services[key] ? "" : " stopped"}`} />
                 {label}
               </span>
             ))}
-          </span>
+          </div>
         )}
+
+        <div className="line">
+          <span className="lbl">{t(lang, "sbContainers")}</span>
+          {sb.services.length === 0 ? (
+            <span>{t(lang, "stGone")}</span>
+          ) : (
+            sb.services.map((s) => (
+              <span key={s.name} className="svc" title={s.status}>
+                <span className={`sdot${s.state === "running" ? "" : " stopped"}`} />
+                {s.state === "running" ? s.service : `${s.service} · ${s.state}`}
+              </span>
+            ))
+          )}
+        </div>
       </div>
 
-      {sb.adopted && (
-        <p className="sbx-note">
-          {t(lang, "sbAdopted")} — {t(lang, "sbExternalNote")}
-        </p>
-      )}
-
-      <div className="sbx-services">
-        {sb.services.length === 0 ? (
-          <span>{t(lang, "stGone")}</span>
-        ) : (
-          sb.services.map((s) => (
-            <span key={s.name} title={s.status}>
-              {s.service}: {s.state}
-            </span>
-          ))
-        )}
-      </div>
-
-      <div className="sbx-actions">
-        <button
-          className="btn btn-secondary btn-sm"
-          disabled={busy || sb.live === "running"}
-          onClick={() => onAction("start")}
-        >
+      <footer className="sbx-foot">
+        <button className="btn btn-ghost btn-sm" disabled={busy || running} onClick={() => onAction("start")}>
           <Icon name="play" />
           {t(lang, "start")}
         </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          disabled={busy || sb.live !== "running"}
-          onClick={() => onAction("stop")}
-        >
+        <button className="btn btn-ghost btn-sm" disabled={busy || !running} onClick={() => onAction("stop")}>
           <Icon name="stop" />
           {t(lang, "stop")}
         </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          disabled={busy}
-          onClick={() => onAction("restart")}
-        >
+        <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onAction("restart")}>
           <Icon name="restart" />
           {t(lang, "restart")}
         </button>
         {!sb.adopted && (
-          <button className="btn btn-secondary btn-sm" disabled={busy} onClick={onEdit}>
+          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onEdit}>
             <Icon name="edit" />
             {t(lang, "editConfig")}
           </button>
         )}
-        <button
-          className="btn btn-danger-text btn-sm"
-          disabled={busy}
-          onClick={onDelete}
-          style={{ marginLeft: "auto" }}
-        >
+        <button className="btn btn-danger-text btn-sm del" disabled={busy} onClick={onDelete}>
           <Icon name="trash" />
-          {t(lang, "delete")}
+          {sb.adopted ? t(lang, "confirmUnadopt") : t(lang, "delete")}
         </button>
-      </div>
+      </footer>
+
+      {/* Quick-assign popover (prototype .pop: fixed near the chip,
+       * clamped to the viewport; width ~280px, height bounded ~340px). */}
+      {anchor !== null && (
+        <div
+          ref={popRef}
+          className="pop open"
+          role="dialog"
+          aria-label={t(lang, "mpQuickAssign")}
+          style={{
+            position: "fixed",
+            left: Math.min(anchor.left, window.innerWidth - 300),
+            top: Math.min(anchor.bottom + 6, window.innerHeight - 340),
+          }}
+        >
+          <h4>
+            {t(lang, "mpQuickAssign")} · <span className="mono">{sb.name}</span>
+          </h4>
+          <div className="field">
+            <label>{t(lang, "mpProfile")}</label>
+            <select
+              className="input sm"
+              value={profileSel}
+              disabled={profiles === null}
+              onChange={(e) => setProfileSel(e.target.value)}
+            >
+              <option value="">{t(lang, "mpUnassigned")}</option>
+              {(profiles ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {profileSel !== "" && <AgentAssignControl lang={lang} value={agentsSel} onChange={setAgentsSel} grid />}
+          <p className="muted txs">{t(lang, "mpAgentsHint")}</p>
+          {popErr && (
+            <p className="txs" style={{ color: "var(--danger)", margin: 0 }}>
+              {popErr}
+            </p>
+          )}
+          <div className="dialog-actions" style={{ paddingTop: 0 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(null)}>
+              {t(lang, "cancel")}
+            </button>
+            <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveAssign()}>
+              {saving ? t(lang, "wzSubmitting") : t(lang, "mpQuickSave")}
+            </button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -467,7 +608,6 @@ function StatusBadges({ sb, lang }: { sb: Sandbox; lang: Lang }): JSX.Element {
   const statusLabel: Record<string, { key: StatusKey; cls: string }> = {
     creating: { key: "stCreating", cls: "badge-info" },
     error: { key: "stError", cls: "badge-danger" },
-    adopted: { key: "stAdopted", cls: "badge-neutral" },
     running: { key: "stRunning", cls: "badge-ok" },
     stopped: { key: "stStopped", cls: "badge-neutral" },
   };
@@ -481,6 +621,7 @@ function StatusBadges({ sb, lang }: { sb: Sandbox; lang: Lang }): JSX.Element {
   const l = liveLabel[sb.live];
   return (
     <span style={{ display: "inline-flex", gap: "var(--space-1)", flexShrink: 0 }}>
+      {sb.adopted && <span className="badge badge-neutral">{t(lang, "sbAdopted")}</span>}
       {s && (
         <span className={`badge ${s.cls}`}>
           <span className="dot" />

@@ -46,12 +46,25 @@ interface Props {
   starting: string;
   /** Sandbox name the tree should keep highlighted (goWorkspace). */
   focus: string | null;
+  /** Live-name filter (prototype tree filter input; "" = all). */
+  query: string;
+  onQuery: (q: string) => void;
+  /** Open the sandbox node's "more" menu (prototype .menu, NodeMenu). The
+   * anchor rect comes from the trigger button for fixed positioning. */
+  onMore: (sandbox: Sandbox, anchor: DOMRect) => void;
+  /** Open-pane count per sandbox (from golden-layout's live tab state;
+   * drives tree-meta "N panes" and the statusbar counts). */
+  paneCounts: Record<string, number>;
   /** Rendered at the bottom of the tree column (reset-layout lives here). */
   footer?: ReactNode;
   /** S5/R2: icons-only collapsed rail w/ hover flyouts. State is owned by
    * WorkspacePage (persisted separately from the app sidebar collapse, R4). */
   collapsed: boolean;
   onCollapseToggle: () => void;
+  /** Hide the whole side panel (App-owned mgr.panelHidden; prototype
+   * panel-head's collapse button). Distinct from the tree's own flyout
+   * collapse above. */
+  panelOnToggle?: () => void;
   onToggle: (name: string) => void;
   onLaunch: (sandbox: string, service: ServiceEntry) => void;
   onStart: (name: string) => void;
@@ -112,8 +125,13 @@ export function SandboxTree({
   expanded,
   starting,
   focus,
+  query,
+  onQuery,
+  onMore,
+  paneCounts,
   collapsed,
   onCollapseToggle,
+  panelOnToggle,
   footer,
   onToggle,
   onLaunch,
@@ -125,12 +143,23 @@ export function SandboxTree({
   // across clicks (clicking a launch button must NOT close it — R2 "open
   // several in a row"); it dismisses only on mouseleave of the whole node.
   const [hoverSb, setHoverSb] = useState<string | null>(null);
+  const q = query.trim().toLowerCase();
+  const matched = q === "" ? sandboxes : sandboxes.filter((s) => s.name.toLowerCase().includes(q));
+  const running = sandboxes.filter((s) => s.live === "running").length;
 
   return (
     <aside className={`ws-tree${collapsed ? " collapsed" : ""}`} aria-label={t(lang, "wsTreeLabel")}>
-      <div className="ws-tree-collapse-head">
+      <div className="panel-head ws-tree-collapse-head">
+        <span className="panel-title">
+          {t(lang, "wsTreeLabel")}
+          {!collapsed && (
+            <span className="panel-count">
+              {sandboxes.length} · {running} {t(lang, "stRunning")}
+            </span>
+          )}
+        </span>
         <button
-          className="icon-btn ws-collapse-btn"
+          className="icon-btn"
           title={collapsed ? t(lang, "expandTree") : t(lang, "collapseTree")}
           aria-label={collapsed ? t(lang, "expandTree") : t(lang, "collapseTree")}
           aria-expanded={!collapsed}
@@ -138,10 +167,37 @@ export function SandboxTree({
         >
           <Icon name={collapsed ? "chev-r" : "chev-l"} />
         </button>
+        {panelOnToggle && !collapsed && (
+          <button
+            className="icon-btn"
+            title={t(lang, "hidePanel")}
+            aria-label={t(lang, "hidePanel")}
+            onClick={panelOnToggle}
+          >
+            <Icon name="panel" />
+          </button>
+        )}
       </div>
+      {!collapsed && (
+        <div className="ws-search">
+          <div className="input-wrap">
+            <Icon name="search" />
+            <input
+              className="input sm"
+              type="search"
+              placeholder={t(lang, "filterPlaceholder")}
+              aria-label={t(lang, "filterPlaceholder")}
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
       <div className="sb-list">
-        {sandboxes.length === 0 && <p className="sb-empty">{t(lang, "wsTreeEmpty")}</p>}
-        {sandboxes.map((sb) => {
+        {matched.length === 0 && (
+          <p className="sb-empty">{q === "" ? t(lang, "wsTreeEmpty") : t(lang, "noMatch")}</p>
+        )}
+        {matched.map((sb) => {
           if (collapsed) {
             const stopped = sb.live !== "running";
             const m = manifests[sb.name];
@@ -242,6 +298,7 @@ export function SandboxTree({
           const stopped = sb.live !== "running";
           const m = manifests[sb.name];
           const buttons = m && m.services !== null ? buttonsOf(m.services) : null;
+          const openCount = paneCounts[sb.name] ?? 0;
           let hint: string | null = null;
           if (buttons === null) {
             if (m === undefined || m.status === "idle" || m.status === "loading") {
@@ -253,54 +310,70 @@ export function SandboxTree({
             }
           }
           return (
-            <div key={sb.name} className={`ws-node${focus === sb.name ? " ws-focus" : ""}`}>
-              <div className="ws-node-row">
+            <div
+              key={sb.name}
+              className={`tree-node${open ? " open" : ""}${stopped ? " stopped" : ""}${focus === sb.name ? " is-focus" : ""}`}
+            >
+              <div className="tree-row">
                 <button
-                  className="ws-node-btn"
+                  className="tree-toggle"
                   title={sb.name}
                   aria-expanded={open}
                   onClick={() => onToggle(sb.name)}
                 >
-                  <Icon name={open ? "chev-down" : "chev-r"} />
-                  <span className="ws-node-name">{sb.name}</span>
-                  <span className={`badge ${liveCls(sb.live)}`}>
-                    <span className="dot" />
-                    {t(lang, liveKey(sb.live))}
+                  <span className={`chev`}>
+                    <Icon name={open ? "chev-down" : "chev-r"} />
+                  </span>
+                  <span className={`sdot${stopped ? " stopped" : ""}`} />
+                  <span className="tree-name">{sb.name}</span>
+                  <span className="tree-meta">
+                    {stopped ? t(lang, "stStopped") : openCount > 0 ? `${openCount} ${t(lang, "panes")}` : t(lang, "stRunning")}
                   </span>
                 </button>
-                {stopped && (
+                <div className={`tree-acts${stopped ? " always" : ""}`}>
+                  {stopped && (
+                    <button
+                      className={`icon-btn${starting === sb.name ? " spin" : ""}`}
+                      title={t(lang, "start")}
+                      aria-label={`${t(lang, "start")} ${sb.name}`}
+                      disabled={starting !== ""}
+                      onClick={() => onStart(sb.name)}
+                    >
+                      <Icon name={starting === sb.name ? "refresh" : "play"} />
+                    </button>
+                  )}
                   <button
-                    className={`icon-btn ws-start-btn${starting === sb.name ? " spin" : ""}`}
-                    title={t(lang, "start")}
-                    aria-label={`${t(lang, "start")} ${sb.name}`}
-                    disabled={starting !== ""}
-                    onClick={() => onStart(sb.name)}
+                    className="icon-btn"
+                    title={t(lang, "more")}
+                    aria-label={`${sb.name} ${t(lang, "more")}`}
+                    onClick={(e) => onMore(sb, e.currentTarget.getBoundingClientRect())}
                   >
-                    <Icon name={starting === sb.name ? "refresh" : "play"} />
+                    <Icon name="more" />
                   </button>
-                )}
+                </div>
               </div>
 
               {open && (
-                <div className="ws-children">
-                  {hint !== null && <p className="sb-empty">{hint}</p>}
+                <div className="tree-kids">
+                  {hint !== null && <p className="tree-hint">{hint}</p>}
                   {buttons !== null && buttons.length === 0 && (
-                    <p className="sb-empty">{t(lang, "sidebarEmpty")}</p>
+                    <p className="tree-hint">{t(lang, "sidebarEmpty")}</p>
                   )}
                   {buttons?.map((s) => (
-                    <div key={s.id} className={`sb-row${stopped ? " ws-disabled" : ""}`}>
+                    <div key={s.id} className="leaf">
                       <button
-                        className="launch-btn"
+                        className="leaf-btn"
                         title={`${s.label}@${sb.name}${t(lang, "openInstanceSuffix")}`}
                         disabled={stopped}
                         onClick={() => onLaunch(sb.name, s)}
                       >
                         <Icon name={serviceIcon(s.id, s.type)} />
-                        <span className="launch-label">{s.label}</span>
+                        <span>{s.label}</span>
+                        {s.deletable && <span className="leaf-tag">{t(lang, "custom")}</span>}
                       </button>
                       {s.deletable && !stopped && (
                         <button
-                          className="del-btn"
+                          className="icon-btn danger"
                           title={`${t(lang, "removePrefix")}${s.label}`}
                           aria-label={`${t(lang, "removePrefix")}${s.label}`}
                           onClick={() => onDeleteButton(sb.name, s.id)}
@@ -310,15 +383,16 @@ export function SandboxTree({
                       )}
                     </div>
                   ))}
-                  <div className="sb-row">
+                  <div className="leaf-sep" />
+                  <div className="leaf">
                     <button
-                      className="launch-btn ws-register-btn"
+                      className="leaf-btn muted"
                       disabled={stopped}
                       title={t(lang, "register")}
                       onClick={() => onRegister(sb.name)}
                     >
                       <Icon name="plus" />
-                      <span className="launch-label">{t(lang, "register")}</span>
+                      <span>{t(lang, "register")}</span>
                     </button>
                   </div>
                 </div>

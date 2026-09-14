@@ -64,6 +64,7 @@ import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
 import type { Sandbox } from "../types";
 import { RegisterDialog } from "./workspace/RegisterDialog";
+import { NodeMenu } from "./workspace/NodeMenu";
 import { SandboxTree, serviceIcon, type ManifestState } from "./workspace/SandboxTree";
 import { IframePane } from "./workspace/panes/IframePane";
 import { XtermPane } from "./workspace/panes/XtermPane";
@@ -154,9 +155,17 @@ interface Props {
   focus: string | null;
   /** Navigate to the sandbox list (empty-state affordance). */
   onManage: () => void;
+  /**
+   * Prototype redesign: toggle the sandbox-tree panel's hidden state
+   * (owned by App, persisted under mgr.panelHidden). The panel head's
+   * "collapse" button and the rail's "workspace" button both call this.
+   */
+  panelOnToggle?: () => void;
+  /** Open the sandbox list's edit view for this sandbox (NodeMenu). */
+  onEditSandbox?: (name: string) => void;
 }
 
-export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
+export function WorkspacePage({ lang, focus, onManage, panelOnToggle, onEditSandbox }: Props): JSX.Element {
   langRef.current = lang;
   const containerRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<GoldenLayout | null>(null);
@@ -178,6 +187,16 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
   const [startErr, setStartErr] = useState("");
   const [registerFor, setRegisterFor] = useState<string | null>(null);
   const [boot, setBoot] = useState<Boot>({ kind: "loading" });
+  // Prototype redesign: tree filter input (client-side name match).
+  const [query, setQuery] = useState("");
+  // Open-pane count per sandbox (from golden-layout's live tabs; drives the
+  // tree's "N panes" meta and the statusbar counts).
+  const [paneCounts, setPaneCounts] = useState<Record<string, number>>({});
+  const [paneTotal, setPaneTotal] = useState(0);
+  // NodeMenu anchor: the sandbox + the trigger button's rect.
+  const [menu, setMenu] = useState<{ sandbox: Sandbox; anchor: DOMRect } | null>(null);
+  // Last successful layout save (statusbar's "布局已保存 · 时间").
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
   // S5/R2: workspace tree collapsed (icons-only + hover flyout). Independent
   // of the app sidebar collapse (R4) — own key, own state.
   const [treeCollapsed, setTreeCollapsed] = useState<boolean>(
@@ -309,12 +328,14 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
     setExpanded((prev) => (prev.has(focus) ? prev : new Set(prev).add(focus)));
   }, [focus]);
 
-  const onStart = async (name: string): Promise<void> => {
+  /** Sandbox lifecycle action (tree start button + NodeMenu start/stop/
+   * restart): POST /api/sandboxes/:name/:action then refresh the list. */
+  const act = async (name: string, action: "start" | "stop" | "restart"): Promise<void> => {
     if (starting !== "") return;
     setStarting(name);
     setStartErr("");
     try {
-      await sandboxAction(name, "start");
+      await sandboxAction(name, action);
       await fetchList();
     } catch (e) {
       setStartErr(e instanceof Error ? e.message : String(e));
@@ -426,6 +447,28 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
     gl.newComponent(PANE_COMPONENT_TYPE, { service, sandbox, seq: n }, title);
   }, []);
 
+  /** Recount open panes from golden-layout's live tab strip (titles are
+   * "<label>@<sandbox>" or "<label>@<sandbox> (n)"; split at the LAST "@"
+   * like patchTabs). Called after each layout load and on stateChanged —
+   * feeds the tree's "N panes" meta and the statusbar counts. */
+  const refreshPaneCounts = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const counts: Record<string, number> = {};
+    let total = 0;
+    el.querySelectorAll<HTMLElement>(".lm_tab").forEach((tab) => {
+      const title = tab.querySelector(".lm_title")?.textContent ?? "";
+      const stripped = title.replace(/ \(\d+\)$/, "");
+      const at = stripped.lastIndexOf("@");
+      const sandbox = at === -1 ? "" : stripped.slice(at + 1);
+      if (sandbox === "") return;
+      counts[sandbox] = (counts[sandbox] ?? 0) + 1;
+      total += 1;
+    });
+    setPaneCounts(counts);
+    setPaneTotal(total);
+  }, []);
+
   // ── golden-layout: built exactly once, after the boot decision ────
 
   useEffect(() => {
@@ -522,6 +565,7 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
           LAYOUT_KEY,
           JSON.stringify(ResolvedLayoutConfig.minifyConfig(gl.saveLayout())),
         );
+        setSavedAt(new Date());
       } catch {
         /* save failure is non-fatal; next change retries */
       }
@@ -530,8 +574,10 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
       gl.on("stateChanged", () => {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(save, 500);
+        refreshPaneCounts();
       });
     }
+    refreshPaneCounts();
     glRef.current = gl;
 
     // golden-layout recreates .lm_tab nodes whenever a component moves
@@ -612,17 +658,22 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
         expanded={expanded}
         starting={starting}
         focus={focus}
+        query={query}
+        onQuery={setQuery}
+        onMore={(sb, anchor) => setMenu({ sandbox: sb, anchor })}
+        paneCounts={paneCounts}
         collapsed={treeCollapsed}
         onCollapseToggle={() => setTreeCollapsed((c) => !c)}
+        panelOnToggle={panelOnToggle}
         onToggle={onToggle}
         onLaunch={launch}
-        onStart={(name) => void onStart(name)}
+        onStart={(name) => void act(name, "start")}
         onRegister={setRegisterFor}
         onDeleteButton={onDeleteButton}
         footer={
-          <div className="ws-tree-foot">
+          <div className="panel-foot ws-tree-foot">
             {startErr && (
-              <p className="sb-empty" style={{ color: "var(--danger)" }}>
+              <p className="tree-hint" style={{ color: "var(--danger)" }}>
                 {t(lang, "actionFailed")}
                 {startErr}
               </p>
@@ -630,6 +681,14 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
             <button className="btn btn-ghost btn-sm" onClick={resetLayout}>
               <Icon name="reset" />
               {t(lang, "wsResetLayout")}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ marginLeft: "auto" }}
+              onClick={onManage}
+            >
+              {t(lang, "manageSandboxes")}
+              <Icon name="arrowr" />
             </button>
           </div>
         }
@@ -644,15 +703,42 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
           </div>
         ) : boot.kind === "empty" ? (
           <div className="ws-empty">
+            <Icon name="grid" large />
             <p>{t(lang, "wsEmpty")}</p>
             <button className="btn btn-secondary btn-sm" onClick={onManage}>
               <Icon name="cube" />
-              {t(lang, "navSandboxes")}
+              {t(lang, "manageSandboxes")}
             </button>
           </div>
         ) : (
           <div className="ws-empty">{t(lang, "loading")}</div>
         )}
+        <div className="statusbar">
+          <span className="seg">
+            <span>
+              <span className="sdot" />
+              {t(lang, "mgrConnected")}
+            </span>
+            {sandboxes !== null && (
+              <span>
+                {sandboxes.length} · {sandboxes.filter((s) => s.live === "running").length}{" "}
+                {t(lang, "stRunning")}
+              </span>
+            )}
+            <span>
+              {paneTotal > 0
+                ? `${paneTotal} ${t(lang, "panes")} · ${Object.keys(paneCounts).length} ${t(lang, "sandboxes")}`
+                : t(lang, "noPanes")}
+            </span>
+          </span>
+          <span className="seg">
+            <span>
+              {t(lang, "layoutSaved")}
+              {savedAt === null ? "" : ` · ${savedAt.toLocaleTimeString()}`}
+            </span>
+            <span>{window.location.host}</span>
+          </span>
+        </div>
       </main>
       {registerFor !== null && (
         <RegisterDialog
@@ -661,6 +747,25 @@ export function WorkspacePage({ lang, focus, onManage }: Props): JSX.Element {
           onClose={() => setRegisterFor(null)}
           onProbe={probeFor(registerFor)}
           onRegister={doRegister}
+        />
+      )}
+      {menu !== null && (
+        <NodeMenu
+          lang={lang}
+          sandbox={menu.sandbox}
+          anchor={menu.anchor}
+          busy={starting !== ""}
+          onClose={() => setMenu(null)}
+          onOpenTerminal={() => {
+            const svc = manifestsRef.current[menu.sandbox.name]?.services?.find(
+              (s) => s.id === TERMINAL_ID && s.type === "agent",
+            );
+            if (svc) launch(menu.sandbox.name, svc);
+          }}
+          onViewInList={onManage}
+          onAction={(a) => void act(menu.sandbox.name, a)}
+          onEdit={() => onEditSandbox?.(menu.sandbox.name)}
+          onRegister={() => setRegisterFor(menu.sandbox.name)}
         />
       )}
     </div>

@@ -343,7 +343,7 @@ export function ProviderEditor({
 
       {/* ── discover modal ── */}
       {discover && (
-        <div className="overlay">
+        <div className="overlay open">
           <div className="dialog ml-discover">
             <div className="dialog-head">
               <div>

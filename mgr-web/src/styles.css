@@ -67,6 +67,15 @@
   --space-8: 32px;
   --space-12: 48px;
 
+  /* Container tokens (prototype mgr-web.css additions, 09-11 redesign). */
+  --container-max: 1200px;
+  --container-gutter-desktop: 24px;
+  --container-gutter-tablet: 16px;
+  --container-gutter-phone: 12px;
+  --section-y-desktop: 64px;
+  --section-y-tablet: 48px;
+  --section-y-phone: 32px;
+
   /* Kumo control radii map to Tailwind sm/md/lg; pills stay fully rounded. */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -663,165 +672,171 @@ body {
   }
 }
 
-/* ─── sandbox list (cards) ───────────────────────────────────────── */
+/* ─── sandbox list (09-11 prototype redesign) ────────────────────── */
+/* Page-level styles for sandbox-list.html's static prototype (the shared
+   component classes — .card/.chip/.segmented/.btn/.badge/.sdot/.notice —
+   live in components.css). */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+.toolbar .input-wrap {
+  margin-left: auto;
+  width: 240px;
+}
 .sbx-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: var(--space-4);
   align-content: start;
 }
-.sbx-card {
+.sbx {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-ring), var(--elev-raised);
 }
 .sbx-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
 }
 .sbx-name {
   flex: 1;
   min-width: 0;
+  font-size: var(--text-lg);
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-lg);
-  font-weight: 600;
 }
-.sbx-entry {
-  height: 30px;
-  padding: 0 var(--space-3);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--accent);
-  color: var(--accent-on);
-  border: 0;
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  flex-shrink: 0;
-  text-decoration: none;
-}
-.sbx-entry:hover {
-  background: var(--accent-hover);
-}
-.sbx-entry .icon {
-  width: 13px;
-  height: 13px;
-}
-.sbx-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.sbx-meta code {
-  font-family: var(--font-mono);
-  color: var(--fg-2);
-}
-/* S2 quick-assign: the profile chip is the popover anchor (relative) */
-.sbx-meta > span {
-  position: relative;
-}
-.mp-chip {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  text-decoration: underline dotted;
-}
-.mp-chip:hover {
-  color: var(--accent);
-}
-.mp-chip .mp-subset {
-  font-style: normal;
-  color: var(--accent);
-  font-weight: 600;
-}
-.mp-popover {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 220px;
+.sbx-body {
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--elev-ring), var(--elev-raised);
+  gap: var(--space-3);
+  flex: 1;
 }
-.mp-popover-head strong {
-  font-size: var(--text-sm);
-}
-.mp-popover-err {
-  color: var(--danger);
-  font-size: var(--text-xs);
-}
-.mp-popover-actions {
-  display: flex;
-  justify-content: flex-end;
+.sbx-url {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-decoration: none;
+  width: fit-content;
 }
-.sbx-services {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-soft);
+.sbx-url .mono {
+  color: var(--fg-2);
+}
+.sbx-url:hover .mono {
+  text-decoration: underline;
+}
+.sbx-url .icon {
+  width: 12px;
+  height: 12px;
+}
+.facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+.facts > div {
+  min-width: 0;
+}
+.facts dt {
   font-size: var(--text-xs);
   color: var(--muted);
 }
-/* S1 installed-service badges on a card (SandboxListPage): dot + label
-   pairs, softer than .sbx-services (which is the RUNTIME service states). */
-.sbx-svc-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--fg-2);
-}
-.sbx-svc-badges > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.facts dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sbx-actions {
-  display: flex;
-  gap: var(--space-1);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-soft);
-  flex-wrap: wrap;
-}
-.sbx-actions .btn-sm {
-  gap: 5px;
-}
-.sbx-actions .btn-sm .icon {
-  width: 13px;
-  height: 13px;
-}
-.sbx-note {
+.facts dd .mono {
   font-size: var(--text-xs);
-  color: var(--warn);
+}
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+}
+.line .lbl {
+  color: var(--muted);
+  width: 40px;
+  flex-shrink: 0;
+}
+.svc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-2);
+}
+.svc .sdot {
+  width: 6px;
+  height: 6px;
+}
+.sbx-foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   padding: var(--space-2) var(--space-3);
-  background: color-mix(in oklch, var(--warn) 10%, transparent);
-  border-radius: var(--radius-md);
+  border-top: 1px solid var(--border-soft);
+}
+.sbx-foot .del {
+  margin-left: auto;
+}
+.sbx.stopped .sdot.live {
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+}
+.sbx.stopped .sbx-name {
+  color: var(--muted);
+}
+.pop {
+  position: fixed;
+  z-index: 70;
+  width: 280px;
+  padding: var(--space-3);
+  display: none;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-ring), 0 8px 24px oklch(0% 0 0 / 0.18);
+}
+.pop.open {
+  display: flex;
+}
+.pop h4 {
+  font-size: var(--text-sm);
+  margin: 0;
+}
+.agents {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px var(--space-3);
+  font-size: var(--text-sm);
+}
+.agents label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.empty {
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 /* status badge */
