@@ -1,0 +1,32 @@
+{
+  "id": "mgr-web-ux-batch2",
+  "name": "mgr-web-ux-batch2",
+  "title": "mgr-web 六项体验升级（服务可选/场景层级/镜像管理/模型重构/用量图表/侧栏折叠）",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Zhruoshui",
+  "assignee": "Zhruoshui",
+  "createdAt": "2026-09-10",
+  "completedAt": "2026-09-14",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-10-mgr-create-services",
+    "09-10-mgr-models-agent-assign",
+    "09-10-mgr-images-manage",
+    "09-10-mgr-usage-charts",
+    "09-10-mgr-sidebar-collapse"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
