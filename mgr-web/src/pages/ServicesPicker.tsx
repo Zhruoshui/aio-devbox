@@ -3,6 +3,9 @@
 // scenario selection (EnvPicker) — pi/pi-web ARE scenarios, but the UI
 // surfaces them here (services), not in the four-layer scenario section.
 //
+// 09-11 prototype form (create-sandbox.html §2): a `.rows` surface where
+// each service is a `.row` (name + description + `.switch` toggle).
+//
 // Dependency rule (mirrors routes.rs normalize_services): pi-web needs
 // pi (its config lives under the pi install) and vnc (its Chromium is the
 // vnc sidecar). Enabling pi-web auto-enables both; disabling pi or vnc
@@ -10,7 +13,7 @@
 //
 // The value is a ServicesInput ({code_server, vnc, pi, pi_web}).
 
-import type { Lang } from "../i18n";
+import type { Lang, StringKey } from "../i18n";
 import { t } from "../i18n";
 import type { ServicesInput } from "../types";
 
@@ -24,14 +27,18 @@ interface Props {
 }
 
 /** The four services in display order: the ServicesInput key plus its i18n
- * key. The keys are load-bearing (normalize_services on the backend and the
- * dependency linkage below switch on them) - never pass a display label
- * where a key belongs. */
-const SERVICES: { key: keyof ServicesInput; labelKey: "svcCode_server" | "svcVnc" | "svcPi" | "svcPi_web" }[] = [
-  { key: "code_server", labelKey: "svcCode_server" },
-  { key: "vnc", labelKey: "svcVnc" },
-  { key: "pi", labelKey: "svcPi" },
-  { key: "pi_web", labelKey: "svcPi_web" },
+ * keys (label + description). The keys are load-bearing (normalize_services
+ * on the backend and the dependency linkage below switch on them) - never
+ * pass a display label where a key belongs. */
+const SERVICES: {
+  key: keyof ServicesInput;
+  labelKey: "svcCode_server" | "svcVnc" | "svcPi" | "svcPi_web";
+  descKey: StringKey;
+}[] = [
+  { key: "code_server", labelKey: "svcCode_server", descKey: "svcCsDesc" },
+  { key: "vnc", labelKey: "svcVnc", descKey: "svcVncDesc" },
+  { key: "pi", labelKey: "svcPi", descKey: "svcPiDesc" },
+  { key: "pi_web", labelKey: "svcPi_web", descKey: "svcPiWebDesc" },
 ];
 
 export function ServicesPicker({ lang, services, onChange, readonly }: Props): JSX.Element {
@@ -53,41 +60,36 @@ export function ServicesPicker({ lang, services, onChange, readonly }: Props): J
   };
 
   return (
-    <div className="field">
-      <label>{t(lang, "wzServices")}</label>
-      <span className="hint">{t(lang, "wzServicesHint")}</span>
-      <div className="scn-list" role="group" aria-label={t(lang, "wzServices")}>
-        {SERVICES.map(({ key, labelKey }) => {
-          const on = services[key];
-          const name = t(lang, labelKey);
-          return (
-            <div key={key} className="scn-row">
-              {readonly ? (
-                <span
-                  className={`svc-dot${on ? " on" : " off"}`}
-                  title={on ? t(lang, "svcOn") : t(lang, "svcOff")}
-                />
-              ) : (
-                <input
-                  className="check"
-                  type="checkbox"
-                  checked={on}
-                  aria-label={name}
-                  onChange={(e) => set(key, e.target.checked)}
-                />
-              )}
-              <div className="scn-main">
-                <span className="scn-name">
-                  <span>{name}</span>
-                  {key === "pi_web" && !readonly && (
-                    <span className="scn-hint-inline">{t(lang, "svcPiWebDep")}</span>
-                  )}
-                </span>
+    <div className="rows" role="group" aria-label={t(lang, "wzServices")}>
+      {SERVICES.map(({ key, labelKey, descKey }) => {
+        const on = services[key];
+        const name = t(lang, labelKey);
+        return (
+          <label key={key} className={`row${on ? "" : " off"}`}>
+            <div className="main-col">
+              <div className="name">
+                {name}
+                {key === "pi_web" && !readonly && <span className="lock">{t(lang, "svcPiWebDep")}</span>}
               </div>
+              <div className="desc">{t(lang, descKey)}</div>
             </div>
-          );
-        })}
-      </div>
+            {readonly ? (
+              <span
+                className={`svc-dot${on ? " on" : " off"}`}
+                title={on ? t(lang, "svcOn") : t(lang, "svcOff")}
+              />
+            ) : (
+              <input
+                className="switch"
+                type="checkbox"
+                checked={on}
+                aria-label={name}
+                onChange={(e) => set(key, e.target.checked)}
+              />
+            )}
+          </label>
+        );
+      })}
     </div>
   );
 }

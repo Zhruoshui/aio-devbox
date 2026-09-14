@@ -1,6 +1,11 @@
 // EnvPicker - scenario + version selection UI shared by the create wizard and
 // the env editor (design §4: "环境配置编辑：同创建向导的场景/版本区").
 //
+// 09-11 prototype form (create-sandbox.html §3): per-layer `.layer` heading
+// over a `.rows` surface; each scenario is a `.row` (check + name/desc +
+// version select). Locked (always_on) rows carry the 「必装」 `.lock` chip
+// and a disabled check; unchecked rows dim via `.off`.
+//
 // Semantics mirror the config TUI (config/src/tui.rs + scenario.rs):
 //   - always_on scenarios are LOCKED ON (checkbox disabled, "always-on" pill);
 //     only their version dropdown is interactive. They are never part of
@@ -71,7 +76,7 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
     // offered (matches gen's resolve_version fallback chain).
     const current = env.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
     return (
-      <div key={s.id} className={`scn-row${s.always_on ? " locked" : ""}`}>
+      <div key={s.id} className={`row${s.always_on ? " locked" : ""}${checked ? "" : " off"}`}>
         <input
           className="check"
           type="checkbox"
@@ -80,54 +85,44 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
           aria-label={s.name}
           onChange={(e) => !s.always_on && toggle(s.id, e.target.checked)}
         />
-        <div className="scn-main">
-          <span className="scn-name">
-            <span>{s.name}</span>
-            {s.always_on && <span className="scn-lock">{t(lang, "wzLocked")}</span>}
-          </span>
-          <span className="scn-desc">{s.description}</span>
+        <div className="main-col">
+          <div className="name">
+            {s.name}
+            {s.always_on && <span className="lock">{t(lang, "wzLocked")}</span>}
+          </div>
+          <div className="desc">{s.description}</div>
         </div>
         {s.versions.length > 0 && (
-          <div className="scn-ver">
-            <select
-              aria-label={`${s.name} ${t(lang, "wzVersion")}`}
-              value={current}
-              onChange={(e) => setVersion(s.id, e.target.value)}
-            >
-              {s.versions.map((label) => (
-                <option key={label} value={label}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            className="input"
+            aria-label={`${s.name} ${t(lang, "wzVersion")}`}
+            value={current}
+            onChange={(e) => setVersion(s.id, e.target.value)}
+          >
+            {s.versions.map((label) => (
+              <option key={label} value={label}>
+                {label}
+              </option>
+            ))}
+          </select>
         )}
       </div>
     );
   };
 
+  const group = (labelKey: StringKey, items: Scenario[]) => (
+    <div key={labelKey}>
+      <p className="layer">{t(lang, labelKey)}</p>
+      <div className="rows" role="group" aria-label={t(lang, labelKey)}>
+        {items.map(row)}
+      </div>
+    </div>
+  );
+
   return (
     <div>
-      <div className="field">
-        <label>{t(lang, "wzScenarios")}</label>
-        <span className="hint">{t(lang, "wzScenariosHint")}</span>
-      </div>
-      {layered.map((group) => (
-        <div key={group.labelKey}>
-          <p className="scn-layer">{t(lang, group.labelKey)}</p>
-          <div className="scn-list" role="group" aria-label={t(lang, group.labelKey)}>
-            {group.items.map(row)}
-          </div>
-        </div>
-      ))}
-      {unknown.length > 0 && (
-        <div>
-          <p className="scn-layer">{t(lang, "layOther")}</p>
-          <div className="scn-list" role="group" aria-label={t(lang, "layOther")}>
-            {unknown.map(row)}
-          </div>
-        </div>
-      )}
+      {layered.map((g) => group(g.labelKey, g.items))}
+      {unknown.length > 0 && group("layOther", unknown)}
     </div>
   );
 }

@@ -580,7 +580,7 @@ function SandboxCard({
               ))}
             </select>
           </div>
-          {profileSel !== "" && <AgentAssignControl lang={lang} value={agentsSel} onChange={setAgentsSel} grid />}
+          {profileSel !== "" && <AgentAssignControl lang={lang} value={agentsSel} onChange={setAgentsSel} />}
           <p className="muted txs">{t(lang, "mpAgentsHint")}</p>
           {popErr && (
             <p className="txs" style={{ color: "var(--danger)", margin: 0 }}>

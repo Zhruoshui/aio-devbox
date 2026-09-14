@@ -230,13 +230,23 @@ export function EditPage({
         ) : (
           <>
             {installed !== null && (
-              <ServicesPicker
-                lang={lang}
-                services={installed}
-                onChange={() => {}}
-                readonly
-              />
+              <>
+                <div className="field">
+                  <label>{t(lang, "wzServices")}</label>
+                  <span className="hint">{t(lang, "edSvcFixed")}</span>
+                </div>
+                <ServicesPicker
+                  lang={lang}
+                  services={installed}
+                  onChange={() => {}}
+                  readonly
+                />
+              </>
             )}
+            <div className="field">
+              <label>{t(lang, "wzScenarios")}</label>
+              <span className="hint">{t(lang, "wzScenariosHint")}</span>
+            </div>
             <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
           </>
         )}
