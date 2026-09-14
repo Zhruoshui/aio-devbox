@@ -11,7 +11,7 @@
 
 | 容器 | 镜像 | 职责 | 启动条件 |
 |---|---|---|---|
-| `gateway` | `caddy:2` | 反向代理(无认证),唯一对外端口 `8080` | 总是 |
+| `gateway` | `caddy:2` | 反向代理(无认证),唯一对外端口 `8080`(默认,`.env` 可配 `AIO_GATEWAY_PORT`) | 总是 |
 | `app` | `sandbox-app`(Rust axum + React SPA) | 工作区后端:按钮清单 manifest、pty 桥、`/preview/<port>` 反代、pi-web 自启 | 总是 |
 | `code-server` | `sandbox-code-server` | 浏览器版 VSCode,监听 8200 | profile `code-server` |
 | `vnc` | `sandbox-vnc`(Debian slim + Chromium + noVNC) | 浏览器内 Chromium,监听 6080 | profile `vnc` |

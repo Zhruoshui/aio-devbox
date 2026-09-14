@@ -204,6 +204,25 @@ during the process lifetime, so the manifest handler never re-expands.
 
 ---
 
+## 对外端口可配契约(gateway-port-env,issue #16)
+
+单容器栈(`docker-compose.yml`)的对外端口约定:
+
+- **gateway 入口**:`AIO_GATEWAY_PORT`(默认 8080)。同一变量驱动两处,两侧
+  **必须相等**:compose 发布映射 `${AIO_GATEWAY_PORT:-8080}:${AIO_GATEWAY_PORT:-8080}`
+  与 `gateway/Caddyfile` 站点地址 `:{$AIO_GATEWAY_PORT:8080}`(caddy 原生 env
+  占位符,容器内加载时展开)。
+- **关键陷阱**:`environment:` 条目不可省——它走 compose 插值且优先级高于
+  `env_file: .env`。`AIO_GATEWAY_PORT=8082 make up` 这类 shell 覆盖只进得了
+  environment(发布映射随插值同步),env_file 读不到 shell 值,caddy 会展开
+  回默认 8080,两侧漂移。
+- 与 `PI_WEB_HOST_PORT`(30141,见上文 manifest 占位符一节)同构:直发端口的
+  配对规则 = 宿主侧与沙箱侧绑定同一变量值。
+- sbx 沙箱场景:宿主对外端口由 `sbx ports --publish` 决定,与上述变量正交;
+  这些变量主要服务裸 `docker compose` 部署。
+
+---
+
 # mgr 控制面 API(`mgr/src/routes.rs` + 模块子路由)
 
 sandbox-mgr(09-08-sandbox-mgr-tui Phase 1/3 + 09-09-sandbox-mgr-unified)。

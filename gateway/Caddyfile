@@ -24,7 +24,7 @@
 # resolves them against /vnc/ and caddy strips /vnc back to / on the websockify
 # side. `handle` + `handle_path` are evaluated in source order, so both
 # web-service routes must precede the catch-all (design §3).
-:8080 {
+:{$AIO_GATEWAY_PORT:8080} {
 	handle_path /code-server/* {
 		reverse_proxy app:8200
 	}

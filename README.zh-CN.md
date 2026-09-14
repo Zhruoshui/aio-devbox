@@ -17,7 +17,8 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 
 ## 特性
 
-- **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`。左侧
+- **一条命令出浏览器 IDE。** `make up` → 打开 `http://localhost:8080`
+  (入口端口可配:在 `.env` 设 `AIO_GATEWAY_PORT`,默认 8080)。左侧
   可折叠侧边栏列出按钮,每次点击在主区启动一个**新实例**标签页
   (终端默认打开),标签页可拖拽拆分/平铺(golden-layout),也可用 tab 上的 ✕ 关闭。
 - **可插拔按钮,自动探测——三种类型。**
@@ -55,7 +56,7 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 ```sh
 make config                            # (可选)TUI:勾场景 + 选 Node/Python 版本
 make up PROFILES="code-server vnc"      # 带 Web 按钮启动(终端始终启用)
-# → 打开 http://localhost:8080
+# → 打开 http://localhost:8080   (.env 设了 AIO_GATEWAY_PORT 则用它)
 ```
 
 不带 `PROFILES` 时,只启动常驻服务(`gateway` + `app`),侧边栏显示终端和模型配置
@@ -242,7 +243,7 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 ```sh
 make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)
 make up NOBUILD=1 PROFILES="code-server vnc"   # 不构建直接启动
-# → 打开 http://localhost:8080
+# → 打开 http://localhost:8080   (.env 设了 AIO_GATEWAY_PORT 则用它)
 ```
 
 `make pull` 以 `:minimal` 或 `:full` 拉取 `sandbox-base` / `sandbox-app` /

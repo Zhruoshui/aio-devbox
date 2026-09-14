@@ -3,8 +3,19 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Entry port configurable via .env (issue #16), pairing with the
+      # `:{$AIO_GATEWAY_PORT:8080}` site address in gateway/Caddyfile (caddy
+      # expands the placeholder from the env_file at load time). Both sides
+      # must stay EQUAL: the sandbox-side bind and the compose publish are
+      # driven by the same variable, like PI_WEB_HOST_PORT. Unset => 8080.
+      - "${AIO_GATEWAY_PORT:-8080}:${AIO_GATEWAY_PORT:-8080}"
     env_file: .env
+    environment:
+      # environment beats env_file and interpolates SHELL env too, so
+      # `AIO_GATEWAY_PORT=8082 make up` keeps the Caddyfile expansion in sync
+      # with the publish mapping above (env_file alone would miss the shell
+      # override and caddy would fall back to :8080 inside the container).
+      AIO_GATEWAY_PORT: ${AIO_GATEWAY_PORT:-8080}
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
