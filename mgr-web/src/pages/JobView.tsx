@@ -4,6 +4,10 @@
 // jobs.rs LOG_TAIL) and auto-scrolls to the bottom on update. On ok/error the
 // polling stops and a done banner + "back to list" takes over; the sandbox
 // list refreshes on return (its own poll catches up within 4s anyway).
+//
+// S7 (prototype redesign): standard .page-head (h1 + job id/sandbox sub,
+// status badge or spinner in .page-actions); the body keeps the .job column
+// (banners + log tail + back).
 
 import { useEffect, useRef, useState } from "react";
 
@@ -79,34 +83,32 @@ export function JobView({ jobId, flow, lang, onBack }: Props): JSX.Element {
 
   return (
     <div className="page">
-      <div className="job">
-        <div className="job-head">
+      <div className="page-head">
+        <div>
           <h1>{t(lang, titleKey)}</h1>
-          <span className="job-status-line">
-            {done === null ? (
-              <>
-                <span className="spin" aria-hidden="true" />
-                <code>#{jobId}</code>
-              </>
-            ) : done.ok ? (
-              <>
-                <span className="badge badge-ok">
-                  <span className="dot" />
-                  {t(lang, "jobOk")}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="badge badge-danger">
-                  <span className="dot" />
-                  {t(lang, "jobError")}
-                </span>
-              </>
-            )}
-            {job?.sandbox && <code>{job.sandbox}</code>}
-          </span>
+          <p className="sub mono">
+            #{jobId}
+            {job?.sandbox ? ` · ${job.sandbox}` : ""}
+          </p>
         </div>
+        <div className="page-actions">
+          {done === null ? (
+            <span className="spinner" aria-hidden="true" />
+          ) : done.ok ? (
+            <span className="badge badge-ok">
+              <span className="dot" />
+              {t(lang, "jobOk")}
+            </span>
+          ) : (
+            <span className="badge badge-danger">
+              <span className="dot" />
+              {t(lang, "jobError")}
+            </span>
+          )}
+        </div>
+      </div>
 
+      <div className="job">
         {done?.ok && <div className="job-ok">{t(lang, flow === "delete" ? "jobDoneDelete" : "jobDoneCreate")}</div>}
 
         {done && !done.ok && (
@@ -119,10 +121,7 @@ export function JobView({ jobId, flow, lang, onBack }: Props): JSX.Element {
         )}
 
         {error && done === null && (
-          <p className="job-status-line" style={{ margin: 0, color: "var(--danger)" }}>
-            {t(lang, "loadFailed")}
-            {error}
-          </p>
+          <div className="status error">{t(lang, "loadFailed")}{error}</div>
         )}
 
         <div>

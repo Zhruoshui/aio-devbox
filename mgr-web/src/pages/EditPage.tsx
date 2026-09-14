@@ -1,6 +1,10 @@
 // EditPage - environment-config editor for one sandbox (design §4 page 3),
 // plus the model-profile ASSIGNMENT select (unified Phase 4, D8).
 //
+// S7 (prototype redesign): .page-head gets the h1+sub.actions shape (sandbox
+// name as mono sub), inputs/selects move to the component layer (.input,
+// .field.invalid/.err), loading uses .ml-loading instead of the old
+// full-height .status.
 // Loads the sandbox (GET /api/sandboxes/:name), shows the same EnvPicker as
 // the create wizard seeded with the CURRENT env (so always_on versions and
 // enabled scenarios are reflected), plus editable resource inputs. Submit =
@@ -28,8 +32,10 @@ import {
   type ModelProfile,
 } from "../api";
 import { t, type Lang } from "../i18n";
-import type { SandboxEnv, Scenario } from "../types";
+import type { SandboxEnv, Scenario, ServicesInput } from "../types";
+import { AgentAssignControl } from "../components/AgentAssignControl";
 import { EnvPicker } from "./EnvPicker";
+import { ServicesPicker } from "./ServicesPicker";
 
 interface Props {
   name: string;
@@ -57,6 +63,11 @@ export function EditPage({
   const [msg, setMsg] = useState<{ kind: "err" | "ok"; text: string } | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** S1: installed services read back from the sandbox (read-only display —
+   * fixed by the image content at create time). null = payload without the
+   * field (defensive against an older backend); the current API always
+   * sends it, with pre-S1 rows reading all-on server-side. */
+  const [installed, setInstalled] = useState<ServicesInput | null>(null);
 
   // Model-profile assignment (D8): tri-state on the wire - unchanged sends
   // nothing, an id assigns, the explicit "" (unassigned option) sends null
@@ -65,6 +76,11 @@ export function EditPage({
   const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
   const [profileSel, setProfileSel] = useState<string | null>(null); // null = not loaded
   const [origProfile, setOrigProfile] = useState<string | null>(null);
+  /** S2 agent subset of the assignment: null = ALL agents (also the legacy
+   * payload meaning), [] = zero agents (sandbox keeps local), [...] explicit.
+   * Mirrors profileSel's "not loaded" via the double-null dance on save. */
+  const [agentsSel, setAgentsSel] = useState<string[] | null>(null);
+  const [origAgents, setOrigAgents] = useState<string[] | null>(null);
 
   // Load the sandbox + scenario catalog in parallel; seed the form from the
   // stored env (the API's env shape IS the picker's value shape - types.ts).
@@ -90,6 +106,11 @@ export function EditPage({
         setMemMb(sb.mem_mb !== null ? String(sb.mem_mb) : "");
         setOrigProfile(sb.model_profile);
         setProfileSel(sb.model_profile ?? "");
+        setOrigAgents(sb.model_agents ?? null);
+        setAgentsSel(sb.model_agents ?? null);
+        // S1: installed services are read-only here (immutable since
+        // create; pre-S1 rows read back all-on server-side).
+        void setInstalled(sb.installed_services ?? null);
       })
       .catch((e) => {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
@@ -126,7 +147,19 @@ export function EditPage({
       memOut !== origMem);
   const profileChanged =
     profileSel !== null && profileSel !== (origProfile ?? "");
-  const changed = envOrResChanged || profileChanged;
+  /** S2: agents subset changed (deep compare — null "all" vs explicit
+   * all-four differ on the wire, but produce the same render; treat them
+   * as equal so a no-op save doesn't fire). */
+  const agentsChanged = ((): boolean => {
+    if (agentsSel === null) return false; // not loaded yet
+    if (origAgents === null) return agentsSel.length !== 0;
+    return (
+      agentsSel.length !== origAgents.length ||
+      agentsSel.some((a, i) => a !== origAgents[i])
+    );
+  })();
+  const assignChanged = profileChanged || agentsChanged;
+  const changed = envOrResChanged || assignChanged;
   const canSubmit =
     scenarios !== null && env !== null && resErr === "" && changed && !submitting;
 
@@ -135,10 +168,23 @@ export function EditPage({
     setSubmitting(true);
     setMsg(null);
     try {
-      // Profile first (pure kv write): even when the recreate below fails,
-      // the assignment stands - it never needed the recreate anyway.
-      if (profileChanged) {
-        await putSandboxModelProfile(name, profileSel === "" ? null : profileSel);
+      // Profile/agents assignment first (pure kv write): even when the recreate
+      // below fails, the assignment stands - it never needed the recreate.
+      if (assignChanged) {
+        // Wire profile: the current selection, or the ORIGINAL when only
+        // agents changed (so an agents-only save keeps the existing
+        // assignment instead of un-binding it).
+        const wireProfile = profileChanged
+          ? profileSel === ""
+            ? null
+            : profileSel
+          : origProfile;
+        // Full-replacement semantics: always send the intended subset
+        // (origAgents when agents unchanged) — OMITTING it would make the
+        // backend's serde default widen a subset back to "all" (ac4 trap).
+        // null = all agents (also the legacy meaning).
+        const wireAgents = agentsChanged ? agentsSel : origAgents;
+        await putSandboxModelProfile(name, wireProfile, wireAgents);
       }
       if (!envOrResChanged) {
         // Profile-only change: nothing to recreate - back to the list (it
@@ -161,7 +207,7 @@ export function EditPage({
   if (loadErr !== "") {
     return (
       <div className="page">
-        <div className="status error">
+        <div className="ml-error">
           {t(lang, "loadFailed")}
           {loadErr}
         </div>
@@ -172,58 +218,82 @@ export function EditPage({
   return (
     <div className="page">
       <div className="page-head">
-        <h1>
-          {t(lang, "edTitle")} — <code>{name}</code>
-        </h1>
+        <div>
+          <h1>{t(lang, "edTitle")}</h1>
+          <p className="sub mono">{name}</p>
+        </div>
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={onCancel}>
             {t(lang, "cancel")}
           </button>
         </div>
-        <p className="sub">{t(lang, "edSub")}</p>
       </div>
       <div className="wizard">
         {scenarios === null || env === null ? (
-          <div className="status">{t(lang, "loading")}</div>
+          <div className="ml-loading">{t(lang, "loading")}</div>
         ) : (
-          <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          <>
+            {installed !== null && (
+              <>
+                <div className="field">
+                  <label>{t(lang, "wzServices")}</label>
+                  <span className="hint">{t(lang, "edSvcFixed")}</span>
+                </div>
+                <ServicesPicker
+                  lang={lang}
+                  services={installed}
+                  onChange={() => {}}
+                  readonly
+                />
+              </>
+            )}
+            <div className="field">
+              <label>{t(lang, "wzScenarios")}</label>
+              <span className="hint">{t(lang, "wzScenariosHint")}</span>
+            </div>
+            <EnvPicker lang={lang} scenarios={scenarios} env={env} onChange={setEnv} />
+          </>
         )}
 
         <div className="field">
           <label>{t(lang, "wzResources")}</label>
           <span className="hint">{t(lang, "wzResHint")}</span>
         </div>
-        <div className="field-row">
-          <div className="field">
+        <div className="field-row" style={{ maxWidth: 480 }}>
+          <div className={`field${resErr !== "" && cpus.trim() !== "" ? " invalid" : ""}`}>
             <label>{t(lang, "wzCpus")}</label>
             <input
+              className="input mono"
               value={cpus}
               placeholder={t(lang, "wzCpusPh")}
               inputMode="decimal"
               aria-invalid={resErr !== "" && cpus.trim() !== ""}
               onChange={(e) => setCpus(e.target.value)}
             />
+            <span className="err">{t(lang, "wzResErr")}</span>
           </div>
-          <div className="field">
+          <div className={`field${resErr !== "" && memMb.trim() !== "" ? " invalid" : ""}`}>
             <label>{t(lang, "wzMem")}</label>
             <input
+              className="input mono"
               value={memMb}
               placeholder={t(lang, "wzMemPh")}
               inputMode="numeric"
               aria-invalid={resErr !== "" && memMb.trim() !== ""}
               onChange={(e) => setMemMb(e.target.value)}
             />
+            <span className="err">{t(lang, "wzResErr")}</span>
           </div>
         </div>
-        {resErr && <span className="field-error">{resErr}</span>}
 
         {/* Model-profile assignment (D8): a pure kv write on submit - the
          * sandbox's 60s pull picks it up, NO recreate. "" = unassign (the
          * sandbox keeps its local models.json untouched). */}
-        <div className="field">
+        <div className="field" style={{ maxWidth: 480 }}>
           <label>{t(lang, "mpAssignTo")}</label>
           <span className="hint">{t(lang, "mpAssignHint")}</span>
           <select
+            className="input"
             value={profileSel ?? ""}
             disabled={profiles === null}
             onChange={(e) => setProfileSel(e.target.value)}
@@ -235,6 +305,21 @@ export function EditPage({
               </option>
             ))}
           </select>
+          {/* S2 agent subset: only meaningful once a profile is selected
+           * (unassigned sandboxes render nothing regardless). */}
+          {profileSel !== "" && profileSel !== null && (
+            <div className="mp-agents" style={{ marginTop: 8 }}>
+              <span className="hint">{t(lang, "mpAgentsHint")}</span>
+              <AgentAssignControl
+                lang={lang}
+                value={agentsSel}
+                onChange={setAgentsSel}
+              />
+              {agentsSel !== null && agentsSel.length === 0 && (
+                <span className="err" role="alert">{t(lang, "mpAgentsNone")}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="dialog-actions">

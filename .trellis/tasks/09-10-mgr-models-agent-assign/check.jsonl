@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "核对渲染链零格式适配、agents 过滤不破坏既有 apply 语义"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "核对 API 变更向后兼容（旧客户端缺省 agents=全指派）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 侧质量基线"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量基线"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "验收时 make mgr-up 重建的正确姿势"}

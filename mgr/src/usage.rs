@@ -108,7 +108,43 @@ async fn usage(
     };
 
     let entries = fan_out(&state, &names, &window).await;
-    Json(json!({ "sandboxes": entries }))
+    // S4 (design §2): totals are derived from the entries we already have —
+    // pure sum, never a re-scan. Error entries contribute zeros.
+    let totals = assemble_totals(&entries);
+    Json(json!({ "sandboxes": entries, "totals": totals }))
+}
+
+/// Sum every non-error entry's `usage.rows` into a per-sandbox total
+/// (S4 design §2, R1). Shape: `[{"name", "in", "out", "cost"}]`.
+///
+/// Rows carry optional `cost` (claude/codex log none): a missing cost sums
+/// as 0 — the frontend still knows the sandbox has no cost data via the
+/// absence of a per-day cost series (AC4). Error entries have no usage, so
+/// their totals are all zeros.
+fn assemble_totals(entries: &[Value]) -> Vec<Value> {
+    entries
+        .iter()
+        .map(|entry| {
+            let name = entry["name"].as_str().unwrap_or("").to_string();
+            let mut r#in: u64 = 0;
+            let mut out: u64 = 0;
+            let mut cost: f64 = 0.0;
+            if let Some(rows) = entry["usage"].get("rows").and_then(|r| r.as_array()) {
+                for row in rows {
+                    if let Some(v) = row["in"].as_u64() {
+                        r#in += v;
+                    }
+                    if let Some(v) = row["out"].as_u64() {
+                        out += v;
+                    }
+                    if let Some(c) = row["cost"].as_f64() {
+                        cost += c;
+                    }
+                }
+            }
+            json!({ "name": name, "in": r#in, "out": out, "cost": cost })
+        })
+        .collect()
 }
 
 /// Fan out to every sandbox concurrently. Cache hits (within TTL) skip the
@@ -213,6 +249,56 @@ mod tests {
         assert_eq!(e["name"], "sbx-b");
         assert_eq!(e["error"], "request failed: timed out");
         assert!(e["usage"].is_null());
+    }
+
+    // --- assemble_totals (S4, design §2) ---
+
+    /// Totals sum each entry's rows; cost sums only where present; missing
+    /// cost (claude/codex rows) contributes 0 — the sandbox with no cost
+    /// data still gets a numeric total.
+    #[test]
+    fn assemble_totals_sums_rows_and_optional_cost() {
+        let entries = vec![
+            json!({
+                "name": "sbx-a",
+                "error": null,
+                "usage": {
+                    "rows": [
+                        { "agent": "pi", "model": "m1", "in": 100, "out": 50, "cost": 0.01 },
+                        { "agent": "claude", "model": "m2", "in": 10, "out": 5 } // no cost
+                    ]
+                }
+            }),
+            json!({
+                "name": "sbx-b",
+                "error": null,
+                "usage": { "rows": [{ "agent": "pi", "model": "m3", "in": 7, "out": 8, "cost": 0.5 }] }
+            }),
+        ];
+        let totals = assemble_totals(&entries);
+        assert_eq!(totals.len(), 2);
+        assert_eq!(totals[0]["name"], "sbx-a");
+        assert_eq!(totals[0]["in"], 110);
+        assert_eq!(totals[0]["out"], 55);
+        assert!((totals[0]["cost"].as_f64().unwrap() - 0.01).abs() < 1e-9);
+        assert_eq!(totals[1]["name"], "sbx-b");
+        assert_eq!(totals[1]["in"], 7);
+        assert!((totals[1]["cost"].as_f64().unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    /// An error entry has no usage — its totals come back all zeros.
+    #[test]
+    fn assemble_totals_error_entry_is_zero() {
+        let entries = vec![json!({
+            "name": "down",
+            "error": "request failed: timed out",
+            "usage": null,
+        })];
+        let totals = assemble_totals(&entries);
+        assert_eq!(totals[0]["name"], "down");
+        assert_eq!(totals[0]["in"], 0);
+        assert_eq!(totals[0]["out"], 0);
+        assert_eq!(totals[0]["cost"].as_f64(), Some(0.0));
     }
 
     #[tokio::test]

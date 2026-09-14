@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>沙箱列表 · Sandbox 管理器</title>
+  <script>document.documentElement.dataset.mode = localStorage.getItem("mgr.theme") === "light" ? "light" : "dark";</script>
+  <link rel="stylesheet" href="mgr-web.css" />
+  <style>
+    .toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
+    .toolbar .input-wrap { margin-left: auto; width: 240px; }
+    .sbx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: var(--space-4); align-content: start; }
+    .sbx { display: flex; flex-direction: column; }
+    .sbx[hidden] { display: none; }
+    .sbx-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+    .sbx-name { flex: 1; min-width: 0; font-size: var(--text-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sbx-body { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); flex: 1; }
+    .sbx-url { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--muted); text-decoration: none; width: fit-content; }
+    .sbx-url .mono { color: var(--fg-2); }
+    .sbx-url:hover .mono { text-decoration: underline; }
+    .sbx-url .icon { width: 12px; height: 12px; }
+    .facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-4); margin: 0; }
+    .facts > div { min-width: 0; }
+    .facts dt { font-size: var(--text-xs); color: var(--muted); }
+    .facts dd { margin: 0; font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .facts dd .mono { font-size: var(--text-xs); }
+    .line { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-xs); }
+    .line .lbl { color: var(--muted); width: 40px; flex-shrink: 0; }
+    .svc { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); }
+    .svc .sdot { width: 6px; height: 6px; }
+    .sbx-foot { display: flex; align-items: center; gap: 2px; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border-soft); }
+    .sbx-foot .del { margin-left: auto; }
+    .sbx.stopped .sdot.live { background: color-mix(in oklch, var(--muted) 70%, transparent); }
+    .sbx.stopped .sbx-name { color: var(--muted); }
+    .pop { position: fixed; z-index: 70; width: 280px; padding: var(--space-3); display: none; flex-direction: column; gap: var(--space-3); background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--elev-ring), 0 8px 24px oklch(0% 0 0 / 0.18); }
+    .pop.open { display: flex; }
+    .pop h4 { font-size: var(--text-sm); }
+    .agents { display: grid; grid-template-columns: 1fr 1fr; gap: 6px var(--space-3); font-size: var(--text-sm); }
+    .agents label { display: flex; align-items: center; gap: var(--space-2); }
+    .empty { display: none; padding: var(--space-12) var(--space-6); text-align: center; color: var(--muted); font-size: var(--text-sm); }
+    .sbx-grid:not(:has(.sbx:not([hidden]))) + .empty { display: block; }
+  </style>
+</head>
+<body data-page="sandboxes">
+<div class="app">
+  <div data-rail></div>
+  <main class="main scroll">
+    <div class="page">
+      <header class="page-head" data-od-id="list-head">
+        <div>
+          <h1>沙箱列表</h1>
+          <p class="sub">每个沙箱是一组彼此隔离的容器（网关 / app / VNC / code-server）。状态每 4 秒轮询一次；创建、重建、删除走长任务流并可查看日志。</p>
+        </div>
+        <div class="page-actions">
+          <button class="icon-btn lg" title="刷新" aria-label="刷新"><svg class="icon"><use href="#i-refresh"/></svg></button>
+          <a class="btn btn-secondary" href="index.html#scope" title="把一个已在运行的 compose 栈登记到 mgr（AdoptPage，本轮未重设计）" data-od-id="adopt-cta">导入现有栈</a>
+          <a class="btn btn-primary" href="create-sandbox.html" data-od-id="create-cta"><svg class="icon"><use href="#i-plus"/></svg>新建沙箱</a>
+        </div>
+      </header>
+
+      <div class="toolbar" data-od-id="list-toolbar">
+        <div class="segmented" role="group" aria-label="按状态筛选" id="filter">
+          <button aria-pressed="true" data-f="all">全部 <span class="cnt">4</span></button>
+          <button aria-pressed="false" data-f="running">运行中 <span class="cnt" id="cnt-running">3</span></button>
+          <button aria-pressed="false" data-f="stopped">已停止 <span class="cnt" id="cnt-stopped">1</span></button>
+          <button aria-pressed="false" data-f="adopted">外部栈 <span class="cnt">1</span></button>
+        </div>
+        <div class="input-wrap">
+          <svg class="icon sm"><use href="#i-search"/></svg>
+          <input class="input sm" id="q" type="search" placeholder="按名称搜索…" aria-label="按名称搜索" />
+        </div>
+      </div>
+
+      <section class="sbx-grid" id="grid" aria-label="沙箱">
+        <!-- dev1 -->
+        <article class="card sbx" data-status="running" data-name="dev1" data-od-id="sandbox-card-dev1">
+          <header class="sbx-head">
+            <span class="sdot live"></span>
+            <h2 class="sbx-name">dev1</h2>
+            <span class="badge badge-ok js-badge"><span class="dot"></span>运行中</span>
+            <a class="btn btn-secondary btn-sm" href="workspace.html" title="切换到工作区并高亮该沙箱">进入工作区<svg class="icon"><use href="#i-arrowr"/></svg></a>
+          </header>
+          <div class="sbx-body">
+            <a class="sbx-url" href="http://sbx-dev1.mgr.localhost/" title="沙箱入口（pi Web）"><span class="mono">sbx-dev1.mgr.localhost</span><svg class="icon"><use href="#i-external"/></svg></a>
+            <dl class="facts">
+              <div><dt>镜像</dt><dd><span class="mono">aio-app:3f9c2e1a</span></dd></div>
+              <div><dt>资源</dt><dd>4 核 · 8192 MB</dd></div>
+              <div><dt>创建于</dt><dd>2026-09-02</dd></div>
+              <div><dt>模型 profile</dt><dd><button class="chip" data-assign="dev1" title="快速指派 profile 与 agent 子集">default · pi, claude, codex, opencode</button></dd></div>
+            </dl>
+            <div class="line"><span class="lbl">已安装</span><span class="chip"><span class="sdot"></span>code-server</span><span class="chip"><span class="sdot"></span>VNC</span><span class="chip"><span class="sdot"></span>pi agent</span><span class="chip"><span class="sdot"></span>pi Web</span></div>
+            <div class="line"><span class="lbl">容器</span><span class="svc"><span class="sdot"></span>gateway</span><span class="svc"><span class="sdot"></span>app</span><span class="svc"><span class="sdot"></span>vnc</span><span class="svc" title="按需启动：打开编辑器窗格时拉起"><span class="sdot stopped"></span>code-server · 待命</span></div>
+          </div>
+          <footer class="sbx-foot">
+            <button class="btn btn-ghost btn-sm js-start" disabled><svg class="icon"><use href="#i-play"/></svg>启动</button>
+            <button class="btn btn-ghost btn-sm js-stop"><svg class="icon"><use href="#i-stop"/></svg>停止</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-restart"/></svg>重启</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-edit"/></svg>编辑配置</button>
+            <button class="btn btn-danger-text btn-sm del" data-del="dev1"><svg class="icon"><use href="#i-trash"/></svg>删除</button>
+          </footer>
+        </article>
+
+        <!-- dev2 -->
+        <article class="card sbx" data-status="running" data-name="dev2" data-od-id="sandbox-card-dev2">
+          <header class="sbx-head">
+            <span class="sdot live"></span>
+            <h2 class="sbx-name">dev2</h2>
+            <span class="badge badge-ok js-badge"><span class="dot"></span>运行中</span>
+            <a class="btn btn-secondary btn-sm" href="workspace.html" title="切换到工作区并高亮该沙箱">进入工作区<svg class="icon"><use href="#i-arrowr"/></svg></a>
+          </header>
+          <div class="sbx-body">
+            <a class="sbx-url" href="http://sbx-dev2.mgr.localhost/" title="沙箱入口（pi Web）"><span class="mono">sbx-dev2.mgr.localhost</span><svg class="icon"><use href="#i-external"/></svg></a>
+            <dl class="facts">
+              <div><dt>镜像</dt><dd><span class="mono">aio-app:b71e04c9</span></dd></div>
+              <div><dt>资源</dt><dd>未限制</dd></div>
+              <div><dt>创建于</dt><dd>2026-09-06</dd></div>
+              <div><dt>模型 profile</dt><dd><button class="chip" data-assign="dev2" title="快速指派 profile 与 agent 子集">research · pi, opencode</button></dd></div>
+            </dl>
+            <div class="line"><span class="lbl">已安装</span><span class="chip off"><span class="sdot stopped"></span>code-server</span><span class="chip"><span class="sdot"></span>VNC</span><span class="chip"><span class="sdot"></span>pi agent</span><span class="chip"><span class="sdot"></span>pi Web</span></div>
+            <div class="line"><span class="lbl">容器</span><span class="svc"><span class="sdot"></span>gateway</span><span class="svc"><span class="sdot"></span>app</span><span class="svc"><span class="sdot"></span>vnc</span></div>
+          </div>
+          <footer class="sbx-foot">
+            <button class="btn btn-ghost btn-sm js-start" disabled><svg class="icon"><use href="#i-play"/></svg>启动</button>
+            <button class="btn btn-ghost btn-sm js-stop"><svg class="icon"><use href="#i-stop"/></svg>停止</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-restart"/></svg>重启</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-edit"/></svg>编辑配置</button>
+            <button class="btn btn-danger-text btn-sm del" data-del="dev2"><svg class="icon"><use href="#i-trash"/></svg>删除</button>
+          </footer>
+        </article>
+
+        <!-- exp-rust（已停止） -->
+        <article class="card sbx stopped" data-status="stopped" data-name="exp-rust" data-od-id="sandbox-card-exp-rust">
+          <header class="sbx-head">
+            <span class="sdot live"></span>
+            <h2 class="sbx-name">exp-rust</h2>
+            <span class="badge badge-neutral js-badge"><span class="dot"></span>已停止</span>
+            <a class="btn btn-secondary btn-sm" href="workspace.html" title="切换到工作区并高亮该沙箱">进入工作区<svg class="icon"><use href="#i-arrowr"/></svg></a>
+          </header>
+          <div class="sbx-body">
+            <a class="sbx-url" href="http://sbx-exp-rust.mgr.localhost/" title="沙箱入口（pi Web）"><span class="mono">sbx-exp-rust.mgr.localhost</span><svg class="icon"><use href="#i-external"/></svg></a>
+            <dl class="facts">
+              <div><dt>镜像</dt><dd><span class="mono">aio-app:5d20af77</span></dd></div>
+              <div><dt>资源</dt><dd>8 核 · 16384 MB</dd></div>
+              <div><dt>创建于</dt><dd>2026-09-08</dd></div>
+              <div><dt>模型 profile</dt><dd><button class="chip off" data-assign="exp-rust" title="快速指派 profile 与 agent 子集">未指派 · 保留沙箱本地配置</button></dd></div>
+            </dl>
+            <div class="line"><span class="lbl">已安装</span><span class="chip"><span class="sdot"></span>code-server</span><span class="chip off"><span class="sdot stopped"></span>VNC</span><span class="chip"><span class="sdot"></span>pi agent</span><span class="chip off"><span class="sdot stopped"></span>pi Web</span></div>
+            <div class="line"><span class="lbl">容器</span><span class="svc"><span class="sdot stopped"></span>gateway · exited</span><span class="svc"><span class="sdot stopped"></span>app · exited</span></div>
+          </div>
+          <footer class="sbx-foot">
+            <button class="btn btn-ghost btn-sm js-start"><svg class="icon"><use href="#i-play"/></svg>启动</button>
+            <button class="btn btn-ghost btn-sm js-stop" disabled><svg class="icon"><use href="#i-stop"/></svg>停止</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-restart"/></svg>重启</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-edit"/></svg>编辑配置</button>
+            <button class="btn btn-danger-text btn-sm del" data-del="exp-rust"><svg class="icon"><use href="#i-trash"/></svg>删除</button>
+          </footer>
+        </article>
+
+        <!-- legacy-stack（外部栈） -->
+        <article class="card sbx" data-status="running adopted" data-name="legacy-stack" data-od-id="sandbox-card-legacy-stack">
+          <header class="sbx-head">
+            <span class="sdot live"></span>
+            <h2 class="sbx-name">legacy-stack</h2>
+            <span class="badge badge-neutral">外部栈</span>
+            <span class="badge badge-ok js-badge"><span class="dot"></span>运行中</span>
+            <a class="btn btn-secondary btn-sm" href="workspace.html" title="切换到工作区并高亮该沙箱">进入工作区<svg class="icon"><use href="#i-arrowr"/></svg></a>
+          </header>
+          <div class="sbx-body">
+            <a class="sbx-url" href="http://sbx-legacy-stack.mgr.localhost/" title="沙箱入口（pi Web）"><span class="mono">sbx-legacy-stack.mgr.localhost</span><svg class="icon"><use href="#i-external"/></svg></a>
+            <dl class="facts">
+              <div><dt>Compose 文件</dt><dd><span class="mono">docker-compose.yml</span></dd></div>
+              <div><dt>服务名</dt><dd>gateway / app</dd></div>
+              <div><dt>登记于</dt><dd>2026-09-09</dd></div>
+              <div><dt>模型 profile</dt><dd><button class="chip" data-assign="legacy-stack" title="快速指派 profile 与 agent 子集">default · pi</button></dd></div>
+            </dl>
+            <div class="notice notice-warn" style="font-size: var(--text-xs); padding: 6px var(--space-2)"><svg class="icon sm"><use href="#i-info"/></svg><span>导入的外部栈：仅支持启停与状态展示，不支持改配置；删除仅移除登记，容器与数据卷不受影响。</span></div>
+            <div class="line"><span class="lbl">容器</span><span class="svc"><span class="sdot"></span>gateway</span><span class="svc"><span class="sdot"></span>app</span></div>
+          </div>
+          <footer class="sbx-foot">
+            <button class="btn btn-ghost btn-sm js-start" disabled><svg class="icon"><use href="#i-play"/></svg>启动</button>
+            <button class="btn btn-ghost btn-sm js-stop"><svg class="icon"><use href="#i-stop"/></svg>停止</button>
+            <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-restart"/></svg>重启</button>
+            <button class="btn btn-danger-text btn-sm del" data-del="legacy-stack" data-adopted="1"><svg class="icon"><use href="#i-trash"/></svg>移除登记</button>
+          </footer>
+        </article>
+      </section>
+      <p class="empty">没有匹配的沙箱。</p>
+    </div>
+  </main>
+</div>
+
+<!-- 快速指派 profile（S2 quick-assign） -->
+<div class="pop" id="assign-pop" role="dialog" aria-label="快速指派模型 profile">
+  <h4>指派模型 profile · <span id="ap-name"></span></h4>
+  <div class="field">
+    <label for="ap-profile">Profile</label>
+    <select class="input sm" id="ap-profile">
+      <option value="">未指派（保留沙箱本地配置）</option>
+      <option value="default">default（2 个沙箱）</option>
+      <option value="research">research（1 个沙箱）</option>
+    </select>
+  </div>
+  <div id="ap-agents">
+    <span class="field-label">生效 agent</span>
+    <div class="agents" style="margin-top:6px">
+      <label><input class="check" type="checkbox" name="ag" value="pi" checked />pi</label>
+      <label><input class="check" type="checkbox" name="ag" value="claude" checked />Claude Code</label>
+      <label><input class="check" type="checkbox" name="ag" value="codex" checked />Codex</label>
+      <label><input class="check" type="checkbox" name="ag" value="opencode" checked />opencode</label>
+    </div>
+  </div>
+  <p class="muted txs">沙箱内每 60 秒拉取一次；未勾选的 agent 保留本地配置。</p>
+  <div class="dialog-actions" style="padding-top:0">
+    <button class="btn btn-secondary btn-sm" id="ap-cancel">取消</button>
+    <button class="btn btn-primary btn-sm" id="ap-save">保存指派</button>
+  </div>
+</div>
+
+<!-- 删除确认（role=alertdialog） -->
+<div class="overlay" id="del-overlay">
+  <div class="dialog" role="alertdialog" aria-labelledby="del-title" aria-describedby="del-desc" data-od-id="delete-dialog">
+    <div>
+      <h2 id="del-title">删除沙箱 <span class="mono" id="del-name"></span></h2>
+      <p class="desc" id="del-desc" style="margin-top:6px">该操作不可撤销。compose down 会移除容器与网络；数据卷默认保留。</p>
+    </div>
+    <label class="tsm" id="del-vol-row" style="display:flex;gap:var(--space-2);align-items:flex-start"><input class="check" type="checkbox" id="del-vol" style="margin-top:2px" /><span>同时清理数据卷<br/><span class="muted txs">工作区数据将永久丢失</span></span></label>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" id="del-cancel">取消</button>
+      <button class="btn btn-danger" id="del-ok">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script src="mgr-shell.js"></script>
+<script>
+(function () {
+  const grid = document.getElementById("grid");
+  let f = "all";
+  const apply = () => {
+    const q = document.getElementById("q").value.trim().toLowerCase();
+    grid.querySelectorAll(".sbx").forEach((c) => {
+      const st = c.dataset.status.split(" ");
+      const okF = f === "all" || st.includes(f);
+      c.hidden = !(okF && (!q || c.dataset.name.includes(q)));
+    });
+    document.getElementById("cnt-running").textContent = grid.querySelectorAll('.sbx[data-status~="running"]').length;
+    document.getElementById("cnt-stopped").textContent = grid.querySelectorAll('.sbx[data-status~="stopped"]').length;
+  };
+  document.getElementById("filter").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    f = b.dataset.f;
+    document.querySelectorAll("#filter button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    apply();
+  });
+  document.getElementById("q").addEventListener("input", apply);
+
+  // 启停：切换卡片状态（真实应用中为 POST /api/sandboxes/:name/start|stop 后轮询）
+  const setLive = (card, running) => {
+    const adopted = card.dataset.status.includes("adopted");
+    card.dataset.status = (running ? "running" : "stopped") + (adopted ? " adopted" : "");
+    card.classList.toggle("stopped", !running);
+    const b = card.querySelector(".js-badge");
+    b.className = "badge js-badge " + (running ? "badge-ok" : "badge-neutral");
+    b.innerHTML = `<span class="dot"></span>${running ? "运行中" : "已停止"}`;
+    card.querySelector(".js-start").disabled = running;
+    card.querySelector(".js-stop").disabled = !running;
+    apply();
+  };
+  grid.addEventListener("click", (e) => {
+    const card = e.target.closest(".sbx"); if (!card) return;
+    if (e.target.closest(".js-start")) setLive(card, true);
+    else if (e.target.closest(".js-stop")) setLive(card, false);
+    else if (e.target.closest(".del")) openDelete(card, e.target.closest(".del"));
+    else if (e.target.closest("[data-assign]")) openAssign(e.target.closest("[data-assign]"));
+  });
+
+  // 删除确认
+  const dov = document.getElementById("del-overlay"); let delCard = null;
+  function openDelete(card, btn) {
+    delCard = card;
+    const adopted = !!btn.dataset.adopted;
+    document.getElementById("del-name").textContent = card.dataset.name;
+    document.getElementById("del-title").firstChild.textContent = adopted ? "移除登记 " : "删除沙箱 ";
+    document.getElementById("del-desc").textContent = adopted ? "仅移除 mgr 的登记与子域名路由；容器与数据卷不受影响。" : "该操作不可撤销。compose down 会移除容器与网络；数据卷默认保留。";
+    document.getElementById("del-vol-row").style.display = adopted ? "none" : "flex";
+    document.getElementById("del-ok").textContent = adopted ? "移除登记" : "确认删除";
+    document.getElementById("del-vol").checked = false;
+    dov.classList.add("open"); document.getElementById("del-cancel").focus();
+  }
+  document.getElementById("del-cancel").addEventListener("click", () => dov.classList.remove("open"));
+  dov.addEventListener("click", (e) => { if (e.target === dov) dov.classList.remove("open"); });
+  document.getElementById("del-ok").addEventListener("click", () => { dov.classList.remove("open"); delCard.remove(); apply(); document.querySelector('#filter [data-f="all"] .cnt').textContent = grid.querySelectorAll(".sbx").length; });
+
+  // 快速指派 popover
+  const pop = document.getElementById("assign-pop"); let chip = null;
+  function openAssign(btn) {
+    chip = btn;
+    document.getElementById("ap-name").textContent = btn.dataset.assign;
+    const [prof, agents] = btn.textContent.split(" · ");
+    document.getElementById("ap-profile").value = prof === "未指派" ? "" : prof;
+    const set = new Set(prof === "未指派" ? ["pi", "claude", "codex", "opencode"] : agents.split(", ").map((a) => ({ "Claude Code": "claude" }[a] || a)));
+    pop.querySelectorAll('input[name="ag"]').forEach((c) => (c.checked = set.has(c.value)));
+    document.getElementById("ap-agents").hidden = !document.getElementById("ap-profile").value;
+    const r = btn.getBoundingClientRect();
+    pop.style.left = Math.min(r.left, window.innerWidth - 300) + "px";
+    pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 320) + "px";
+    pop.classList.add("open");
+  }
+  document.getElementById("ap-profile").addEventListener("change", (e) => { document.getElementById("ap-agents").hidden = !e.target.value; });
+  document.getElementById("ap-cancel").addEventListener("click", () => pop.classList.remove("open"));
+  document.getElementById("ap-save").addEventListener("click", () => {
+    const prof = document.getElementById("ap-profile").value;
+    const ag = [...pop.querySelectorAll('input[name="ag"]:checked')].map((c) => c.value);
+    chip.textContent = prof ? `${prof} · ${ag.length ? ag.join(", ") : "无 agent"}` : "未指派 · 保留沙箱本地配置";
+    chip.classList.toggle("off", !prof);
+    pop.classList.remove("open");
+  });
+  document.addEventListener("click", (e) => { if (pop.classList.contains("open") && !pop.contains(e.target) && !e.target.closest("[data-assign]")) pop.classList.remove("open"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") pop.classList.remove("open"); });
+})();
+</script>
+</body>
+</html>

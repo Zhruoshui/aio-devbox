@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新建沙箱 · Sandbox 管理器</title>
+  <script>document.documentElement.dataset.mode = localStorage.getItem("mgr.theme") === "light" ? "light" : "dark";</script>
+  <link rel="stylesheet" href="mgr-web.css" />
+  <style>
+    .wz { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: var(--space-8); align-items: start; }
+    .wz-form { display: flex; flex-direction: column; }
+    .sec { padding: var(--space-6) 0; border-top: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: var(--space-4); }
+    .sec:first-child { border-top: 0; padding-top: 0; }
+    .sec-head h2 { font-size: var(--text-lg); display: flex; align-items: center; gap: var(--space-2); }
+    .sec-head .n { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-warm); box-shadow: inset 0 0 0 1px var(--border-soft); font-size: var(--text-xs); color: var(--muted); display: grid; place-items: center; font-weight: 500; }
+    .sec-head p { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--muted); max-width: 70ch; }
+    .rows { display: flex; flex-direction: column; border-radius: var(--radius-lg); box-shadow: var(--elev-ring); background: var(--surface); overflow: hidden; }
+    .row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-soft); }
+    .row:first-child { border-top: 0; }
+    .row .main-col { flex: 1; min-width: 0; }
+    .row .name { font-size: var(--text-base); font-weight: 500; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+    .row .desc { font-size: var(--text-xs); color: var(--muted); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .row select.input { width: 128px; height: 30px; font-size: var(--text-sm); font-family: var(--font-mono); border-radius: var(--radius-md); flex-shrink: 0; }
+    .row.locked .name { color: var(--fg-2); }
+    .row.off .name, .row.off .desc { color: var(--muted); }
+    .layer { font-size: var(--text-xs); font-weight: 500; color: var(--muted); margin: var(--space-2) 0 var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
+    .layer::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+    .lock { font-size: 10px; padding: 0 5px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-soft); color: var(--muted); line-height: 16px; font-weight: 400; }
+    .side { position: sticky; top: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+    .steps { display: flex; flex-direction: column; gap: 2px; }
+    .steps a { display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-2); border-radius: var(--radius-md); text-decoration: none; font-size: var(--text-sm); color: var(--muted); }
+    .steps a:hover { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--fg); }
+    .steps a.active { color: var(--fg); font-weight: 500; background: color-mix(in oklch, var(--fg) 6%, transparent); }
+    .steps .n { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border); font-size: 11px; display: grid; place-items: center; font-weight: 500; }
+    .steps a.active .n, .steps a.done .n { background: var(--fg); color: var(--bg); box-shadow: none; }
+    .steps .st { margin-left: auto; font-size: var(--text-xs); color: var(--muted); font-weight: 400; }
+    .sum { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+    .sum h3 { font-size: var(--text-sm); }
+    .sum dl { margin: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); }
+    .sum dt { font-size: var(--text-xs); color: var(--muted); }
+    .sum dd { margin: 0; overflow-wrap: anywhere; }
+    .sum .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+    .sum .btn-primary { width: 100%; margin-top: var(--space-1); }
+    .sum .fine { font-size: var(--text-xs); color: var(--muted); }
+    .subdomain { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+    .subdomain b { color: var(--fg); font-weight: 500; }
+    @media (max-width: 1080px) { .wz { grid-template-columns: 1fr; } .side { position: static; } }
+  </style>
+</head>
+<body data-page="sandboxes">
+<div class="app">
+  <div data-rail></div>
+  <main class="main scroll" id="main">
+    <div class="page">
+      <header class="page-head" data-od-id="create-head">
+        <div>
+          <h1>新建沙箱</h1>
+          <p class="sub">场景选择决定镜像内容：相同选择的沙箱共享同一镜像，不重复构建。首次出现的组合需要构建镜像，耗时以分钟计。</p>
+        </div>
+        <div class="page-actions">
+          <a class="btn btn-secondary" href="sandbox-list.html">取消</a>
+        </div>
+      </header>
+
+      <form class="wz" id="wz" novalidate>
+        <div class="wz-form">
+          <!-- 1 名称 -->
+          <section class="sec" id="s-name" data-od-id="section-name">
+            <div class="sec-head"><h2><span class="n">1</span>名称</h2><p>将作为子域名 <span class="mono">sbx-&lt;名称&gt;.mgr.localhost</span> 的前缀，创建后不可更改。</p></div>
+            <div class="field" id="f-name" style="max-width: 420px">
+              <label for="name">沙箱名称</label>
+              <div class="input-wrap"><input class="input mono" id="name" placeholder="例如：dev3" autocomplete="off" autofocus /><span class="addon" id="name-len">0 / 32</span></div>
+              <span class="hint">小写字母、数字、连字符，以字母或数字开头，最长 32 个字符。</span>
+              <span class="err" id="name-err">名称需为 [a-z0-9-]，以字母或数字开头，最长 32 字符。</span>
+              <span class="subdomain" id="subdomain">入口：sbx-<b>…</b>.mgr.localhost</span>
+            </div>
+          </section>
+
+          <!-- 2 服务 -->
+          <section class="sec" id="s-svc" data-od-id="section-services">
+            <div class="sec-head"><h2><span class="n">2</span>服务</h2><p>创建时决定是否安装，已建的沙箱不可更改。关闭的服务不进入 compose，镜像也不构建对应层。</p></div>
+            <div class="rows" role="group" aria-label="服务开关">
+              <label class="row"><div class="main-col"><div class="name">code-server</div><div class="desc">浏览器里的 VS Code。容器不随沙箱启动，打开编辑器窗格时按需拉起，沙箱停止时一并停止。</div></div><input class="switch" type="checkbox" name="svc" value="code_server" checked /></label>
+              <label class="row"><div class="main-col"><div class="name">VNC 桌面</div><div class="desc">Xvnc + Chromium 侧车，为图形程序与 pi Web 的浏览器代理提供桌面。</div></div><input class="switch" type="checkbox" name="svc" value="vnc" checked /></label>
+              <label class="row"><div class="main-col"><div class="name">pi agent</div><div class="desc">终端 AI 编码代理，安装到系统路径；扩展与登记随工作区卷保留。</div></div><input class="switch" type="checkbox" name="svc" value="pi" checked /></label>
+              <label class="row"><div class="main-col"><div class="name">pi Web<span class="lock">依赖 pi + VNC</span></div><div class="desc">pi 的网页界面，作为沙箱入口子域名的默认页面。开启时自动开启 pi 与 VNC。</div></div><input class="switch" type="checkbox" name="svc" value="pi_web" checked /></label>
+            </div>
+          </section>
+
+          <!-- 3 场景 -->
+          <section class="sec" id="s-scn" data-od-id="section-scenarios">
+            <div class="sec-head"><h2><span class="n">3</span>场景</h2><p>按层级排列。标记「必装」的场景固定烘焙，只能选版本；其余按需勾选。</p></div>
+            <div>
+              <p class="layer">系统 (L1)</p>
+              <div class="rows" role="group" aria-label="系统 (L1)">
+                <div class="row locked"><input class="check" type="checkbox" checked disabled aria-label="Node.js" /><div class="main-col"><div class="name">Node.js<span class="lock">必装</span></div><div class="desc">Node 运行时（nodejs.org tarball → /usr/local）；code-server 与 web-builder 依赖。</div></div><select class="input" name="ver-node" aria-label="Node.js 版本"><option>22.23.2</option><option>22.11.0</option><option>20.18.0</option><option>18.20.4</option></select></div>
+                <div class="row locked"><input class="check" type="checkbox" checked disabled aria-label="Python" /><div class="main-col"><div class="name">Python<span class="lock">必装</span></div><div class="desc">CPython（python-build-standalone tarball → /usr/local），版本可选。</div></div><select class="input" name="ver-python" aria-label="Python 版本"><option>3.12.7</option><option>3.11.10</option><option>3.13.0</option></select></div>
+                <label class="row off"><input class="check" type="checkbox" name="scn" value="fonts" /><div class="main-col"><div class="name">字体 (Maple Mono NF CN)</div><div class="desc">fontconfig + Maple Mono NF CN（等宽 + Nerd Font 图标 + 内置中文，约 78MB），修复容器零字体导致的服务端渲染豆腐块。</div></div></label>
+              </div>
+              <p class="layer">Shell (L2)</p>
+              <div class="rows" role="group" aria-label="Shell (L2)">
+                <label class="row off"><input class="check" type="checkbox" name="scn" value="shell-utils" /><div class="main-col"><div class="name">Shell 便利工具</div><div class="desc">fzf / ripgrep / bat / fd，装系统路径，不被共享卷遮盖。</div></div></label>
+              </div>
+              <p class="layer">语言 (L3)</p>
+              <div class="rows" role="group" aria-label="语言 (L3)">
+                <label class="row off"><input class="check" type="checkbox" name="scn" value="c23" /><div class="main-col"><div class="name">C23 开发环境</div><div class="desc">clang-22 完整 C23 工具链（apt.llvm.org）+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace。</div></div></label>
+                <label class="row off"><input class="check" type="checkbox" name="scn" value="mise" /><div class="main-col"><div class="name">mise (L3 工具链统一管理器)</div><div class="desc">rust + go + uv + ruff + opencode 五工具全家桶，由 mise 烘焙到 /opt/mise。启用即安装全部（约 1.5GB，含 rust 1.4GB）。</div></div></label>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4 资源 -->
+          <section class="sec" id="s-res" data-od-id="section-resources">
+            <div class="sec-head"><h2><span class="n">4</span>资源限制</h2><p>留空表示不限制。创建后修改资源需要重启沙箱生效（走重建流程，数据卷保留）。</p></div>
+            <div class="field-row" style="max-width: 420px">
+              <div class="field" id="f-cpu"><label for="cpus">CPU 核数</label><input class="input mono" id="cpus" inputmode="decimal" placeholder="例如：4" /><span class="err">CPU 需为正数。</span></div>
+              <div class="field" id="f-mem"><label for="mem">内存上限</label><div class="input-wrap"><input class="input mono" id="mem" inputmode="numeric" placeholder="例如：8192" style="padding-left: var(--space-3)" /><span class="addon">MB</span></div><span class="err">内存需为 128 以上的整数（MB）。</span></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- 右侧：步骤 + 摘要 -->
+        <aside class="side" data-od-id="create-summary">
+          <nav class="steps" aria-label="步骤">
+            <a href="#s-name" class="active" data-step="s-name"><span class="n">1</span>名称<span class="st" id="st-name">待填写</span></a>
+            <a href="#s-svc" data-step="s-svc"><span class="n">2</span>服务<span class="st" id="st-svc">4 项</span></a>
+            <a href="#s-scn" data-step="s-scn"><span class="n">3</span>场景<span class="st" id="st-scn">2 必装</span></a>
+            <a href="#s-res" data-step="s-res"><span class="n">4</span>资源<span class="st" id="st-res">不限制</span></a>
+          </nav>
+          <div class="card sum" id="sum">
+            <h3>配置摘要</h3>
+            <dl>
+              <div><dt>入口</dt><dd class="mono txs" id="sum-url">sbx-….mgr.localhost</dd></div>
+              <div><dt>服务</dt><dd class="chips" id="sum-svc"></dd></div>
+              <div><dt>场景与版本</dt><dd id="sum-scn"></dd></div>
+              <div><dt>资源</dt><dd id="sum-res">不限制</dd></div>
+              <div><dt>镜像</dt><dd id="sum-img"></dd></div>
+            </dl>
+            <button class="btn btn-primary" type="submit" id="submit" disabled>创建沙箱</button>
+            <p class="fine" id="fine">提交后进入任务视图，可实时查看构建与启动日志。</p>
+          </div>
+        </aside>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script src="mgr-shell.js"></script>
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const form = $("#wz");
+  const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+  const TAKEN = ["dev1", "dev2", "exp-rust", "legacy-stack"];
+  // 已存在镜像的组合（示例：对应 dev1 / dev2 的 env hash）——同组合复用镜像不重建
+  const KNOWN = { "node=22.23.2|python=3.12.7|fonts,shell-utils|code_server,pi,pi_web,vnc": "aio-app:3f9c2e1a", "node=22.23.2|python=3.12.7||pi,pi_web,vnc": "aio-app:b71e04c9" };
+  const SVC_LABEL = { code_server: "code-server", vnc: "VNC", pi: "pi agent", pi_web: "pi Web" };
+  const SCN_LABEL = { fonts: "字体", "shell-utils": "Shell 便利工具", c23: "C23 开发环境", mise: "mise 工具链" };
+
+  // pi Web 依赖 pi + VNC（依赖校验在 mgr 端，这里只做即时反馈）
+  form.addEventListener("change", (e) => {
+    if (e.target.name === "svc") {
+      const v = (k) => form.querySelector(`[name=svc][value=${k}]`);
+      if (e.target.value === "pi_web" && e.target.checked) { v("pi").checked = true; v("vnc").checked = true; }
+      if ((e.target.value === "pi" || e.target.value === "vnc") && !e.target.checked) v("pi_web").checked = false;
+    }
+    if (e.target.name === "scn") e.target.closest(".row").classList.toggle("off", !e.target.checked);
+    update();
+  });
+  form.addEventListener("input", update);
+
+  function update() {
+    const name = $("#name").value.trim();
+    $("#name-len").textContent = `${name.length} / 32`;
+    const nameOk = NAME_RE.test(name) && !TAKEN.includes(name);
+    $("#f-name").classList.toggle("invalid", name !== "" && !nameOk);
+    $("#name-err").textContent = TAKEN.includes(name) ? "该名称已被占用。" : "名称需为 [a-z0-9-]，以字母或数字开头，最长 32 字符。";
+    $("#subdomain").innerHTML = `入口：sbx-<b>${name || "…"}</b>.mgr.localhost`;
+    $("#sum-url").textContent = `sbx-${name || "…"}.mgr.localhost`;
+    $("#st-name").textContent = name ? (nameOk ? name : "无效") : "待填写";
+    form.querySelector('[data-step="s-name"]').classList.toggle("done", nameOk);
+
+    const svc = [...form.querySelectorAll("[name=svc]:checked")].map((i) => i.value).sort();
+    $("#sum-svc").innerHTML = Object.keys(SVC_LABEL).map((k) => `<span class="chip${svc.includes(k) ? "" : " off"}"><span class="sdot${svc.includes(k) ? "" : " stopped"}"></span>${SVC_LABEL[k]}</span>`).join("");
+    $("#st-svc").textContent = `${svc.length} / 4 项`;
+
+    const node = form.querySelector("[name=ver-node]").value, py = form.querySelector("[name=ver-python]").value;
+    const scn = [...form.querySelectorAll("[name=scn]:checked")].map((i) => i.value).sort();
+    $("#sum-scn").innerHTML = [`Node.js <span class="mono">${node}</span>`, `Python <span class="mono">${py}</span>`, ...scn.map((s) => SCN_LABEL[s])].join(" · ");
+    $("#st-scn").textContent = `2 必装 + ${scn.length}`;
+
+    const cpus = $("#cpus").value.trim(), mem = $("#mem").value.trim();
+    const cpuOk = cpus === "" || (Number(cpus) > 0 && Number.isFinite(Number(cpus)));
+    const memOk = mem === "" || (/^\d+$/.test(mem) && Number(mem) >= 128);
+    $("#f-cpu").classList.toggle("invalid", !cpuOk); $("#f-mem").classList.toggle("invalid", !memOk);
+    const res = [cpus && cpuOk ? `${cpus} 核` : "", mem && memOk ? `${mem} MB` : ""].filter(Boolean).join(" · ") || "不限制";
+    $("#sum-res").textContent = res; $("#st-res").textContent = res;
+
+    const key = `node=${node}|python=${py}|${scn.join(",")}|${svc.join(",")}`;
+    const img = KNOWN[key];
+    $("#sum-img").innerHTML = img
+      ? `<span class="badge badge-ok"><span class="dot"></span>复用现有镜像</span><div class="mono txs" style="margin-top:4px">${img}</div><div class="fine">组合已构建过，创建只需启动容器。</div>`
+      : `<span class="badge badge-neutral">新组合 · 需构建</span><div class="fine" style="margin-top:4px">首次出现的场景 / 服务组合会构建新镜像，耗时以分钟计；之后相同组合直接复用。</div>`;
+    $("#submit").disabled = !(nameOk && cpuOk && memOk);
+  }
+
+  // 步骤导航：用 scrollTo 滚动主区容器（嵌入预览安全）
+  const main = $("#main");
+  form.querySelectorAll(".steps a").forEach((a) => a.addEventListener("click", (e) => {
+    e.preventDefault();
+    const sec = document.getElementById(a.dataset.step);
+    main.scrollTo({ top: sec.offsetTop - 16, behavior: "smooth" });
+  }));
+  const io = new IntersectionObserver((ents) => {
+    ents.forEach((en) => { if (en.isIntersecting) form.querySelectorAll(".steps a").forEach((a) => a.classList.toggle("active", a.dataset.step === en.target.id)); });
+  }, { root: main, rootMargin: "-20% 0px -60% 0px" });
+  form.querySelectorAll(".sec").forEach((s) => io.observe(s));
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#name").value.trim();
+    $("#sum").innerHTML = `<h3>已提交</h3><div class="notice notice-info">${window.icon("info", "sm")}<span>正在创建 <span class="mono">${name}</span>：任务 <span class="mono">#41</span> 已入队。创建含镜像构建时耗时以分钟计。</span></div><a class="btn btn-secondary" href="index.html#scope">查看任务进度（JobView）</a><a class="btn btn-ghost" href="sandbox-list.html">返回沙箱列表</a>`;
+  });
+  update();
+})();
+</script>
+</body>
+</html>

@@ -58,8 +58,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use aio_models::store::{
-    ensure_preset_ids, import_from_pi, merge_api_keys, mask_config, validate,
-    CanonicalConfig, CostEntry, ImportResponse, PutResponse, StoreError,
+    ensure_preset_ids, import_from_pi, mask_config, merge_api_keys, validate, CanonicalConfig,
+    CostEntry, ImportResponse, PutResponse, StoreError,
 };
 
 use crate::db;
@@ -84,17 +84,63 @@ pub struct Profile {
     pub config: CanonicalConfig,
 }
 
+/// One sandbox's model assignment: which profile, plus an optional agent
+/// subset (S2, D4c). `agents: None` = ALL four agents (pi/claude/codex/
+/// opencode) — also the meaning of pre-S2/legacy data, so old payloads
+/// migrate to this shape without behavior change (AC4). `Some([])` = zero
+/// agents, which makes the sync endpoint 404 (sandbox keeps local — AC3).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct StoredAssignment {
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub agents: Option<Vec<String>>,
+}
+
+/// The agent whitelist (S2). `agents` values outside this set are rejected
+/// on PUT (400) and silently ignored on sync (only assigned agents render).
+pub const VALID_AGENTS: [&str; 4] = ["pi", "claude", "codex", "opencode"];
+
+/// Deserialize the assignments map accepting BOTH shapes: the pre-S2 legacy
+/// form `{<sandbox>: "<profile-id>"}` (bare string value — every sandbox
+/// implicitly gets all agents, `agents: None`) and the S2 form
+/// `{<sandbox>: {"profile": <id|null>, "agents": <[..]|null>}}`. Anything
+/// else is a corrupt row (surfaced as internal error, never a silent reset).
+fn deserialize_assignments<'de, D>(d: D) -> Result<BTreeMap<String, StoredAssignment>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    let obj = v.as_object().ok_or_else(|| {
+        serde::de::Error::custom("models_profiles assignments must be a JSON object")
+    })?;
+    let mut out = BTreeMap::new();
+    for (name, value) in obj {
+        let entry = if let Some(id) = value.as_str() {
+            // Legacy bare-string value → full-agent assignment.
+            StoredAssignment {
+                profile: Some(id.to_string()),
+                agents: None,
+            }
+        } else {
+            serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?
+        };
+        out.insert(name.clone(), entry);
+    }
+    Ok(out)
+}
+
 /// The kv row payload. `version` is GLOBAL (bumped on every successful
 /// mutation of any profile — the sandbox pull's deep compare makes per-profile
-/// versioning an unnecessary cost). `assignments` maps sandbox name → profile
-/// id; an unassigned sandbox pulls nothing (sync 404s, app keeps local).
+/// versioning an unnecessary cost). `assignments` maps sandbox name → its
+/// {profile id, agent subset}; an unassigned sandbox pulls nothing (sync 404s,
+/// app keeps local).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StoredModels {
     version: u64,
     #[serde(default)]
     profiles: Vec<Profile>,
-    #[serde(default)]
-    assignments: BTreeMap<String, String>,
+    #[serde(default, deserialize_with = "deserialize_assignments")]
+    assignments: BTreeMap<String, StoredAssignment>,
 }
 
 impl StoredModels {
@@ -179,9 +225,16 @@ fn read_stored(conn: &rusqlite::Connection) -> Result<StoredModels, ApiError> {
         }],
         assignments: BTreeMap::new(),
     };
-    // Every existing sandbox keeps pulling exactly what it pulled before.
+    // Every existing sandbox keeps pulling exactly what it pulled before
+    // (S2: legacy rows carry no agent subset — `agents: None` = all agents).
     for name in db::list_sandbox_names(conn)? {
-        stored.assignments.insert(name, DEFAULT_PROFILE_ID.into());
+        stored.assignments.insert(
+            name,
+            StoredAssignment {
+                profile: Some(DEFAULT_PROFILE_ID.into()),
+                agents: None,
+            },
+        );
     }
     write_stored(conn, &stored)?;
     db::kv_del(conn, KV_MODELS_LEGACY)?;
@@ -205,14 +258,27 @@ fn write_stored(conn: &rusqlite::Connection, stored: &StoredModels) -> Result<()
 
 // ── cross-module assignment surface (routes.rs PUT /:name/model_profile) ──
 
-/// The profile id a sandbox is assigned to, for sandbox_json's
-/// `model_profile` field (None = unassigned; the JSON carries null then).
-/// Runs the legacy migration lazily like every other read path.
-pub fn assigned_profile(conn: &rusqlite::Connection, sandbox: &str) -> Result<Option<String>, ApiError> {
-    Ok(read_stored(conn)?
-        .assignments
-        .get(sandbox)
-        .cloned())
+/// The full assignment record for a sandbox, for sandbox_json's
+/// `model_profile` + `model_agents` fields (None = unassigned; the JSON
+/// carries null then). Runs the legacy migration lazily like every other
+/// read path.
+pub fn assignment(
+    conn: &rusqlite::Connection,
+    sandbox: &str,
+) -> Result<Option<StoredAssignment>, ApiError> {
+    Ok(read_stored(conn)?.assignments.get(sandbox).cloned())
+}
+
+/// The profile id a sandbox is assigned to (convenience over `assignment`;
+/// kept for call sites that only need the id). None = unassigned.
+/// `#[cfg(test)]`: production call sites use `assignment` (which also carries
+/// the agent subset); this shim survives for the tests' brevity.
+#[cfg(test)]
+pub(crate) fn assigned_profile(
+    conn: &rusqlite::Connection,
+    sandbox: &str,
+) -> Result<Option<String>, ApiError> {
+    Ok(assignment(conn, sandbox)?.and_then(|a| a.profile))
 }
 
 /// The WHOLE assignment map, for the sandbox list (one store parse instead
@@ -220,18 +286,26 @@ pub fn assigned_profile(conn: &rusqlite::Connection, sandbox: &str) -> Result<Op
 /// the legacy migration lazily.
 pub fn read_assignments(
     conn: &rusqlite::Connection,
-) -> Result<std::collections::BTreeMap<String, String>, ApiError> {
+) -> Result<std::collections::BTreeMap<String, StoredAssignment>, ApiError> {
     Ok(read_stored(conn)?.assignments)
 }
 
-/// Assign (`Some(id)`) or unassign (`None`) a sandbox's model profile.
-/// Pure kv write — NEVER triggers a recreate (design §4.2: env changes go
-/// through the recreate job; the assignment lands on the sandbox's next
-/// 60s pull). Unknown profile id = 404.
+/// Assign (`Some(id)`, optional agent subset `agents`) or unassign (`None`)
+/// a sandbox's model profile. Pure kv write — NEVER triggers a recreate
+/// (design §4.2: env changes go through the recreate job; the assignment
+/// lands on the sandbox's next 60s pull). Unknown profile id = 404; an
+/// agent name outside the VALID_AGENTS whitelist = 400.
+///
+/// `agents` semantics (S2, D4c):
+///   - `None`        → every agent renders (legacy/full-assignment default);
+///   - `Some([])`    → zero agents (sync 404s, sandbox keeps local);
+///   - `Some(list)`  → exactly the listed agents render; the rest of the
+///     sandbox's local agent files are left untouched (AC3).
 pub fn set_assignment(
     conn: &rusqlite::Connection,
     sandbox: &str,
     profile: Option<&str>,
+    agents: Option<&[String]>,
 ) -> Result<(), ApiError> {
     let mut stored = read_stored(conn)?;
     match profile {
@@ -242,7 +316,23 @@ pub fn set_assignment(
                     message: format!("model profile {id:?} not found"),
                 });
             }
-            stored.assignments.insert(sandbox.to_string(), id.to_string());
+            if let Some(list) = agents {
+                for name in list {
+                    if !VALID_AGENTS.contains(&name.as_str()) {
+                        return Err(ApiError::bad(format!(
+                            "unknown agent {name:?} (valid: {})",
+                            VALID_AGENTS.join(", ")
+                        )));
+                    }
+                }
+            }
+            stored.assignments.insert(
+                sandbox.to_string(),
+                StoredAssignment {
+                    profile: Some(id.to_string()),
+                    agents: agents.map(|a| a.to_vec()),
+                },
+            );
         }
         None => {
             stored.assignments.remove(sandbox);
@@ -288,11 +378,17 @@ pub(crate) struct ApiError {
 
 impl ApiError {
     fn bad(msg: impl Into<String>) -> Self {
-        ApiError { status: StatusCode::BAD_REQUEST, message: msg.into() }
+        ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: msg.into(),
+        }
     }
 
     fn internal(msg: impl Into<String>) -> Self {
-        ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: msg.into() }
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: msg.into(),
+        }
     }
 }
 
@@ -315,8 +411,14 @@ impl From<anyhow::Error> for ApiError {
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/models/config", get(get_config).put(put_config))
-        .route("/api/models/profiles", get(list_profiles).post(create_profile))
-        .route("/api/models/profiles/:id", get(get_profile).put(put_profile).delete(delete_profile))
+        .route(
+            "/api/models/profiles",
+            get(list_profiles).post(create_profile),
+        )
+        .route(
+            "/api/models/profiles/:id",
+            get(get_profile).put(put_profile).delete(delete_profile),
+        )
         .route("/api/models/sync", get(sync))
         .route("/api/models/import/pi", post(import_pi))
         .route("/api/models/discover", post(discover))
@@ -345,7 +447,10 @@ async fn get_config(
 ) -> Result<Json<CanonicalConfig>, ApiError> {
     let mut config = {
         let conn = state.db.lock().unwrap();
-        read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone()
+        read_stored(&conn)?
+            .selected(q.profile.as_deref())?
+            .config
+            .clone()
     };
     mask_config(&mut config);
     Ok(Json(config))
@@ -377,8 +482,7 @@ async fn put_config(
     // Backend owns preset ids: backfill ones the frontend created blank.
     ensure_preset_ids(&mut incoming);
 
-    validate(&incoming)
-        .map_err(|errs| ApiError::bad(errs.join("; ")))?;
+    validate(&incoming).map_err(|errs| ApiError::bad(errs.join("; ")))?;
 
     // CanonicalConfig.version is the legacy file-format field (always 1);
     // the STORE-level version lives in the kv wrapper.
@@ -389,7 +493,10 @@ async fn put_config(
     write_stored(&guard, &stored)?;
     drop(guard); // explicit: nothing below may run under the db lock
 
-    Ok(Json(PutResponse { ok: true, warnings: vec![] }))
+    Ok(Json(PutResponse {
+        ok: true,
+        warnings: vec![],
+    }))
 }
 
 // ── GET/POST /api/models/profiles, GET/PUT/DELETE /:id ────────────
@@ -411,7 +518,7 @@ async fn list_profiles(
             let assigned: Vec<&String> = stored
                 .assignments
                 .iter()
-                .filter(|(_, id)| id.as_str() == p.id)
+                .filter(|(_, a)| a.profile.as_deref() == Some(p.id.as_str()))
                 .map(|(name, _)| name)
                 .collect();
             json!({ "id": p.id, "name": p.name, "version": stored.version, "assigned": assigned })
@@ -427,13 +534,18 @@ async fn get_profile(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let mut profile = {
         let conn = state.db.lock().unwrap();
-        read_stored(&conn)?.profile(&id).cloned().ok_or_else(|| ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("model profile {id:?} not found"),
-        })?
+        read_stored(&conn)?
+            .profile(&id)
+            .cloned()
+            .ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("model profile {id:?} not found"),
+            })?
     };
     mask_config(&mut profile.config);
-    Ok(Json(json!({ "id": profile.id, "name": profile.name, "config": profile.config })))
+    Ok(Json(
+        json!({ "id": profile.id, "name": profile.name, "config": profile.config }),
+    ))
 }
 
 /// POST /api/models/profiles {name} — create an empty profile. The id is
@@ -482,10 +594,14 @@ async fn put_profile(
 ) -> Result<Json<PutResponse>, ApiError> {
     let guard = state.db.lock().unwrap();
     let mut stored = read_stored(&guard)?;
-    let stored_config = stored.profile(&id).cloned().ok_or_else(|| ApiError {
-        status: StatusCode::NOT_FOUND,
-        message: format!("model profile {id:?} not found"),
-    })?.config;
+    let stored_config = stored
+        .profile(&id)
+        .cloned()
+        .ok_or_else(|| ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("model profile {id:?} not found"),
+        })?
+        .config;
 
     if let Some(ref new_name) = body.name {
         let trimmed = new_name.trim();
@@ -504,7 +620,10 @@ async fn put_profile(
     stored.version += 1;
     write_stored(&guard, &stored)?;
     drop(guard);
-    Ok(Json(PutResponse { ok: true, warnings: vec![] }))
+    Ok(Json(PutResponse {
+        ok: true,
+        warnings: vec![],
+    }))
 }
 
 /// DELETE /api/models/profiles/:id — refuse the LAST profile (mgr must
@@ -527,7 +646,9 @@ async fn delete_profile(
         return Err(ApiError::bad("cannot delete the last model profile"));
     }
     stored.profiles.retain(|p| p.id != id);
-    stored.assignments.retain(|_, pid| pid != &id);
+    stored
+        .assignments
+        .retain(|_, a| a.profile.as_deref() != Some(id.as_str()));
     stored.version += 1;
     write_stored(&guard, &stored)?;
     drop(guard);
@@ -583,13 +704,28 @@ async fn sync(
         }
         read_stored(&conn)?
     };
-    let Some(profile_id) = stored.assignments.get(name) else {
+    // S2 (D4c): the assignment carries an optional agent subset. `agents`
+    // Some([]) = zero agents = the sandbox must NOT render anything — same
+    // keep-local 404 path as an unassigned sandbox (AC3). `agents` None =
+    // all agents (also the legacy shape). A present assignment with a null
+    // profile is treated as unassigned (defensive; PUT removes the row).
+    let Some(assign) = stored.assignments.get(name) else {
         return Err(unassigned());
     };
+    let Some(profile_id) = assign.profile.as_deref() else {
+        return Err(unassigned());
+    };
+    // S2 (AC3): an explicitly EMPTY agent subset means the sandbox must
+    // render nothing — same keep-local 404 path as unassigned.
+    if matches!(assign.agents, Some(ref a) if a.is_empty()) {
+        return Err(unassigned());
+    }
     let profile = stored.profile(profile_id).ok_or_else(unassigned)?;
     Ok(Json(json!({
         "version": stored.version,
         "config": profile.config,
+        // None (absent) = all agents; Some(list) = render only these.
+        "agents": assign.agents,
     })))
 }
 
@@ -613,19 +749,15 @@ async fn import_pi(
     let mut config = stored.profile(&profile_id).unwrap().config.clone();
 
     let result = import_from_pi(&pi_path, &config).map_err(|e| match e {
-        StoreError::Io(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: format!(
-                    "pi models.json not found at {} (containerized mgr has no ~/.pi; \
+        StoreError::Io(err) if err.kind() == std::io::ErrorKind::NotFound => ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!(
+                "pi models.json not found at {} (containerized mgr has no ~/.pi; \
                      set MGR_PI_MODELS_FILE or use the bare-metal form)",
-                    pi_path.display()
-                ),
-            }
-        }
-        StoreError::Io(err) => {
-            ApiError::internal(format!("read pi models.json: {err}"))
-        }
+                pi_path.display()
+            ),
+        },
+        StoreError::Io(err) => ApiError::internal(format!("read pi models.json: {err}")),
         StoreError::Corrupt(err) => ApiError {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             message: format!("pi models.json is corrupt: {err}"),
@@ -694,7 +826,11 @@ fn resolve_provider(
                 headers: p.headers.clone(),
             })
         }
-        DiscoverRequest::Literal { baseUrl, api, apiKey } => {
+        DiscoverRequest::Literal {
+            baseUrl,
+            api,
+            apiKey,
+        } => {
             if baseUrl.trim().is_empty() {
                 return Err(ApiError::bad("baseUrl is required"));
             }
@@ -765,14 +901,21 @@ async fn discover(
 ) -> Result<Json<DiscoverResponse>, ApiError> {
     let resolved = {
         let conn = state.db.lock().unwrap();
-        let config = read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone();
+        let config = read_stored(&conn)?
+            .selected(q.profile.as_deref())?
+            .config
+            .clone();
         // The literal branch validates baseUrl inside (blank -> 400),
         // exactly like the app handler's resolve_provider.
         resolve_provider(&config, &req)?
     };
 
     let candidates = candidate_urls(&resolved.base_url, &resolved.api);
-    let headers = build_headers(&resolved.api, resolved.api_key.as_deref(), &resolved.headers);
+    let headers = build_headers(
+        &resolved.api,
+        resolved.api_key.as_deref(),
+        &resolved.headers,
+    );
 
     let deadline = Instant::now() + TOTAL_BUDGET;
     let mut tried: Vec<String> = Vec::new();
@@ -789,7 +932,10 @@ async fn discover(
         let per = remaining.min(PER_CANDIDATE_TIMEOUT);
         tried.push(url.clone());
 
-        let mut req_builder = state.http.get(url.as_str()).header("Accept", "application/json");
+        let mut req_builder = state
+            .http
+            .get(url.as_str())
+            .header("Accept", "application/json");
         for (k, v) in &headers {
             req_builder = req_builder.header(k, v);
         }
@@ -808,7 +954,10 @@ async fn discover(
                     let text = r.text().await.unwrap_or_default();
                     let models = parse_discovered_models(&text);
                     if !models.is_empty() {
-                        return Ok(Json(DiscoverResponse { models, endpoint: url.clone() }));
+                        return Ok(Json(DiscoverResponse {
+                            models,
+                            endpoint: url.clone(),
+                        }));
                     }
                     // 2xx but no parseable models -> treat as exhaustion.
                     return Err(ApiError {
@@ -827,7 +976,10 @@ async fn discover(
                     let body = r.text().await.unwrap_or_default();
                     let err = format!("{} {} :: {}", status.as_u16(), url, truncate(&body, 500));
                     if idx == 0 {
-                        return Err(ApiError { status, message: err });
+                        return Err(ApiError {
+                            status,
+                            message: err,
+                        });
                     }
                     if first_auth_failure.is_none() {
                         first_auth_failure = Some((status, err));
@@ -841,7 +993,10 @@ async fn discover(
     }
 
     if let Some((status, msg)) = first_auth_failure {
-        return Err(ApiError { status, message: msg });
+        return Err(ApiError {
+            status,
+            message: msg,
+        });
     }
     Err(ApiError {
         status: StatusCode::BAD_GATEWAY,
@@ -873,14 +1028,8 @@ fn primary_models_url(base: &str, api: &str) -> String {
     match api {
         "anthropic-messages" => {
             // Insert /v1 only when the path is empty (pi-web behavior).
-            let after_scheme = base
-                .split_once("://")
-                .map(|(_, rest)| rest)
-                .unwrap_or(base);
-            let path = after_scheme
-                .split_once('/')
-                .map(|(_, p)| p)
-                .unwrap_or("");
+            let after_scheme = base.split_once("://").map(|(_, rest)| rest).unwrap_or(base);
+            let path = after_scheme.split_once('/').map(|(_, p)| p).unwrap_or("");
             if path.is_empty() {
                 format!("{base}/v1/models?limit=1000")
             } else {
@@ -1152,17 +1301,19 @@ async fn test(
 
     let (provider, protocol) = {
         let conn = state.db.lock().unwrap();
-        let config = read_stored(&conn)?.selected(q.profile.as_deref())?.config.clone();
-        let provider = config.providers.get(&req.providerId).cloned().ok_or_else(|| {
-            ApiError {
+        let config = read_stored(&conn)?
+            .selected(q.profile.as_deref())?
+            .config
+            .clone();
+        let provider = config
+            .providers
+            .get(&req.providerId)
+            .cloned()
+            .ok_or_else(|| ApiError {
                 status: StatusCode::NOT_FOUND,
                 message: format!("provider '{}' not found", req.providerId),
-            }
-        })?;
-        let protocol = req
-            .protocol
-            .clone()
-            .unwrap_or_else(|| provider.api.clone());
+            })?;
+        let protocol = req.protocol.clone().unwrap_or_else(|| provider.api.clone());
         (provider, protocol)
     };
 
@@ -1444,7 +1595,10 @@ async fn get_catalog(
     })?;
 
     let data = normalize_catalog(&raw);
-    *guard = Some(CatalogCache { at: Instant::now(), data: data.clone() });
+    *guard = Some(CatalogCache {
+        at: Instant::now(),
+        data: data.clone(),
+    });
     Ok(Json(data))
 }
 
@@ -1467,11 +1621,19 @@ fn normalize_catalog(raw: &Value) -> CatalogResponse {
                     models.push(normalize_model(model_id, mv));
                 }
             }
-            providers.push(CatalogProvider { id: provider_id.clone(), name, api, models });
+            providers.push(CatalogProvider {
+                id: provider_id.clone(),
+                name,
+                api,
+                models,
+            });
         }
     }
     providers.sort_by(|a, b| a.id.cmp(&b.id));
-    CatalogResponse { providers, fetched_at: String::new() }
+    CatalogResponse {
+        providers,
+        fetched_at: String::new(),
+    }
 }
 
 /// One model node (app catalog.rs normalize_model: every lookup fallible).
@@ -1496,12 +1658,15 @@ fn normalize_model(model_id: &str, mv: &Value) -> CatalogModel {
         .get("limit")
         .and_then(|l| l.get("output"))
         .and_then(Value::as_u64);
-    let cost = mv.get("cost").and_then(Value::as_object).map(|c| CostEntry {
-        input: c.get("input").and_then(Value::as_f64),
-        output: c.get("output").and_then(Value::as_f64),
-        cache_read: c.get("cache_read").and_then(Value::as_f64),
-        cache_write: c.get("cache_write").and_then(Value::as_f64),
-    });
+    let cost = mv
+        .get("cost")
+        .and_then(Value::as_object)
+        .map(|c| CostEntry {
+            input: c.get("input").and_then(Value::as_f64),
+            output: c.get("output").and_then(Value::as_f64),
+            cache_read: c.get("cache_read").and_then(Value::as_f64),
+            cache_write: c.get("cache_write").and_then(Value::as_f64),
+        });
     CatalogModel {
         id: model_id.to_string(),
         name,
@@ -1579,6 +1744,7 @@ mod tests {
                 status: "running".into(),
                 adopted: false,
                 external_compose: None,
+                services_json: None,
             },
         )
         .expect("insert sandbox row");
@@ -1598,6 +1764,22 @@ mod tests {
         let mut c = CanonicalConfig::default();
         c.providers.insert("sample".into(), sample_provider(key));
         c
+    }
+
+    /// A full-agent assignment (the `agents: None` shape).
+    fn assign(profile: &str) -> StoredAssignment {
+        StoredAssignment {
+            profile: Some(profile.to_string()),
+            agents: None,
+        }
+    }
+
+    /// An agent-subset assignment (S2).
+    fn assign_agents(profile: &str, agents: &[&str]) -> StoredAssignment {
+        StoredAssignment {
+            profile: Some(profile.to_string()),
+            agents: Some(agents.iter().map(|s| s.to_string()).collect()),
+        }
     }
 
     // --- kv round-trip + versioning ---
@@ -1620,7 +1802,13 @@ mod tests {
         let back = read_stored(&conn).unwrap();
         assert_eq!(back.version, 3);
         assert_eq!(
-            back.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            back.profiles[0]
+                .config
+                .providers
+                .get("sample")
+                .unwrap()
+                .api_key
+                .as_deref(),
             Some("sk-plaintext-secret"),
             "kv stores the plaintext; masking happens only on the GET path"
         );
@@ -1696,7 +1884,10 @@ mod tests {
         assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(err.message.contains("corrupt"));
         // The row is untouched — surfacing must never rewrite user config.
-        assert_eq!(db::kv_get(&conn, KV_MODELS).unwrap().as_deref(), Some("not json{{"));
+        assert_eq!(
+            db::kv_get(&conn, KV_MODELS).unwrap().as_deref(),
+            Some("not json{{")
+        );
     }
 
     #[test]
@@ -1704,7 +1895,9 @@ mod tests {
         // put_config runs ensure_preset_ids between merge and validate; a
         // preset created with an empty id must get one (backend owns ids).
         let mut config = CanonicalConfig::default();
-        config.providers.insert("sample".into(), sample_provider("sk"));
+        config
+            .providers
+            .insert("sample".into(), sample_provider("sk"));
         let mut presets = aio_models::store::ClaudePresets::default();
         presets.presets.push(aio_models::store::ClaudePreset {
             id: String::new(),
@@ -1744,22 +1937,37 @@ mod tests {
             let conn = state.db.lock().unwrap();
             write_stored(&conn, &two_profiles()).unwrap();
         }
-        let Json(cfg) = get_config(State(state.clone()), Query(Default::default())).await.unwrap();
-        let key = cfg.providers.get("sample").unwrap().api_key.clone().unwrap();
+        let Json(cfg) = get_config(State(state.clone()), Query(Default::default()))
+            .await
+            .unwrap();
+        let key = cfg
+            .providers
+            .get("sample")
+            .unwrap()
+            .api_key
+            .clone()
+            .unwrap();
         assert_ne!(key, "sk-default-key");
         assert!(key.contains("****"), "masked shape, got {key}");
 
         let Json(cfg) = get_config(
             State(state.clone()),
-            Query(ProfileQuery { profile: Some("profile-second".into()) }),
+            Query(ProfileQuery {
+                profile: Some("profile-second".into()),
+            }),
         )
         .await
         .unwrap();
-        assert_ne!(cfg.providers.get("sample").unwrap().api_key.as_deref(), Some("sk-second-key"));
+        assert_ne!(
+            cfg.providers.get("sample").unwrap().api_key.as_deref(),
+            Some("sk-second-key")
+        );
 
         let err = get_config(
             State(state.clone()),
-            Query(ProfileQuery { profile: Some("nope".into()) }),
+            Query(ProfileQuery {
+                profile: Some("nope".into()),
+            }),
         )
         .await
         .unwrap_err();
@@ -1777,26 +1985,46 @@ mod tests {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
             stored.version = 7;
-            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
-            stored.assignments.insert("beta".into(), "profile-second".into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored.assignments.insert("beta".into(), assign("profile-second"));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             write_stored(&conn, &stored).unwrap();
         }
-        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
-            .await
-            .unwrap();
+        let Json(v) = sync(
+            State(state.clone()),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap();
         let obj = v.as_object().expect("sync payload is an object");
-        assert_eq!(obj.len(), 2, "exactly {{version, config}}: {obj:?}");
+        assert_eq!(obj.len(), 3, "exactly {{version, config, agents}}: {obj:?}");
         assert_eq!(v["version"], 7);
-        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-default-key");
+        assert_eq!(
+            v["config"]["providers"]["sample"]["apiKey"],
+            "sk-default-key"
+        );
+        assert!(
+            v.get("agents").unwrap().is_null(),
+            "absent subset serializes as null (all agents): {obj:?}"
+        );
 
         // A different sandbox gets a different profile's config — the
         // per-sandbox resolution is the whole point of D8.
-        let Json(v) = sync(State(state), Query(SyncQuery { name: Some("beta".into()) }))
-            .await
-            .unwrap();
-        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-second-key");
+        let Json(v) = sync(
+            State(state),
+            Query(SyncQuery {
+                name: Some("beta".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            v["config"]["providers"]["sample"]["apiKey"],
+            "sk-second-key"
+        );
     }
 
     #[tokio::test]
@@ -1809,23 +2037,41 @@ mod tests {
         {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
-            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta"); // registered but UNassigned
             write_stored(&conn, &stored).unwrap();
         }
         for (label, query) in [
-            ("no name (pre-MGR_SANDBOX_NAME app)", SyncQuery { name: None }),
-            ("unknown sandbox", SyncQuery { name: Some("ghost".into()) }),
-            ("registered, unassigned", SyncQuery { name: Some("beta".into()) }),
+            (
+                "no name (pre-MGR_SANDBOX_NAME app)",
+                SyncQuery { name: None },
+            ),
+            (
+                "unknown sandbox",
+                SyncQuery {
+                    name: Some("ghost".into()),
+                },
+            ),
+            (
+                "registered, unassigned",
+                SyncQuery {
+                    name: Some("beta".into()),
+                },
+            ),
         ] {
             let err = sync(State(state.clone()), Query(query)).await.unwrap_err();
             assert_eq!(err.status, StatusCode::NOT_FOUND, "{label}");
         }
         // The one non-404: assigned and registered.
-        assert!(sync(State(state), Query(SyncQuery { name: Some("alpha".into()) }))
-            .await
-            .is_ok());
+        assert!(sync(
+            State(state),
+            Query(SyncQuery {
+                name: Some("alpha".into())
+            })
+        )
+        .await
+        .is_ok());
     }
 
     #[tokio::test]
@@ -1841,7 +2087,9 @@ mod tests {
             stored.version = 4;
             write_stored(&conn, &stored).unwrap();
         }
-        let second = ProfileQuery { profile: Some("profile-second".into()) };
+        let second = ProfileQuery {
+            profile: Some("profile-second".into()),
+        };
 
         // Invalid PUT (assignment references an unknown provider): 400, and
         // the stored version/config are untouched.
@@ -1861,8 +2109,11 @@ mod tests {
         );
         {
             let conn = state.db.lock().unwrap();
-            assert_eq!(read_stored(&conn).unwrap().version, 4,
-                "failed PUT must not bump the version");
+            assert_eq!(
+                read_stored(&conn).unwrap().version,
+                4,
+                "failed PUT must not bump the version"
+            );
         }
 
         // Valid masked-echo PUT: plaintext survives the merge, version 4→5,
@@ -1877,12 +2128,28 @@ mod tests {
             let stored = read_stored(&conn).unwrap();
             assert_eq!(stored.version, 5);
             assert_eq!(
-                stored.profile("profile-second").unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                stored
+                    .profile("profile-second")
+                    .unwrap()
+                    .config
+                    .providers
+                    .get("sample")
+                    .unwrap()
+                    .api_key
+                    .as_deref(),
                 Some("sk-second-key"),
                 "mask echo restores the plaintext on the handler path"
             );
             assert_eq!(
-                stored.profile(DEFAULT_PROFILE_ID).unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                stored
+                    .profile(DEFAULT_PROFILE_ID)
+                    .unwrap()
+                    .config
+                    .providers
+                    .get("sample")
+                    .unwrap()
+                    .api_key
+                    .as_deref(),
                 Some("sk-default-key"),
                 "a profile edit never bleeds into the other profiles"
             );
@@ -1912,24 +2179,39 @@ mod tests {
         .unwrap();
 
         let stored = read_stored(&conn).unwrap();
-        assert_eq!(stored.version, 5, "version carries over (deep compare tolerates drift)");
+        assert_eq!(
+            stored.version, 5,
+            "version carries over (deep compare tolerates drift)"
+        );
         assert_eq!(stored.profiles.len(), 1);
         assert_eq!(stored.profiles[0].id, DEFAULT_PROFILE_ID);
         assert_eq!(
-            stored.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            stored.profiles[0]
+                .config
+                .providers
+                .get("sample")
+                .unwrap()
+                .api_key
+                .as_deref(),
             Some("sk-legacy-key"),
             "the legacy config IS the default profile's config"
         );
         assert_eq!(
             stored.assignments,
             BTreeMap::from([
-                ("alpha".to_string(), DEFAULT_PROFILE_ID.to_string()),
-                ("beta".to_string(), DEFAULT_PROFILE_ID.to_string()),
+                ("alpha".to_string(), assign(DEFAULT_PROFILE_ID)),
+                ("beta".to_string(), assign(DEFAULT_PROFILE_ID)),
             ]),
             "every pre-existing sandbox keeps pulling exactly what it pulled before"
         );
-        assert!(db::kv_get(&conn, KV_MODELS_LEGACY).unwrap().is_none(), "old key deleted");
-        assert!(db::kv_get(&conn, KV_MODELS).unwrap().is_some(), "new key persisted");
+        assert!(
+            db::kv_get(&conn, KV_MODELS_LEGACY).unwrap().is_none(),
+            "old key deleted"
+        );
+        assert!(
+            db::kv_get(&conn, KV_MODELS).unwrap().is_some(),
+            "new key persisted"
+        );
     }
 
     #[test]
@@ -1958,7 +2240,13 @@ mod tests {
         let again = read_stored(&conn).unwrap();
         assert_eq!(again.assignments.len(), 1, "no double-assignment on re-run");
         assert_eq!(
-            again.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            again.profiles[0]
+                .config
+                .providers
+                .get("sample")
+                .unwrap()
+                .api_key
+                .as_deref(),
             Some("sk-legacy-key")
         );
 
@@ -1967,7 +2255,13 @@ mod tests {
         let rolled_back = read_stored(&conn).unwrap();
         assert_eq!(rolled_back.profiles.len(), 1);
         assert_eq!(
-            rolled_back.profiles[0].config.providers.get("sample").unwrap().api_key.as_deref(),
+            rolled_back.profiles[0]
+                .config
+                .providers
+                .get("sample")
+                .unwrap()
+                .api_key
+                .as_deref(),
             Some("sk-legacy-key")
         );
     }
@@ -1980,7 +2274,9 @@ mod tests {
         // POST create: backend-owned id, version bump.
         let Json(created) = create_profile(
             State(state.clone()),
-            Json(CreateProfileBody { name: "Second".into() }),
+            Json(CreateProfileBody {
+                name: "Second".into(),
+            }),
         )
         .await
         .unwrap();
@@ -1998,7 +2294,10 @@ mod tests {
         let err = put_profile(
             State(state.clone()),
             Path("nope".into()),
-            Json(PutProfileBody { name: None, config: None }),
+            Json(PutProfileBody {
+                name: None,
+                config: None,
+            }),
         )
         .await
         .unwrap_err();
@@ -2020,7 +2319,15 @@ mod tests {
             let stored = read_stored(&conn).unwrap();
             assert_eq!(stored.profile(&second_id).unwrap().name, "Renamed");
             assert_eq!(
-                stored.profile(&second_id).unwrap().config.providers.get("sample").unwrap().api_key.as_deref(),
+                stored
+                    .profile(&second_id)
+                    .unwrap()
+                    .config
+                    .providers
+                    .get("sample")
+                    .unwrap()
+                    .api_key
+                    .as_deref(),
                 Some("sk-second-key")
             );
         }
@@ -2035,14 +2342,15 @@ mod tests {
             assert!(stored.profile(&second_id).is_none());
         }
         // DELETE the last one: refused.
-        let err = delete_profile(
-            State(state.clone()),
-            Path(DEFAULT_PROFILE_ID.into()),
-        )
-        .await
-        .unwrap_err();
+        let err = delete_profile(State(state.clone()), Path(DEFAULT_PROFILE_ID.into()))
+            .await
+            .unwrap_err();
         assert_eq!(err.status, StatusCode::BAD_REQUEST);
-        assert!(err.message.contains("last"), "refusal message: {}", err.message);
+        assert!(
+            err.message.contains("last"),
+            "refusal message: {}",
+            err.message
+        );
     }
 
     #[tokio::test]
@@ -2064,47 +2372,208 @@ mod tests {
         // Assign to the second profile; sync resolves THAT config.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some("profile-second")).unwrap();
+            set_assignment(&conn, "alpha", Some("profile-second"), None).unwrap();
         }
         {
             let conn = state.db.lock().unwrap();
-            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some("profile-second"));
+            assert_eq!(
+                assigned_profile(&conn, "alpha").unwrap().as_deref(),
+                Some("profile-second")
+            );
         }
-        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
-            .await
-            .unwrap();
-        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-second-key");
+        let Json(v) = sync(
+            State(state.clone()),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            v["config"]["providers"]["sample"]["apiKey"],
+            "sk-second-key"
+        );
 
         // Reassign to default: the next pull gets the default config.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some(DEFAULT_PROFILE_ID)).unwrap();
+            set_assignment(&conn, "alpha", Some(DEFAULT_PROFILE_ID), None).unwrap();
         }
-        let Json(v) = sync(State(state.clone()), Query(SyncQuery { name: Some("alpha".into()) }))
-            .await
-            .unwrap();
-        assert_eq!(v["config"]["providers"]["sample"]["apiKey"], "sk-default-key");
+        let Json(v) = sync(
+            State(state.clone()),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            v["config"]["providers"]["sample"]["apiKey"],
+            "sk-default-key"
+        );
 
         // Unknown profile: 404, assignment unchanged.
         let err = {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", Some("nope")).unwrap_err()
+            set_assignment(&conn, "alpha", Some("nope"), None).unwrap_err()
         };
         assert_eq!(err.status, StatusCode::NOT_FOUND);
         {
             let conn = state.db.lock().unwrap();
-            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some(DEFAULT_PROFILE_ID));
+            assert_eq!(
+                assigned_profile(&conn, "alpha").unwrap().as_deref(),
+                Some(DEFAULT_PROFILE_ID)
+            );
         }
 
         // Unassign: assigned_profile is None again and sync 404s.
         {
             let conn = state.db.lock().unwrap();
-            set_assignment(&conn, "alpha", None).unwrap();
+            set_assignment(&conn, "alpha", None, None).unwrap();
         }
-        let err = sync(State(state), Query(SyncQuery { name: Some("alpha".into()) }))
-            .await
+        let err = sync(
+            State(state),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err.status,
+            StatusCode::NOT_FOUND,
+            "unassigned = keep-local 404"
+        );
+    }
+
+    // --- S2: agent-subset assignment (D4c) ---
+
+    #[test]
+    fn legacy_bare_string_assignment_reads_as_all_agents() {
+        // AC4: a pre-S2 kv payload (`{"<sbx>": "<profile-id>"}`) must parse
+        // to `agents: None` = every agent renders, profile preserved.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        db::kv_set(
+            &conn,
+            KV_MODELS,
+            &serde_json::to_string(&json!({
+                "version": 3,
+                "profiles": [ { "id": DEFAULT_PROFILE_ID, "name": "Default",
+                                "config": sample_config("sk-key-abcdef") } ],
+                "assignments": { "alpha": DEFAULT_PROFILE_ID }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let stored = read_stored(&conn).unwrap();
+        let a = stored.assignments.get("alpha").expect("alpha assigned");
+        assert_eq!(a.profile.as_deref(), Some(DEFAULT_PROFILE_ID));
+        assert_eq!(
+            a.agents, None,
+            "bare-string legacy value => None (all agents), AC4"
+        );
+    }
+
+    #[test]
+    fn set_assignment_rejects_unknown_agent_and_accepts_subset() {
+        // Whiltelist: an agent outside VALID_AGENTS is 400, store untouched.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        {
+            let conn = &conn;
+            let mut stored = two_profiles();
+            write_stored(conn, &stored).unwrap();
+            let err = set_assignment(
+                conn,
+                "alpha",
+                Some(DEFAULT_PROFILE_ID),
+                Some(&["pi".to_string(), "skynet".to_string()]),
+            )
             .unwrap_err();
-        assert_eq!(err.status, StatusCode::NOT_FOUND, "unassigned = keep-local 404");
+            assert_eq!(err.status, StatusCode::BAD_REQUEST);
+            assert!(err.message.contains("unknown agent"), "{}", err.message);
+            assert_eq!(read_stored(conn).unwrap().version, 1, "rejected write");
+        }
+        // A valid subset persists agents Some(["pi","opencode"]).
+        set_assignment(
+            &conn,
+            "alpha",
+            Some(DEFAULT_PROFILE_ID),
+            Some(&["pi".to_string(), "opencode".to_string()]),
+        )
+        .unwrap();
+        let stored = read_stored(&conn).unwrap();
+        assert_eq!(
+            stored.assignments.get("alpha").unwrap().agents.as_deref(),
+            Some(["pi".to_string(), "opencode".to_string()].as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_payload_carries_agents_and_empty_agents_404s() {
+        // AC2/AC3 wire contract: sync returns `agents` alongside version+config
+        // for a subset; Some([]) (zero agents) behaves like unassigned → 404
+        // so the sandbox keeps local (AC3).
+        let state = mgr_state();
+        {
+            let conn = state.db.lock().unwrap();
+            register_sandbox(&conn, "alpha");
+            register_sandbox(&conn, "beta");
+            let mut stored = two_profiles();
+            stored
+                .assignments
+                .insert("alpha".into(), assign_agents(DEFAULT_PROFILE_ID, &["pi", "opencode"]));
+            stored
+                .assignments
+                .insert("beta".into(), assign_agents(DEFAULT_PROFILE_ID, &[]));
+            write_stored(&conn, &stored).unwrap();
+        }
+        // Subset sandbox: agents travels as an array.
+        let Json(v) = sync(
+            State(state.clone()),
+            Query(SyncQuery {
+                name: Some("alpha".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(v["agents"], json!(["pi", "opencode"]));
+
+        // Zero-agent sandbox: 404 = keep local (AC3).
+        let err = sync(
+            State(state),
+            Query(SyncQuery {
+                name: Some("beta".into()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND, "Some([]) = keep-local 404");
+    }
+
+    #[test]
+    fn assigned_profile_helpers_agree_with_subset() {
+        // `assignment` (used by sandbox_json) exposes BOTH profile and agents;
+        // the full-assignment case keeps the id lookback in sync with
+        // `assigned_profile` for the same row.
+        let conn = mem_db();
+        register_sandbox(&conn, "alpha");
+        write_stored(&conn, &two_profiles()).unwrap();
+        set_assignment(
+            &conn,
+            "alpha",
+            Some("profile-second"),
+            Some(&["claude".to_string()]),
+        )
+        .unwrap();
+        let a = assignment(&conn, "alpha").unwrap().unwrap();
+        assert_eq!(a.profile.as_deref(), Some("profile-second"));
+        assert_eq!(a.agents.as_deref(), Some(["claude".to_string()].as_slice()));
+        assert_eq!(
+            assigned_profile(&conn, "alpha").unwrap().as_deref(),
+            Some("profile-second")
+        );
     }
 
     #[tokio::test]
@@ -2118,8 +2587,8 @@ mod tests {
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             let mut stored = two_profiles();
-            stored.assignments.insert("alpha".into(), DEFAULT_PROFILE_ID.into());
-            stored.assignments.insert("beta".into(), "profile-second".into());
+            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored.assignments.insert("beta".into(), assign("profile-second"));
             write_stored(&conn, &stored).unwrap();
         }
         let bulk = {
@@ -2129,11 +2598,23 @@ mod tests {
         assert_eq!(bulk.len(), 2);
         {
             let conn = state.db.lock().unwrap();
-            assert_eq!(assigned_profile(&conn, "alpha").unwrap().as_deref(), Some(DEFAULT_PROFILE_ID));
-            assert_eq!(assigned_profile(&conn, "beta").unwrap().as_deref(), Some("profile-second"));
+            assert_eq!(
+                assigned_profile(&conn, "alpha").unwrap().as_deref(),
+                Some(DEFAULT_PROFILE_ID)
+            );
+            assert_eq!(
+                assigned_profile(&conn, "beta").unwrap().as_deref(),
+                Some("profile-second")
+            );
         }
-        assert_eq!(bulk.get("alpha").map(String::as_str), Some(DEFAULT_PROFILE_ID));
-        assert_eq!(bulk.get("beta").map(String::as_str), Some("profile-second"));
+        assert_eq!(
+            bulk.get("alpha").map(|a| a.profile.as_deref()),
+            Some(Some(DEFAULT_PROFILE_ID))
+        );
+        assert_eq!(
+            bulk.get("beta").map(|a| a.profile.as_deref()),
+            Some(Some("profile-second"))
+        );
     }
 
     // --- discover pure helpers (app parity) ---
@@ -2167,15 +2648,23 @@ mod tests {
     #[test]
     fn build_headers_by_protocol() {
         let h = build_headers("openai-completions", Some("sk-test1234"), &BTreeMap::new());
-        let auth = h.iter().find(|(n, _)| n.eq_ignore_ascii_case("authorization"));
+        let auth = h
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("authorization"));
         assert_eq!(auth.map(|(_, v)| v.as_str()), Some("Bearer sk-test1234"));
 
         let h = build_headers("anthropic-messages", Some("sk-ant-xx"), &BTreeMap::new());
-        assert!(h.iter().any(|(n, v)| n == "anthropic-version" && v == "2023-06-01"));
-        assert!(h.iter().all(|(n, _)| !n.eq_ignore_ascii_case("authorization")));
+        assert!(h
+            .iter()
+            .any(|(n, v)| n == "anthropic-version" && v == "2023-06-01"));
+        assert!(h
+            .iter()
+            .all(|(n, _)| !n.eq_ignore_ascii_case("authorization")));
 
         let h = build_headers("openai-completions", None, &BTreeMap::new());
-        assert!(h.iter().all(|(n, _)| !n.eq_ignore_ascii_case("authorization")));
+        assert!(h
+            .iter()
+            .all(|(n, _)| !n.eq_ignore_ascii_case("authorization")));
     }
 
     #[test]
@@ -2214,12 +2703,21 @@ mod tests {
     #[test]
     fn extract_response_text_variants() {
         assert_eq!(
-            extract_response_text(r#"{"choices":[{"message":{"content":"OK"}}]}"#, "openai-completions"),
+            extract_response_text(
+                r#"{"choices":[{"message":{"content":"OK"}}]}"#,
+                "openai-completions"
+            ),
             "OK"
         );
-        assert_eq!(extract_response_text(r#"{"output_text":"OK"}"#, "openai-responses"), "OK");
         assert_eq!(
-            extract_response_text(r#"{"content":[{"type":"text","text":"OK"}]}"#, "anthropic-messages"),
+            extract_response_text(r#"{"output_text":"OK"}"#, "openai-responses"),
+            "OK"
+        );
+        assert_eq!(
+            extract_response_text(
+                r#"{"content":[{"type":"text","text":"OK"}]}"#,
+                "anthropic-messages"
+            ),
             "OK"
         );
         assert_eq!(extract_response_text("not json", "openai-completions"), "");
@@ -2305,7 +2803,10 @@ mod tests {
         // the test runner).
         if std::env::var("MGR_PI_MODELS_FILE").is_err() {
             let p = pi_models_path();
-            assert!(p.ends_with(".pi/agent/models.json"), "default is $HOME-relative");
+            assert!(
+                p.ends_with(".pi/agent/models.json"),
+                "default is $HOME-relative"
+            );
         }
     }
 

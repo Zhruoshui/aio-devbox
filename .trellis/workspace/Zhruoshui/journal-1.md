@@ -730,3 +730,476 @@ URL 完全一致,移除过滤,adopted 沙箱进入 usage 汇总)。
 
 [OK] Phase 5 完成,PR #14 已开。留宿主机: 浏览器 A1/A2/A9 人工目视验收
 (mgr-web 导入向导交互、adopted 卡片徽标、删除确认交互)。
+
+## Session 5: S1 创建向导重构——服务四开关 + 场景四层分组
+
+**Date**: 2026-09-10
+**Task**: 09-10-mgr-create-services (S1,父 09-10-mgr-web-ux-batch2 D1/D2)
+
+### Summary
+
+S1 完成: create/edit API + 前端向导新增服务四开关(code-server/vnc/pi/
+pi-web),场景选择按 L1-L4 四层分组 + description;jobs/composegen 按开关
+条件化构建。关键设计修正: pi/pi-web 原本是 always_on(issue #8 必装基线),
+父 PRD D1 授权翻转为可选场景,否则默认全开创建直接 400。AC1-AC5 全过:
+向导形态/徽章列表(puppeteer 实机)、无服务组合 compose+镜像省略、pi-web
+依赖联动+400、旧沙箱 sbx-111 回归、361 测试全绿。
+
+### Main Changes
+
+- mgr/src/db.rs: sandboxes.services_json 列(code_server/vnc 两布尔 + 迁移
+  守卫);NULL→全开读取;Services 逐字段 serde default(部分 JSON 不全 false)
+- mgr/src/routes.rs: normalize_services 折叠 pi/pi-web 进 env.scenarios
+  (单源真值),pi_web 强制依赖 pi+vnc(两者缺一 400,R1/AC3);PUT 用当前行
+  形状重折叠(installed_services_of,NULL→四键全开)保 pre-S1 行不静默剥
+  服务;service_start 未装→400
+- mgr/src/{jobs,docker,composegen}.rs: code_server=false 跳过 cs 镜像与
+  compose 段;vnc=false 不进 compose/up profiles;UP_PROFILES const →
+  up_profiles(include_vnc);修 code_server_block {short} 字面量 bug
+  (原 const 永不替换 → docker invalid reference format)
+- scenarios/{pi,pi-web}: always_on true→false;config/src 注释同步
+  (现存 always_on 仅 node/python)
+- mgr-web: ServicesPicker 新组件(四开关+pi-web 联动+只读徽章)、EnvPicker
+  四层分组+description、列表/编辑服务徽章、12 个 i18n 键
+
+### Review Gate (trellis-check)
+
+step5 后 review: 18 文件对 5 spec,10 处问题全修。P0: ①向导复选框失效
+(标签当 key 传 set);②PUT 静默掉 pi/pi-web(pre-S1 行推导成未装→重建丢
+服务,AC4 回归);③列表/详情 pre-S1 显 false;④pi_web 校验不对称
+(只查 vnc 不查 pi)→ !b.pi || !b.vnc。修复后单测 358→361。实机复核:
+sbx-111 installed_services 四键全开、向导复选框翻转/pi-web 联动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e519a91` | feat(mgr): 创建向导服务四开关 + 场景四层分组 (S1) |
+| `87eaae9` | docs(spec): S1 服务开关契约落 spec 三份 |
+
+### Testing
+
+- [OK] cargo test --workspace: 361 绿(aio-mgr 215 含 9 个 S1 单测)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [OK] 实机(重建部署后): AC1 向导/徽章结构 + 复选框交互 + pi-web 联动;
+  AC2 svcoff/svcfresh compose 无服务段+无 cs 镜像;AC3 400;AC4 sbx-111
+  列表/installed_services 全开
+- [留宿主机] 浏览器目视: 新建向导整体观感、列表徽章视觉
+
+### Status
+
+[OK] S1 完成归档。旁支 S3(images-manage)/模型指派/usage 图表等仍在规划。
+
+## Session 6: S2 模型配置重构——agent 指派三层结构 (D4)
+
+### Summary
+
+cc-switch 心智重构落地:全局供应商库(不变)× profile × agent 卡片式指派 →
+沙箱指派 profile + agent 子集,只渲染勾选的 agent。三层结构本已存在,
+本次补「agent 子集」维度 + 卡片化 UI + 渲染过滤。
+
+### Main Changes
+
+- **mgr 数据模型**: `assignments` 值从裸字符串升级为 `StoredAssignment
+  {profile, agents}`;反序列化兼容旧 `{"<sbx>": "<profile-id>"}`(= agents
+  None 全指派,AC4);`agents` 语义 None=全指派/[]=零指派(拉取 404 → 保持
+  本地,AC3)/[names]=精确子集。`VALID_AGENTS` 白名单(未知 agent 400)。
+  `set_assignment/assignment/read_assignments` 适配;`assigned_profile`
+  降为测试锚点。
+- **mgr API**: `PUT /:name/model_profile` body 增 `agents`(整份替换语义);
+  `sandbox_json` 增 `model_agents`;`GET /api/models/sync` payload 增
+  `agents`,零指派 → 404。
+- **app 同步**: `SyncPayload` 增 `#[serde(default)] agents`(旧 mgr 兼容);
+  差异判定扩展 config+子集(子集变了也重渲染,`last_agents` 存 loop 状态);
+  `apply_selected_agents` 过滤渲染——四个 renderer 零改动(R4);
+  `apply_all_agents` 变 None 路径别称(测试锚点)。Some([]) 零指派在
+  mgr 端就 404,app 端保持本地。
+- **前端**: 新组件 `AgentAssignControl`(四 agent 复选,null=全选);EditPage
+  指派含 agent 勾选;SandboxListPage profile chip → 快捷指派 popover(子集
+  摘要 `pi+2`);Models 页 pi/opencode tab 供应商卡片墙(点卡=激活,active
+  高亮)。types/api 增 `model_agents`。
+- **spec**: api-contracts model_profile 契约 + sandbox-mgr-ops 契约 7 全量
+  更新 agents 子集语义与回滚注意(旧代码读新形状 kv 失败)。
+
+### Key Findings
+
+- 界面 429 配额:子代理 trellis-implement ×3 全部 API 限额失败 → 主会话
+  内联实现,安全兜底。
+- 会话前工作区已有 app 端 mgr_sync/mod.rs 的 S2 改动(apply_selected_agents
+  等),经核验完整且 223 测试全绿——只需补 mgr 端、前端集成与 spec。
+- 前端 PUT 的「整份替换」陷阱:agents 省略会触发后端 serde default 放大
+  为全指派——EditPage 始终携带 origAgents。
+- `apply_all_agents` 无生产引用了 → 标 `#[cfg(test)]` 消除 dead_code。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `20d6831` | feat(mgr): S2 模型配置 agent 指派三层结构 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-mgr: 88 绿(含 4 个 S2 新测:旧 payload 迁移/白名单/
+  sync agents+Some([])404/subset helper)
+- [OK] cargo test -p aio-app: 223 绿(含既有 mgr_sync 子集/渲染过滤测试)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] 实机 AC2/AC3 链路(沙箱 A 指派 + 仅 pi/opencode → 60s 内
+  ~/.pi 更新、~/.claude 不动;零指派 → 本地完全不动)
+
+### Next Steps
+
+- S1→S3 数据链路(S3 images-manage 依赖组合清单字段)等旁支仍在规划。
+- 模型指派 UI 的浏览器目视复核留宿主机。
+### Status
+
+[OK] S2 实现+检查+spec 更新完成,已提交 `20d6831`(task 仍 in_progress,
+待实机 AC 后归档)。
+
+## Session 7: S3 镜像页增强——组合说明 + 删除 + 一键清理 (D3)
+
+### Summary
+
+images 表从只读列表升级为可管理:每镜像显示组合清单+体积,支持删除未引用
+镜像组(异步 job)与一键清理(含构建缓存)。
+
+### Main Changes
+
+- **db**: images 表幂等增 combo 列(pragma 迁移,仿 services_json 范式);
+  upsert_image 5 参(combo,ON CONFLICT COALESCE 不覆盖旧描述);
+  list_images 返回 combo;新增 delete_image_row
+- **envhash**: describe_combo(env, services)——场景+版本+服务开关可读描述。
+  关键发现:db::Services 仅含 cs/vnc,**pi/pi-web 是 scenario**(S1
+  normalize_services 折叠进 env.scenarios),须从 scenarios 推导
+- **docker**: image_rmi(is_owned_image_tag 白名单,仅 sandbox- 前缀,防误删
+  宿主镜像)/image_size/builder_prune 三原语
+- **jobs**: spawn_image_delete(预检 refcount>0=409 + job 内重查兜底 + 三 tag
+  顺序 rmi + 全成功才删行 + 失败保行 R5 不半删 + 不碰全局共享 vnc);
+  spawn_image_cleanup(refcount=0 逐行删组 + builder prune + 回收 bytes 汇总)
+- **routes**: GET /api/images 增 combo+size_bytes(实时 inspect 失败 null);
+  POST /:env_hash/delete 与 /cleanup 走 202+job(迭代 Jobs 任务);
+  env_hash 64-hex 校验
+- **前端**: ImagesPage 加组合/体积列、行删(refcount>0 disabled+title)、
+  一键清理、内联 job 轮询、confirm;Image/Job 类型扩
+
+### Key Findings
+
+- 先写了 describe_combo 5 布尔签名后撞上 db::Services 只有 cs/vnc 的事实
+  → 改为 &Services + scenarios 推导,测试断言同步修正。
+- list_images 返回类型变化连累 routes 消费处一一适配。
+- cleanup 的回收 bytes 统计放进 run_image_delete 返回值(rmi 前逐个 size),
+  避免 rmi 后 inspect 失败。
+- ImagesPage 删除用内联 job 轮询(不整页跳 JobView,页内保留进度)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba68d3d` | feat(mgr): S3 镜像页组合说明 + 删除 + 一键清理 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-mgr: 92 绿(新增 combo 迁移/describe_combo/docker
+  白名单/delete_image_row 等)
+- [OK] cargo test -p aio-app: 223 绿(未受影响)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] make mgr-up 重建后 AC1-AC4 目视:组合+体积显示、禁用态原因、
+  docker images 真删、清理分列报告
+
+### Next Steps
+
+- S4 usage 图表/S5 侧栏折叠仍在规划。
+- S3 实机 AC 复核留宿主机(S2 亦同)。
+### Status
+
+[OK] S3 实现+检查+spec 更新完成,已提交 `ba68d3d`(task 仍 in_progress,
+待实机 AC 后归档)。
+
+## Session 8: S4 用量图表——分沙箱条形 + 按天趋势 (D5)
+
+### Summary
+
+用量页补两图+时间维度:合计视图加「分沙箱」横向条形(点条跳沙箱视图);
+单沙箱视图加「近 14 天趋势」(token 双系列柱 + 成本折线);明细表加日期
+列 + 按日筛选(独立于窗口 chip)。
+
+### Main Changes
+
+- **app usage.rs byDay**: 新增 `DayUsage`/`UsageScan` 结构、`day_label`/
+  `build_14_day_series` 纯函数;四个扫描器返回 `UsageScan{rows, by_day}`,
+  **日桶累加移到 window cutoff 之前**(S4 关键语义:byDay 与窗口解耦);
+  handler 合并日桶后按 `now_day-13..=now_day` 裁剪(修掉初版把 `_now_secs`
+  弃用、today/7d 窗口截断趋势、all 窗口吐全史的 bug);无数据日不发合成行
+  (前端 gap-fill)。cache 增 by_day。
+- **mgr usage.rs**: 新增 `assemble_totals(entries)` 纯函数——对非 error
+  entry 的 `usage.rows` sum in/out/cost(cost 缺失→0),error entry 全 0;
+  GET /api/usage 响应增 `totals`。不入缓存(由 30s 缓存的 entries 派生)。
+- **前端**: types.ts 增 `DayUsage`/`SandboxTotal` + byDay/totals 解码
+  (旧后端缺字段→undefined 降级);charts.tsx 增 `SandboxBars`(点击条跳沙箱、
+  hasCost 着色区分)+ `DayTrend`(SVG 柱状双系列 + 成本 polyline,无成本不画,
+  gap-fill 14 天);UsagePage 增沙箱条形(合计视图)、按天趋势(单沙箱)、
+  日期列+筛选;切沙箱重置筛选。i18n 5 个新 key + CSS。
+
+### Key Findings
+
+- 初版 `build_14_day_series` 把 `now_secs` 命名为 `_now_secs` 弃用——裁剪
+  逻辑根本没写;且四扫描器 day 桶累加都在 `if t < cutoff { continue }` 之后,
+  违反 design §1.2「恒定 14 天、与窗口解耦」。修复 = 累加前置 + `[today-13,
+  today]` 字符串裁剪(`YYYY-MM-DD` 字典序即日序)。
+- **DayTrend 初版漏渲染 `{bars}`**(只 push 不画)——bar 数组构建了但 JSX
+  从未输出,检查 prd 的「柱状双系列」时发现。已补。
+- JSON 数字比较坑:mgr 测试 `assert_eq!(json["cost"], 0)` 时 `Number(0.0)`
+  ≠ 整数 0,须 `as_f64()`。
+- 前端日期跨度用浏览器 UTC 计算(`Date.UTC`),与后端 UTC 裁剪一致;跨时区
+  时按用户视角呈现(可接受)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38dad12` | feat(mgr): S4 用量图表 byDay + 分沙箱条形 + 按天趋势 (09-10) |
+
+### Testing
+
+- [OK] cargo test -p aio-app: 226 绿(新增 day_label/build_14_day_series/
+  pi_scan by_day 3 测)
+- [OK] cargo test -p aio-mgr: 94 绿(新增 assemble_totals 2 测)
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [留宿主机] make mgr-up 重建后 AC1-AC4 目视:条形跳转、趋势数据与明细一致、
+  日期筛选、无成本降级
+
+### Next Steps
+
+- S5 侧栏折叠仍在规划(09-10-mgr-sidebar-collapse)。
+- S4 实机 AC 复核留宿主机(S2/S3 亦同,一批复核)。
+### Status
+
+[OK] S4 实现+检查+spec 更新完成,已提交 `38dad12`(task 仍 in_progress,
+待实机 AC 后归档)。
+
+## Session 9: S5 侧栏折叠——图标栏 + hover flyout (D6)
+
+### Summary
+
+两处折叠最大化工作区:App 侧栏可折叠为 48px 图标栏;WorkspacePage 的
+SandboxTree 可折叠为竖向首字母图标条 + hover flyout。两折叠独立记忆。
+
+### Main Changes
+
+- **App 侧栏折叠 (R1)**: `App.tsx` 增 `sidebarCollapsed` state,键
+  `mgr.sidebarCollapsed`(localStorage);`.sidebar.collapsed` 宽 48px,隐藏
+  `.sb-title/.launch-label/.sb-group-label`,折叠态隐藏 brand 图标、collapse
+  按钮居中(chev-l/chev-r 翻转);展开态完全不变(AC4)。
+- **SandboxTree 折叠 (R2/R3)**: `WorkspacePage` 增 `treeCollapsed` state,
+  键 `mgr.treeCollapsed`(R4 两键互不影响);SandboxTree 增
+  `collapsed`/`onCollapseToggle` props + 折叠分支:每沙箱一个首字母圆
+  (`.ws-cavatar`,stopped 置灰),hover(`onMouseEnter`/`onMouseLeave` 挂
+  `.ws-cnode`)弹 `.ws-flyout` 浮层(绝对定位贴右侧),flyout 内按钮组
+  = 展开态 `buttonsOf` 同源(manifest 探测一致),stopped 沙箱按钮置灰 +
+  start 按钮(flyout footer),register 按钮;点击 launch **不关闭** flyout
+  (React mouseleave 看整个 DOM subtree,flyout 是 node child)。
+- **R5 翻转**: `@media (max-width: 560px)` flyout 左开(`right: 100%`)。
+- **CSS**: `.ws-cnode/.ws-cavatar/.ws-flyout/.ws-tree.collapsed` 全套,
+  flyout `max-height: 70vh + overflow-y auto`;折叠 rail 顶 collapse 按钮
+  (展开态居右、折叠态居中)。
+- **i18n**: `collapse/expandSidebar` + `collapse/expandTree` 双语言。
+- **spec**: directory-structure.md 补 App/sidebar 与 SandboxTree 折叠说明。
+
+### Key Findings
+
+- 折叠态 avatar 点击语义:最初 `onToggle`(展开树节点)在折叠态无意义,
+  改为 `onCollapseToggle`(展开整个树)——折叠态下一格即整栏。
+- flyout 点击保持的关键:React `onMouseLeave` 只在指针**离开整个子树**
+  时触发;flyout 作为 `.ws-cnode` 的 DOM child,鼠标从 avatar 移入 flyout
+  不触发关闭(连续开多个 pane)。
+- 折叠态 `.sb-head` 有 brand + collapse 两元素会挤出 48px——折叠态
+  隐藏 brand,让 collapse 按钮独占居中。
+- vnc 容器在 `container:` netns,与 aio-mgr-net 的 mgr-api 异网,wget 亦缺,
+  浏览器验证走不通 → 依 S2/S3/S4 惯例留宿主机目视。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `849cb9b` | feat(mgr): S5 侧栏折叠图标栏 + 沙箱树 flyout (09-10) |
+
+### Testing
+
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build
+- [静态审查] flyout hover/点击语义、stopped 置灰、两折叠键隔离、展开态
+  回归(折叠分支与展开分支完全 parallel)
+- [留宿主机] make mgr-up 重建后 AC1-AC5 目视:折叠/刷新保持、flyout
+  hover+连续开 pane、stopped 启动入口、展开态回归、窄屏翻转
+
+### Next Steps
+
+- S1-S5 五子任务全部完成,待宿主机一批实机 AC 后归档(batch2 父任务
+  跨子任务验收)。
+- S5 实机复核留宿主机。
+### Status
+
+[OK] S5 实现+检查+spec 更新完成,已提交 `849cb9b`(task 仍 in_progress,
+待实机 AC 后归档)。
+
+## Session 10: mgr-web 原型重构 S6 —— 模型配置页新形态
+
+### Summary
+
+按 docs/Web-Prototype/models.html 重构模型配置页：profile 分段条 + 五
+tab 新形态；供应商卡片墙 + 编辑抽屉；agent tabs 双栏（model-opt 单选 /
+preset 卡片 + 生效沙箱表）。API 契约零改动。
+
+### Main Changes
+
+- **CSS (styles.css ~680 行 diff)**：删除被接管的 .ml-profile-bar/.ml-tabs/
+  .ml-grid/.ml-card/.ml-badge/.ml-scrim/.ml-drawer/.ml-agent/.ml-form-card/
+  .ml-savebar/.ml-preset-card/.ml-model-picker/.ml-model-trigger/
+  .ml-sec-head 等旧类；新增原型类 .profile-bar/.sec-head/.sec-acts/.pv-grid/
+  .pv/.drawer(.scrim/.sheet)/.strip/.two/.assign/.model-opt/.savebar/.sbx-tbl/
+  .preset/.mtable；保留共用类（.ml-loading/.ml-hint/.ml-table/.ml-model-row/
+  .ml-test-pill/.ml-chip/.ml-mgr-note/.ml-warn-strip/.ml-preset-form*/.ml-dirty/
+  .ml-msg/.ml-json-area/.ml-section-title/.ml-dgroup）。
+- **ModelsPage**：profile-bar（.segmented 计数 + rename/del icon-btn + 新建
+  ghost + 未指派 hint）；拉全量 sandbox 列表（计数/hint/SandboxTable 共用，
+  tab 切换时刷新）；.tabs role=tablist + providers 计数；新增
+  handleToggleSandboxAgent（PUT model_profile，null=all 编解码）+
+  handleDiscardAssignment（重拉 config 清 dirty）；onGoList prop 接 App。
+- **ProviderGrid**：.pv 卡片按钮（协议 badge/mono url/模型 chips 上限 12 +
+  溢出计数/密钥状态/used-by 行）；尾部 .pv.add 幽灵卡；删除/编辑入口全部
+  收进 drawer（grid 上的 hover 动作删除）。
+- **ProviderEditor**：.drawer>.scrim+.sheet 三段结构（sheet-head/body/foot）；
+  字段迁移 .field/.input/.field-row/.input-wrap；发现模型 modal 与测试 pill/
+  catalog fill 全保留；Escape/scrim 关闭。
+- **AgentTabs**：.strip 增量式说明 + .two 双栏；左栏 .assign「当前指向」
+  model-opt 单选组（全库 provider×model 平铺 + 成本/推理 meta）+ savebar
+  （dirty/放弃/保存）；右栏 SandboxTable。
+- **PresetList**：.strip 切换式说明 + .two；左栏 .preset 卡片（current 高亮
+  环 + badge-ok 当前 + kv extras + 切换/复制/编辑/删除）+ 内联 PresetForm；
+  右栏 SandboxTable。
+- **SandboxTable (新)**：生效沙箱表——mine 行 .switch 勾选 agent 子集（立即
+  PUT，~1min 生效）；其他 profile 行「切到」按钮（切 profileId 不动数据）；
+  未指派行「去指派」→ onGoList。
+- **i18n**：新增 30 键 ×2 语言（mpSegHint 系/maStrip*/maSbxTbl 系/
+  mcKeyConfigured 系）。
+- **杂项**：ModelPicker.tsx 删除（model-opt 取代）；ImagesPage 的
+  .ml-sec-actions → .sec-acts；types.ts 增 protocolBadge()。
+
+### Key Findings
+
+- 原型 usedBy 跨 profile 计算需要所有 profile 的 config，而 mgr 的 config
+  API 按 profile 拉取——降级为「当前 profile 的 agent 对 + 其他 profile
+  计数」提示，数据语义不损。
+- model_agents null = 全部四 agent 的 wire 语义在 toggle 时要解码再编码：
+  全选回写 null（canonical all），空集写 []（拉取后完全不变）。
+- .kv 网格 dt/dd 必须平铺交替（flatMap [dt,dd]），分两组 map 会破坏
+  grid-template-columns: auto 1fr 的配对。
+- profile-bar 的 segmented 计数用 sandbox 列表现算而非 profile.assigned
+  （两者只在 4s 轮询窗口内可能不一致，展示一致性更好）。
+
+### Testing
+
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build 通过（3 次，含 App 接线后）
+- [OK] git diff 确认 api.ts / types.ts 零改动（无后端契约变化）
+- [OK] 无残留 .ml-* 死引用（grep 全 tsx）；新 CSS 无硬编码色（仅原型原样
+  的 oklch(0 0 0) scrim/阴影）
+- [留宿主机] make mgr-up 后目视：profile 切换/重命名/删除、供应商抽屉
+  编辑+发现+测试、agent tab 指派+生效沙箱开关、preset 切换、双语切换
+
+### Next Steps
+
+- S7：其余 5 页套壳（JobView/Images/Usage/Adopt/Edit）+ 原型文件入库 +
+  全站验收 + spec 更新 + 提交。
+
+## Session 11: mgr-web 原型重构 S7 —— 全站套壳 + 构建验收 + 入库收尾
+
+### Summary
+
+原型重构最后一步：其余 5 页（JobView/Images/Usage/Adopt/Edit）套 .page
+脚手架 + 组件层类；styles.css 退役被 components.css 接管的旧类（净删
+~400 行）；原型设计基准 7 文件入库 docs/Web-Prototype/；全站实机截图
+验收（14 张，深/浅色 × 中/英，零 console 错误）；spec 三份更新 + 提交。
+
+### Main Changes
+
+- **JobView**：.job-head 退役 → .page-head（h1 + #id/sandbox mono sub +
+  .page-actions 放 spinner/ok/danger badge）；主体保留 .job 列（横幅 +
+  日志尾随 + 返回）。
+- **ImagesPage**：.img-table 退役 → .card.card-pad 包共享 .table（右对齐
+  数字列 .r）；页头沿用组件层。
+- **UsagePage**：窗口切换 → .segmented、沙箱选择器 → button.chip
+  （.is-selected 沿用 segmented 的 lifted 态）；按天明细 select 换
+  .input.sm；仅图表区页面局部样式保留。
+- **AdoptPage / EditPage**：表单控件全部换 .input + .field.invalid/.err
+  组件层标准（.field-error 退役，RegisterDialog 条件告警保留）；
+  EditPage 页头换 h1+mono name sub、加载态 .ml-loading。
+- **styles.css**：+41/−443——退役 .sidebar 壳（S2 rail 已接管）、裸
+  .field input 覆盖（S1 risk1 遗留）、.badge/.dot 旧副本、job-head、
+  img-table、pre-S3 .ws-node 族；页面注释标明退役去向。
+- **原型入库**：docs/Web-Prototype/ 7 文件（5 HTML + mgr-web.css +
+  mgr-shell.js）随本次提交进仓库，作为设计基准。
+- **spec**：frontend/index.md（rail+panel shell、components.css/icons/
+  NodeMenu、.page 脚手架）、directory-structure.md（目录树重写 + CSS
+  分层/脚手架/弹层三条约定）、component-guidelines.md（组件层优先 +
+  弹层统一契约 + 图标/i18n 门两节）。
+
+### Key Findings
+
+- mgr.localhost 实机验收通道：aio-vnc-1（app netns）与 mgr 网隔离、
+  host.docker.internal 不通，但**宿主桥网关 172.20.0.1 可达 mgr gateway
+  发布的 80 口**——chromium `--host-resolver-rules="MAP mgr.localhost
+  172.20.0.1"` + puppeteer 即可全站截图，无需重建镜像（热部署走
+  tar 流覆盖 mgr-api /app/static）。
+- Read 工具读 PNG 在本环境会上传 CDN——配 mcp analyze_image（远程 URL）
+  做视觉验收，闭环成立。
+- 工作区终端窗格由保存布局自动恢复（布局持久化键未受 shell 重构影响），
+  验收脚本不必显式开终端。
+- 列表页 devv 沙箱的镜像名截断/未知状态 badge/错误态仍可「进入」均为
+  该沙箱自身数据状态（error 状态卡），非本轮回归，不在 S7 范围。
+
+### Testing
+
+- [OK] mgr-web: npm run build（tsc --noEmit && vite build）通过
+- [OK] 全站 14 截图验收（工作区/列表/镜像/模型/用量 × 深色中文，编辑/
+  导入/树展开/筛选运行中，浅色英文 ×3）：布局、rail 激活态、badge、
+  表格、空态、终端窗格恢复全部正常
+- [OK] puppeteer console/pageerror/requestfailed 全程零错误
+- [OK] i18n 双语门：t() keyof Strings 强类型，build 过 = 双语齐
+- [OK] git diff 无 api.ts/types.ts/后端改动（契约零变化）
+- [未验] JobView 运行态截图（需真实 job 触发；改动仅页头重构，构建 +
+  组件类他页已验）
+
+### Next Steps
+
+- 任务收尾（trellis finish-work：归档 09-11-mgr-web-prototype-redesign）。
+
+
+## Session 4: mgr-web 原型重构收尾 —— S7 提交 + 任务归档
+
+**Date**: 2026-09-14
+**Task**: mgr-web 原型重构收尾 —— S7 提交 + 任务归档
+**Branch**: `main`
+
+### Summary
+
+上会话 S7（其余五页套壳/styles 旧类退役/原型入库/spec 三份）改动一直挂在工作树未提交。本会话验证构建（tsc+vite 全绿、无调试残留）后提交 46d0332，归档 09-11-mgr-web-prototype-redesign。batch2 四个子任务（S2-S5）PRD 验收框均未勾，保持 in_progress 不动。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `46d0332` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

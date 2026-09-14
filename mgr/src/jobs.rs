@@ -35,12 +35,17 @@ pub async fn spawn_create(
     cpus: Option<f64>,
     mem_mb: Option<i64>,
     recreate: bool,
+    services_json: String,
 ) -> Result<i64> {
     // Durable job row first so a crash between spawn and first update still
     // leaves a traceable job.
     let job_id = {
         let conn = state.db.lock().unwrap();
-        db::insert_job(&conn, if recreate { "recreate" } else { "create" }, Some(&name))?
+        db::insert_job(
+            &conn,
+            if recreate { "recreate" } else { "create" },
+            Some(&name),
+        )?
     };
 
     let shared = Arc::new(TokioMutex::new(JobShared {
@@ -58,7 +63,17 @@ pub async fn spawn_create(
 
     let st = state.clone();
     tokio::spawn(async move {
-        let result = run_create(st.clone(), name.clone(), env, cpus, mem_mb, recreate, shared.clone()).await;
+        let result = run_create(
+            st.clone(),
+            name.clone(),
+            env,
+            cpus,
+            mem_mb,
+            recreate,
+            services_json,
+            shared.clone(),
+        )
+        .await;
         let mut job = shared.lock().await;
         match result {
             Ok(()) => {
@@ -86,25 +101,30 @@ async fn run_create(
     cpus: Option<f64>,
     mem_mb: Option<i64>,
     recreate: bool,
+    services_json: String,
     log: Arc<TokioMutex<JobShared>>,
 ) -> Result<()> {
     let repo = state.repo.clone();
     let instance = state.instance_dir(&name);
-    std::fs::create_dir_all(&instance)
-        .with_context(|| format!("create {}", instance.display()))?;
+    std::fs::create_dir_all(&instance).with_context(|| format!("create {}", instance.display()))?;
+    // S1: the create-time service set drives image builds (code-server), the
+    // compose file's service blocks, and the up profiles (vnc). Parsed once;
+    // invalid values (hand-rolled job replay) fall back to all-on.
+    let services: db::Services = serde_json::from_str(&services_json).unwrap_or_default();
 
     // 1. env -> manifest -> assembled Dockerfile.base content -> env_hash.
     //    Validation happens here (not just in the API) so a job replay from
     //    a stale DB still fails safely.
     let manifest = env.to_manifest_checked(&repo)?;
-    let (dockerfile_base, _display) =
-        aio_config::gen::assemble_for(&repo, &manifest)?;
+    let (dockerfile_base, _display) = aio_config::gen::assemble_for(&repo, &manifest)?;
     let hash = envhash::env_hash(&dockerfile_base);
     let (base_tag, app_tag, cs_tag) = envhash::image_tags(&hash);
 
-    append_log(&log, &format!(
-        "env_hash {hash}\nbase assembly ok, images: {base_tag} / {app_tag} / {cs_tag}\n"
-    )).await;
+    append_log(
+        &log,
+        &format!("env_hash {hash}\nbase assembly ok, images: {base_tag} / {app_tag} / {cs_tag}\n"),
+    )
+    .await;
 
     // 2. Shared network (idempotent) - required by the generated compose.
     docker::ensure_network("aio-mgr-net").await?;
@@ -129,38 +149,66 @@ async fn run_create(
     } else {
         append_log(&log, &format!("{base_tag} exists, skip\n")).await;
     }
-    for (tag, dockerfile) in [
-        (&app_tag, "app/Dockerfile"),
-        (&cs_tag, "code-server/Dockerfile"),
-    ] {
-        if !docker::image_exists(tag).await? {
-            append_log(&log, &format!("building {tag} ...\n")).await;
-            let out = docker::build(&repo, &repo.join(dockerfile), tag, &[("BASE_IMAGE", &base_tag)])
-                .await?;
-            append_log(&log, &out).await;
-        } else {
-            append_log(&log, &format!("{tag} exists, skip\n")).await;
-        }
+    // S1 build switches: app is ALWAYS built (it IS the sandbox);
+    // code-server's image only when the sandbox has the service (cs_tag is
+    // otherwise dead weight — 4.5GB per combo); vnc's image is GLOBAL (one
+    // sandbox-vnc shared by every sandbox) and keyed on the shared tag, so
+    // it is built below only when THIS sandbox has vnc and the shared image
+    // is missing — later vnc sandboxes hit the image_exists short-circuit.
+    if !docker::image_exists(&app_tag).await? {
+        append_log(&log, &format!("building {app_tag} ...\n")).await;
+        let out = docker::build(
+            &repo,
+            &repo.join("app/Dockerfile"),
+            &app_tag,
+            &[("BASE_IMAGE", &base_tag)],
+        )
+        .await?;
+        append_log(&log, &out).await;
+    } else {
+        append_log(&log, &format!("{app_tag} exists, skip\n")).await;
     }
-    if !docker::image_exists(envhash::VNC_TAG).await? {
+    if services.code_server && !docker::image_exists(&cs_tag).await? {
+        append_log(&log, &format!("building {cs_tag} ...\n")).await;
+        let out = docker::build(
+            &repo,
+            &repo.join("code-server/Dockerfile"),
+            &cs_tag,
+            &[("BASE_IMAGE", &base_tag)],
+        )
+        .await?;
+        append_log(&log, &out).await;
+    } else if services.code_server {
+        append_log(&log, &format!("{cs_tag} exists, skip\n")).await;
+    } else {
+        append_log(&log, &format!("code-server not installed, skip image\n")).await;
+    }
+    // vnc (see the build-switch comment above): global image, built only
+    // when THIS sandbox has the vnc service and the shared tag is missing.
+    if services.vnc && !docker::image_exists(envhash::VNC_TAG).await? {
         append_log(&log, &format!("building {} ...\n", envhash::VNC_TAG)).await;
         let out = docker::build(&repo, &repo.join("vnc/Dockerfile"), envhash::VNC_TAG, &[]).await?;
         append_log(&log, &out).await;
     }
+    if !services.vnc {
+        append_log(&log, &format!("vnc not installed, skip vnc image\n")).await;
+    }
 
     {
         let conn = state.db.lock().unwrap();
-        db::upsert_image(&conn, &hash, &base_tag, &base_build_log)
+        let combo = envhash::describe_combo(&env, &services);
+        db::upsert_image(&conn, &hash, &base_tag, &base_build_log, Some(&combo))
             .with_context(|| "record image")?;
     }
 
     // 4. Compose + Caddyfile.
-    let gen = composegen::generate(&name, &hash, cpus, mem_mb)?;
+    let gen = composegen::generate(&name, &hash, cpus, mem_mb, services)?;
     composegen::write(&instance, &gen)?;
     append_log(&log, "compose.yml + gateway/Caddyfile written\n").await;
 
     // 5. up -d (force-recreate on env change keeps volumes - design §3.6).
-    //    D4: up carries only the vnc profile (docker.rs UP_PROFILES), so the
+    //    D4+D1: up carries the vnc profile only when the sandbox has vnc
+    //    (docker.rs up_profiles - S1 per-sandbox switch), so the
     //    force-recreate below REPLACES the app container without touching a
     //    leftover code-server container from an earlier on-demand start -
     //    which would keep "running" attached to the REMOVED app's netns
@@ -170,9 +218,12 @@ async fn run_create(
     //    no container exists (fresh create never has one); best-effort, since
     //    a failed rm only leaves the self-healing zombie that the next
     //    code-server pane start repairs (compose recreates stale services).
+    //    S1: skipped for code-server-less sandboxes — their compose never
+    //    carried the service block, so no zombie can exist (and `rm` against
+    //    a service absent from the file is a guaranteed noisy error).
     let project = envhash::project_name(&name);
     let compose_file = instance.join("compose.yml");
-    if recreate {
+    if recreate && services.code_server {
         match docker::compose_service_rm(
             &project,
             &compose_file,
@@ -183,11 +234,15 @@ async fn run_create(
         {
             Ok(out) => append_log(&log, &out).await,
             Err(e) => {
-                append_log(&log, &format!("code-server pre-clean failed (continuing): {e:#}\n")).await
+                append_log(
+                    &log,
+                    &format!("code-server pre-clean failed (continuing): {e:#}\n"),
+                )
+                .await
             }
         }
     }
-    let out = docker::compose_up(&project, &compose_file, recreate).await?;
+    let out = docker::compose_up(&project, &compose_file, recreate, services.vnc).await?;
     append_log(&log, &out).await;
 
     // 6. Persist the env/config on success (A5 correctness: a failed create
@@ -196,7 +251,15 @@ async fn run_create(
     //    put_sandbox, and both flows own the row from here on.
     {
         let conn = state.db.lock().unwrap();
-        db::update_sandbox_config(&conn, &name, &env.canonical_json(), &hash, cpus, mem_mb)?;
+        db::update_sandbox_config(
+            &conn,
+            &name,
+            &env.canonical_json(),
+            &hash,
+            cpus,
+            mem_mb,
+            &services_json,
+        )?;
     }
 
     // 7. Total gateway: regenerate the Caddyfile with this sandbox's site
@@ -252,7 +315,7 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
                 // entry would be silently inherited by a future sandbox
                 // created under the same name. Best-effort — a failure here
                 // must not fail the teardown (log-and-continue).
-                if let Err(e) = crate::models::set_assignment(&conn, &name, None) {
+                if let Err(e) = crate::models::set_assignment(&conn, &name, None, None) {
                     tracing::warn!(sandbox = %name, error = %e.message, "assignment cleanup failed");
                 }
             }
@@ -289,6 +352,191 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
         let _ = db::persist_job(&st.db.lock().unwrap(), &job);
     });
     Ok(job_id)
+}
+
+/// Spawn a job that deletes one image's tag group (base/app/code-server, S3
+/// R3). Async (kind "image-delete", no sandbox) so the images page shows
+/// progress via GET /api/jobs/:id; a row is only removed after ALL group
+/// rmi succeed (R5: no half-removed row — a mid-group failure keeps the row
+/// so a future build upsert re-creates it).
+pub async fn spawn_image_delete(
+    state: Arc<AppState>,
+    env_hash: String,
+) -> Result<i64> {
+    let job_id = {
+        let conn = state.db.lock().unwrap();
+        db::insert_job(&conn, "image-delete", None)?
+    };
+    let shared = Arc::new(TokioMutex::new(JobShared {
+        id: job_id,
+        kind: "image-delete".into(),
+        sandbox: None,
+        status: "running".into(),
+        error: None,
+        log: String::new(),
+    }));
+    {
+        let mut jobs = state.jobs.lock().unwrap();
+        jobs.insert(job_id, shared.clone());
+    }
+
+    let st = state.clone();
+    tokio::spawn(async move {
+        let result = run_image_delete(&st, &env_hash, &shared).await;
+        let mut job = shared.lock().await;
+        match result {
+            Ok(reclaimed) => {
+                job.status = "ok".into();
+                job.log.push_str(&format!(
+                    "image-delete done: reclaimed {reclaimed} bytes\n"
+                ));
+            }
+            Err(e) => {
+                let msg = format!("{e:#}");
+                tracing::error!(env_hash = %env_hash, error = %msg, "image delete job failed");
+                job.status = "error".into();
+                job.error = Some(msg);
+            }
+        }
+        let _ = db::persist_job(&st.db.lock().unwrap(), &job);
+    });
+    Ok(job_id)
+}
+
+/// Delete ONE image's tag group. Re-checks refcount (the pre-check in the
+/// handler was synchronous; a sandbox may have been created since). Then
+/// rmi base -> app -> code-server, skipping missing tags (services off).
+/// Returns the total RECLAIMED bytes (sum of each deleted tag's pre-rmi
+/// size; missing tags contribute 0).
+async fn run_image_delete(
+    st: &Arc<AppState>,
+    env_hash: &str,
+    log: &Arc<TokioMutex<JobShared>>,
+) -> Result<u64> {
+    {
+        let conn = st.db.lock().unwrap();
+        let rc = db::image_refcount(&conn, env_hash)?;
+        if rc > 0 {
+            anyhow::bail!("image is referenced by {rc} sandbox(es); refusing to delete");
+        }
+    }
+    let (base, app, cs) = envhash::image_tags(env_hash);
+    let mut reclaimed = 0u64;
+    for tag in [&base, &app, &cs] {
+        if !docker::image_exists(tag).await? {
+            append_log(log, &format!("{tag}: not present, skip\n")).await;
+            continue;
+        }
+        if let Ok(sz) = docker::image_size(tag).await {
+            reclaimed += sz;
+        }
+        match docker::image_rmi(tag).await {
+            Ok(out) => append_log(log, &format!("rmi {tag}: {out}")).await,
+            Err(e) => {
+                anyhow::bail!(
+                    "rmi {tag} failed (row kept for rebuild): {e:#}"
+                );
+            }
+        }
+    }
+    let deleted = db::delete_image_row(&st.db.lock().unwrap(), env_hash)?;
+    append_log(
+        log,
+        &format!("image row {env_hash} removed ({deleted})\n"),
+    )
+    .await;
+    Ok(reclaimed)
+}
+
+/// Spawn the one-shot image cleanup job (S3 R4): delete every refcount=0
+/// image group + builder cache, reporting reclaimed space per column.
+pub async fn spawn_image_cleanup(state: Arc<AppState>) -> Result<i64> {
+    let job_id = {
+        let conn = state.db.lock().unwrap();
+        db::insert_job(&conn, "image-cleanup", None)?
+    };
+    let shared = Arc::new(TokioMutex::new(JobShared {
+        id: job_id,
+        kind: "image-cleanup".into(),
+        sandbox: None,
+        status: "running".into(),
+        error: None,
+        log: String::new(),
+    }));
+    {
+        let mut jobs = state.jobs.lock().unwrap();
+        jobs.insert(job_id, shared.clone());
+    }
+
+    let st = state.clone();
+    tokio::spawn(async move {
+        let result = run_image_cleanup(&st, &shared).await;
+        let mut job = shared.lock().await;
+        match result {
+            Ok(()) => job.status = "ok".into(),
+            Err(e) => {
+                let msg = format!("{e:#}");
+                tracing::error!(error = %msg, "image cleanup job failed");
+                job.status = "error".into();
+                job.error = Some(msg);
+            }
+        }
+        let _ = db::persist_job(&st.db.lock().unwrap(), &job);
+    });
+    Ok(job_id)
+}
+
+/// Delete every refcount=0 image group + builder cache. Per-row failures are
+/// logged and continue (one bad row must not block the rest of the cleanup);
+/// the summary line reports images reclaimed (bytes) + cache reclaimed.
+async fn run_image_cleanup(
+    st: &Arc<AppState>,
+    log: &Arc<TokioMutex<JobShared>>,
+) -> Result<()> {
+    let rows = {
+        let conn = st.db.lock().unwrap();
+        db::list_images(&conn)?
+    };
+    let mut images_reclaimed: u64 = 0;
+    let mut deleted_rows = 0u64;
+    let mut failed_rows = 0u64;
+    for (env_hash, _, _, _, _) in rows {
+        {
+            let conn = st.db.lock().unwrap();
+            let rc = db::image_refcount(&conn, &env_hash)?;
+            if rc > 0 {
+                continue;
+            }
+        }
+        // The delete helper re-checks refcount + removes the row; failures
+        // are logged against THIS job and don't abort the rest (R4: one bad
+        // row must not block the cleanup).
+        match run_image_delete(st, &env_hash, log).await {
+            Ok(reclaimed) => {
+                deleted_rows += 1;
+                images_reclaimed += reclaimed;
+            }
+            Err(e) => {
+                failed_rows += 1;
+                append_log(log, &format!("{env_hash}: {e:#}\n")).await;
+            }
+        }
+    }
+    // Builder cache prune + summary.
+    let prune = match docker::builder_prune().await {
+        Ok(out) => out,
+        Err(e) => format!("builder prune failed: {e:#}\n"),
+    };
+    append_log(log, &prune).await;
+    append_log(
+        log,
+        &format!(
+            "cleanup done: {deleted_rows} image(s) removed, {failed_rows} failed, \
+             reclaimed {images_reclaimed} bytes of images"
+        ),
+    )
+    .await;
+    Ok(())
 }
 
 async fn append_log(log: &Arc<TokioMutex<JobShared>>, chunk: &str) {

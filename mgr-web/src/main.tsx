@@ -1,5 +1,9 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+// styles.css is imported by App.tsx (token layer + page classes); the
+// designer's shared component layer (ported from docs/Web-Prototype) must
+// come AFTER it so its component classes win the cascade.
+import "./components.css";
 
 const el = document.getElementById("root");
 if (!el) throw new Error("root element #root not found");

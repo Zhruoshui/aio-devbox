@@ -24,8 +24,10 @@ set -eu
 # script does not run a login shell, so profile.d is NOT sourced here.
 # Overridable since sandbox-mgr Phase 2 (design §2.1): the mgr-generated
 # sandbox compose sets it to "app,sbx-<name>-piweb.mgr.localhost" (the total
-# gateway rewrites Host to the upstream alias anyway - this is the second
-# belt). Unset => "app", the stock behavior.
+# gateway passes the browser's Host through VERBATIM — no header_up rewrite,
+# see mgr/src/caddy.rs — so this list is what actually admits the subdomain;
+# the `*.localhost` suffix rule inside pi-web is the second belt).
+# Unset => "app", the stock behavior.
 #
 # The entrypoint itself is NOT part of sandbox-base (it lives in the app
 # image), so base rebuilds are unaffected.
@@ -51,13 +53,24 @@ fi
 # browser to the manager UI. mgr.localhost resolves inside aio-mgr-net
 # (total gateway); the browser, however, reaches the manager from the HOST,
 # so the literal public origin is substituted — the same URL the user types.
-# Unset (stock / pre-adopt stack): the placeholder stays and the page shows
-# its static explanation instead of bouncing. sed -i on /app/static (not a
-# bind mount; inode churn is irrelevant here, unlike caddy's Caddyfile).
+# MGR_URL itself is only the TRIGGER (its value is the container-internal
+# model-pull endpoint, never browser-reachable); the substituted TARGET is
+# MGR_REDIRECT_URL, defaulting to the canonical port-less origin — the
+# redirect page's JS re-attaches the host port the browser actually used
+# (app/redirect/index.html port-following). Unset (stock / pre-adopt stack):
+# the placeholder stays and the page shows its static explanation instead of
+# bouncing. sed -i on /app/static (not a bind mount; inode churn is
+# irrelevant here, unlike caddy's Caddyfile).
+# The current values (composegen default, this fallback) contain no sed
+# replacement metacharacters, but MGR_REDIRECT_URL is operator-settable —
+# escape `&` (otherwise it expands to the matched placeholder text) and
+# `\` so an arbitrary URL substitutes verbatim.
+MGR_REDIRECT_URL="${MGR_REDIRECT_URL:-http://mgr.localhost/}"
+MGR_REDIRECT_ESC=$(printf '%s' "$MGR_REDIRECT_URL" | sed 's/[&\\]/\\&/g')
 if [ -n "${MGR_URL:-}" ] && [ -f /app/static/index.html ]; then
-	if sed -i "s|MGR_PLACEHOLDER_URL|http://mgr.localhost/|g" \
+	if sed -i "s|MGR_PLACEHOLDER_URL|${MGR_REDIRECT_ESC}|g" \
 		/app/static/index.html 2>/dev/null; then
-		echo "static / redirects to http://mgr.localhost/ (MGR_URL set)"
+		echo "static / redirects to ${MGR_REDIRECT_URL} (MGR_URL set)"
 	else
 		echo "warn: could not patch /app/static/index.html redirect target"
 	fi

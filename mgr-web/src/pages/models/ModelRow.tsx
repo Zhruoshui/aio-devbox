@@ -103,6 +103,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcModelName")}</label>
               <input
+                className="input"
                 value={model.name ?? ""}
                 onChange={(e) =>
                   onPatchModel(idx, { name: e.target.value || undefined })

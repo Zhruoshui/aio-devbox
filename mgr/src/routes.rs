@@ -22,6 +22,7 @@ use crate::db;
 use crate::docker;
 use crate::envhash;
 use crate::jobs;
+use crate::models::StoredAssignment;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -32,14 +33,20 @@ pub fn router() -> Router<Arc<AppState>> {
         // Static segment, so it wins over the :name routes regardless of
         // registration order (same rule as /api/scenarios).
         .route("/api/sandboxes/adopt", post(adopt_sandbox))
-        .route("/api/sandboxes/:name", get(get_sandbox).put(put_sandbox).delete(delete_sandbox))
+        .route(
+            "/api/sandboxes/:name",
+            get(get_sandbox).put(put_sandbox).delete(delete_sandbox),
+        )
         .route("/api/sandboxes/:name/start", post(start_sandbox))
         .route("/api/sandboxes/:name/stop", post(stop_sandbox))
         .route("/api/sandboxes/:name/restart", post(restart_sandbox))
         // On-demand single-service start (D4, unified Phase 3): the one
         // profile-gated sidecar `up` deliberately does not carry. Synchronous
         // (container create+start of a pre-built image, seconds), so no job.
-        .route("/api/sandboxes/:name/service/:service/start", post(service_start))
+        .route(
+            "/api/sandboxes/:name/service/:service/start",
+            post(service_start),
+        )
         // Model-profile assignment (D8, unified Phase 4): a pure kv write
         // the sandbox's 60s pull picks up — deliberately a SEPARATE route
         // from PUT /api/sandboxes/:name, whose env changes run the recreate
@@ -47,6 +54,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/sandboxes/:name/model_profile", put(put_model_profile))
         .route("/api/sandboxes/:name/entry_url", get(entry_url))
         .route("/api/images", get(list_images))
+        .route("/api/images/cleanup", post(cleanup_images))
+        .route("/api/images/:env_hash/delete", post(delete_image))
         .route("/api/jobs/:id", get(get_job))
         // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
         // Each module owns its sub-router; merge keeps them ahead of the
@@ -111,7 +120,10 @@ pub struct ApiError {
 
 impl ApiError {
     fn bad(msg: impl Into<String>) -> Self {
-        ApiError { status: StatusCode::BAD_REQUEST, message: msg.into() }
+        ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: msg.into(),
+        }
     }
 
     /// A non-400 status in the same JSON shape. The lifecycle handlers only
@@ -132,7 +144,10 @@ impl IntoResponse for ApiError {
 
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
-        ApiError { status: StatusCode::INTERNAL_SERVER_ERROR, message: format!("{e:#}") }
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("{e:#}"),
+        }
     }
 }
 
@@ -149,8 +164,8 @@ impl From<crate::models::ApiError> for ApiError {
 // ── scenarios ──────────────────────────────────────────────────────
 
 async fn scenarios(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
-    let known = aio_config::scenario::scan(&state.repo.join("scenarios"))
-        .map_err(ApiError::from)?;
+    let known =
+        aio_config::scenario::scan(&state.repo.join("scenarios")).map_err(ApiError::from)?;
     let mut list: Vec<serde_json::Value> = known
         .iter()
         .map(|s| {
@@ -175,11 +190,108 @@ async fn scenarios(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_j
 
 // ── sandboxes ──────────────────────────────────────────────────────
 
+/// The four-switch "services" shape the API/UI speak in (S1). Three of the
+/// four are also scenarios (pi/pi-web) — normalize_services folds them into
+/// env.scenarios before storage, so only code_server/vnc survive as stored
+/// Services. Default all-on = the pre-S1 unconditional behavior.
+#[derive(Deserialize, Clone)]
+struct ServicesBody {
+    #[serde(default = "true_default")]
+    code_server: bool,
+    #[serde(default = "true_default")]
+    vnc: bool,
+    #[serde(default = "true_default")]
+    pi: bool,
+    #[serde(default = "true_default")]
+    pi_web: bool,
+}
+
+fn true_default() -> bool {
+    true
+}
+
+// Absent services (old client, no field) = all on, the pre-S1 unconditional
+// behavior. NOTE: derive(Default) would give all-false — exactly the kind
+// of subtle default the S1 contract forbids — so it is written out.
+impl Default for ServicesBody {
+    fn default() -> Self {
+        ServicesBody {
+            code_server: true,
+            vnc: true,
+            pi: true,
+            pi_web: true,
+        }
+    }
+}
+
+/// Fold the four-switch services shape into (SandboxEnv, Services):
+/// pi/pi_web move into env.scenarios (they ARE scenarios, single source of
+/// truth in env_json); pi_web depends on pi (its config lives under the pi
+/// install) and vnc (its Chromium is the vnc sidecar's) — enforced here so a
+/// caller that turns on pi_web without its deps gets a clear 400 instead of a
+/// broken pane.
+fn normalize_services(
+    env: envhash::SandboxEnv,
+    body: Option<&ServicesBody>,
+) -> Result<(envhash::SandboxEnv, db::Services), ApiError> {
+    let b = body.cloned().unwrap_or_default();
+    let mut scenarios = env.scenarios.clone();
+    scenarios.retain(|s| s != "pi" && s != "pi-web");
+    if b.pi_web {
+        // pi-web's dependencies are REQUIRED, not auto-enabled (R1: 400
+        // when either is missing): its config lives under the pi install and
+        // its Chromium is the vnc sidecar's, so pi_web=true with pi or vnc
+        // off is contradictory. The frontend blocks the combination too;
+        // this is the backend's defence.
+        if !b.pi || !b.vnc {
+            return Err(ApiError::bad(
+                "pi-web 依赖 pi 与 vnc（Chromium 由 vnc 侧车承载），请同时开启 pi 与 VNC 服务",
+            ));
+        }
+        scenarios.push("pi".into());
+        scenarios.push("pi-web".into());
+    } else if b.pi {
+        scenarios.push("pi".into());
+    }
+    let env2 = envhash::SandboxEnv {
+        scenarios,
+        versions: env.versions,
+    };
+    let services = db::Services {
+        code_server: b.code_server,
+        vnc: b.vnc,
+    };
+    Ok((env2, services))
+}
+
+/// The four-switch services shape of a stored row: code_server/vnc from
+/// services_json, pi/pi_web from env.scenarios. Rows written BEFORE S1
+/// (services_json NULL) read back ALL-ON: pre-S1 native rows were built
+/// with every service unconditional (pi/pi-web were always_on scenarios
+/// then, never listed in env.scenarios — deriving from an empty set would
+/// report them absent, and a PUT-recreate would silently strip them),
+/// and adopted rows keep the NULL all-on read by design (the adopt flow's
+/// documented choice: mgr never builds or toggles for them).
+fn installed_services_of(row: &db::SandboxRow) -> ServicesBody {
+    let stored = db::services_of(row);
+    let pre_s1 = row.services_json.is_none();
+    let env: envhash::SandboxEnv = serde_json::from_str(&row.env_json).unwrap_or_default();
+    let has = |id: &str| pre_s1 || env.scenarios.iter().any(|s| s == id);
+    ServicesBody {
+        code_server: stored.code_server,
+        vnc: stored.vnc,
+        pi: has("pi"),
+        pi_web: has("pi-web"),
+    }
+}
+
 #[derive(Deserialize)]
 struct SandboxBody {
     name: String,
     #[serde(default)]
     env: envhash::SandboxEnv,
+    #[serde(default)]
+    services: Option<ServicesBody>,
     cpus: Option<f64>,
     mem_mb: Option<i64>,
 }
@@ -198,7 +310,9 @@ pub fn validate_name(name: &str) -> Result<(), String> {
     if ok {
         Ok(())
     } else {
-        Err(format!("invalid name {name:?}: slug of [a-z0-9-], max 32 chars, must start alnum"))
+        Err(format!(
+            "invalid name {name:?}: slug of [a-z0-9-], max 32 chars, must start alnum"
+        ))
     }
 }
 
@@ -252,12 +366,17 @@ async fn create_sandbox(
     {
         let conn = state.db.lock().unwrap();
         if db::get_sandbox(&conn, &body.name)?.is_some() {
-            return Err(ApiError::bad(format!("sandbox {:?} already exists", body.name)));
+            return Err(ApiError::bad(format!(
+                "sandbox {:?} already exists",
+                body.name
+            )));
         }
     }
+    // Fold the four-switch services shape into env + Services (S1): pi/pi_web
+    // move into env.scenarios, code_server/vnc become the stored Services.
+    let (env, services) = normalize_services(body.env, body.services.as_ref())?;
     // Validate env against the catalog before accepting the job.
-    body.env
-        .to_manifest_checked(&state.repo)
+    env.to_manifest_checked(&state.repo)
         .map_err(|e| ApiError::bad(format!("{e:#}")))?;
     check_limits(body.cpus, body.mem_mb)?;
     let (cpus, mem_mb) = (limit_or_none(body.cpus), limit_or_none_mb(body.mem_mb));
@@ -265,8 +384,9 @@ async fn create_sandbox(
     let row = db::SandboxRow {
         name: body.name.clone(),
         created_at: now_secs(),
-        env_json: body.env.canonical_json(),
+        env_json: env.canonical_json(),
         env_hash: String::new(), // filled by the job on success
+        services_json: Some(services.canonical_json()),
         cpus,
         mem_mb,
         status: "creating".into(),
@@ -277,8 +397,16 @@ async fn create_sandbox(
         let conn = state.db.lock().unwrap();
         db::insert_sandbox(&conn, &row)?;
     }
-    let job_id = jobs::spawn_create(state.clone(), body.name.clone(), body.env, cpus, mem_mb, false)
-        .await?;
+    let job_id = jobs::spawn_create(
+        state.clone(),
+        body.name.clone(),
+        env,
+        cpus,
+        mem_mb,
+        false,
+        services.canonical_json(),
+    )
+    .await?;
     Ok(Json(json!({ "job": job_id, "name": body.name })))
 }
 
@@ -360,7 +488,10 @@ async fn adopt_sandbox(
     {
         let conn = state.db.lock().unwrap();
         if db::get_sandbox(&conn, &body.name)?.is_some() {
-            return Err(ApiError::bad(format!("sandbox {:?} already exists", body.name)));
+            return Err(ApiError::bad(format!(
+                "sandbox {:?} already exists",
+                body.name
+            )));
         }
     }
     let compose_file = resolve_compose_path(&state.repo, &body.compose_path);
@@ -382,13 +513,23 @@ async fn adopt_sandbox(
             compose_file.display()
         )));
     }
-    let gateway_service = body.gateway_service.unwrap_or_else(|| DEFAULT_GATEWAY_SERVICE.into());
-    let app_service = body.app_service.unwrap_or_else(|| DEFAULT_APP_SERVICE.into());
+    let gateway_service = body
+        .gateway_service
+        .unwrap_or_else(|| DEFAULT_GATEWAY_SERVICE.into());
+    let app_service = body
+        .app_service
+        .unwrap_or_else(|| DEFAULT_APP_SERVICE.into());
     let gateway_ct = find_service_container(&ps, &gateway_service).ok_or_else(|| {
-        ApiError::bad(format!("service {gateway_service:?} not found in {}", compose_file.display()))
+        ApiError::bad(format!(
+            "service {gateway_service:?} not found in {}",
+            compose_file.display()
+        ))
     })?;
     let app_ct = find_service_container(&ps, &app_service).ok_or_else(|| {
-        ApiError::bad(format!("service {app_service:?} not found in {}", compose_file.display()))
+        ApiError::bad(format!(
+            "service {app_service:?} not found in {}",
+            compose_file.display()
+        ))
     })?;
 
     // Shared network + the two mgr aliases. The alias names are LOAD-BEARING
@@ -399,7 +540,8 @@ async fn adopt_sandbox(
     // by hand because its own compose knows nothing of aio-mgr-net.
     docker::ensure_network("aio-mgr-net").await?;
     docker::network_connect_alias("aio-mgr-net", gateway_ct, &format!("sbx-{}", body.name)).await?;
-    docker::network_connect_alias("aio-mgr-net", app_ct, &format!("sbx-{}-piweb", body.name)).await?;
+    docker::network_connect_alias("aio-mgr-net", app_ct, &format!("sbx-{}-piweb", body.name))
+        .await?;
 
     // Register (BEFORE regenerate: the Caddyfile renders from the table).
     // env stays empty by design - inferring it from the running stack is
@@ -409,6 +551,9 @@ async fn adopt_sandbox(
         created_at: now_secs(),
         env_json: "{}".into(),
         env_hash: String::new(),
+        // Adopted stacks keep NULL (= all-on read): the stack brings whatever
+        // services it has; mgr never builds or toggles for adopted rows.
+        services_json: None,
         cpus: None,
         mem_mb: None,
         status: "running".into(),
@@ -421,6 +566,13 @@ async fn adopt_sandbox(
     }
     caddy::regenerate(&state).await.map_err(ApiError::from)?;
 
+    // entry_url/piweb_url are deliberately PORT-LESS: the canonical
+    // container-network form (caddy Host matching ignores ports; a host
+    // publish on :80 needs no port). The browser-facing port — when the mgr
+    // UI is reached through a non-default host port like 8081 — is
+    // re-attached client-side by mgr-web's withMgrPort
+    // (09-10-mgr-subdomain-port-follow). Do not bake a port in here: the
+    // backend cannot know which host port the browser used.
     Ok(Json(json!({
         "name": body.name,
         "entry_url": format!("http://sbx-{}.mgr.localhost/", body.name),
@@ -433,7 +585,10 @@ async fn adopt_sandbox(
 /// change on every recreate, so nothing durable can store them. A missing
 /// service is an error the caller surfaces: silently skipping would leave
 /// the subdomain routes dead with no hint why.
-async fn reconnect_adopted_aliases(name: &str, ps: &[docker::ComposePsEntry]) -> Result<(), ApiError> {
+async fn reconnect_adopted_aliases(
+    name: &str,
+    ps: &[docker::ComposePsEntry],
+) -> Result<(), ApiError> {
     let gateway_ct = find_service_container(ps, DEFAULT_GATEWAY_SERVICE).ok_or_else(|| {
         ApiError::bad(format!(
             "service {DEFAULT_GATEWAY_SERVICE:?} not found - mgr subdomain aliases not restored"
@@ -454,13 +609,18 @@ async fn reconnect_adopted_aliases(name: &str, ps: &[docker::ComposePsEntry]) ->
 /// (creating/running/error); `live` reports what compose actually says:
 /// "running" / "stopped" / "gone" (no containers) / "unknown" (compose ps
 /// itself failed - docker down, stale compose file: shown, never hidden).
-/// `model_profile` is the assigned profile id or null (D8; caller resolves
-/// it once per list request — the store parse is not per-row free).
+/// `model_assignment` is the assigned {profile id, agent subset} or None (D8;
+/// S2: `model_agents` carries the subset — null = all agents). Caller resolves
+/// it once per list request — the store parse is not per-row free.
 async fn sandbox_json(
     state: &Arc<AppState>,
     row: &db::SandboxRow,
-    model_profile: Option<String>,
+    model_assignment: Option<StoredAssignment>,
 ) -> serde_json::Value {
+    // S1 installed services (see installed_services_of): code_server/vnc
+    // from services_json, pi/pi-web from the scenario set, all-on for
+    // pre-S1/adopted rows (services_json NULL).
+    let inst = installed_services_of(row);
     // ps target: the mgr-generated compose for native rows; for adopted rows
     // the REGISTERED external file - external_compose is the single truth for
     // where an adopted stack lives (nothing else records it), and a missing
@@ -488,7 +648,13 @@ async fn sandbox_json(
     let (live, ps) = match ps_result {
         Ok(ps) => {
             let running = ps.iter().any(|e| e.state.eq_ignore_ascii_case("running"));
-            let live = if ps.is_empty() { "gone" } else if running { "running" } else { "stopped" };
+            let live = if ps.is_empty() {
+                "gone"
+            } else if running {
+                "running"
+            } else {
+                "stopped"
+            };
             (live, ps)
         }
         Err(e) => {
@@ -496,10 +662,18 @@ async fn sandbox_json(
             ("unknown", Vec::new())
         }
     };
-    let short_hash = if row.env_hash.len() >= 12 { &row.env_hash[..12] } else { "" };
+    let short_hash = if row.env_hash.len() >= 12 {
+        &row.env_hash[..12]
+    } else {
+        ""
+    };
     // Adopted rows own no image: they run whatever the external compose
     // pins. The literal keeps the list page's image column meaningful.
-    let image = if row.adopted { "external".to_string() } else { format!("sandbox-app-{short_hash}") };
+    let image = if row.adopted {
+        "external".to_string()
+    } else {
+        format!("sandbox-app-{short_hash}")
+    };
     json!({
         "name": row.name,
         "status": row.status,
@@ -510,14 +684,29 @@ async fn sandbox_json(
         "mem_mb": row.mem_mb,
         "env": serde_json::from_str::<serde_json::Value>(&row.env_json).unwrap_or(json!({})),
         "image": image,
+        // S1: installed services (installed_services_of). Read-only on the
+        // frontend — fixed by the image content at create time.
+        "installed_services": {
+            "code_server": inst.code_server,
+            "vnc": inst.vnc,
+            "pi": inst.pi,
+            "pi_web": inst.pi_web,
+        },
         // The sbx- prefix must mirror the total-gateway site blocks exactly
         // (caddy.rs render) - the sandbox-net alias is also sbx-<name>/
         // sbx-<name>-piweb (composegen), so the prefix is the shared identity.
+        // Port-less on purpose - see the adopt handler's note above: the
+        // browser port is re-attached client-side by mgr-web's withMgrPort.
         "entry_url": format!("http://sbx-{}.mgr.localhost/", row.name),
         "piweb_url": format!("http://sbx-{}-piweb.mgr.localhost/", row.name),
         // Assigned model profile (D8): null = unassigned (sandbox keeps its
         // local models.json untouched).
-        "model_profile": model_profile,
+        // Assigned model profile (D8): null = unassigned (sandbox keeps its
+        // local models.json untouched).
+        "model_profile": model_assignment.as_ref().and_then(|a| a.profile.clone()),
+        // S2 (D4c): assigned agent subset — null = all agents render,
+        // [] = none (sandbox keeps local), [..] = render exactly these.
+        "model_agents": model_assignment.and_then(|a| a.agents),
         "services": ps.iter().map(|e| json!({
             "service": e.service, "name": e.name, "state": e.state, "status": e.status,
         })).collect::<Vec<_>>(),
@@ -532,16 +721,16 @@ async fn list_sandboxes(State(state): State<Arc<AppState>>) -> ApiResult<Json<se
         // models store can be sizeable; assigned_profile would re-parse it
         // per row — models.rs read_assignments is the bulk form).
         let stored = crate::models::read_assignments(&conn)?;
-        let assignments: std::collections::HashMap<String, String> = rows
+        let assignments: std::collections::HashMap<String, crate::models::StoredAssignment> = rows
             .iter()
-            .filter_map(|r| stored.get(&r.name).cloned().map(|p| (r.name.clone(), p)))
+            .filter_map(|r| stored.get(&r.name).cloned().map(|a| (r.name.clone(), a)))
             .collect();
         (rows, assignments)
     };
     let mut out = Vec::with_capacity(rows.0.len());
     for row in &rows.0 {
-        let profile = rows.1.get(&row.name).cloned();
-        out.push(sandbox_json(&state, row, profile).await);
+        let assignment = rows.1.get(&row.name).cloned();
+        out.push(sandbox_json(&state, row, assignment).await);
     }
     Ok(Json(json!({ "sandboxes": out })))
 }
@@ -552,18 +741,25 @@ async fn get_sandbox(
 ) -> ApiResult<Json<serde_json::Value>> {
     let row = {
         let conn = state.db.lock().unwrap();
-        db::get_sandbox(&conn, &name)?.ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
+        db::get_sandbox(&conn, &name)?
+            .ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
     };
-    let profile = {
+    let assignment = {
         let conn = state.db.lock().unwrap();
-        crate::models::assigned_profile(&conn, &name)?
+        crate::models::assignment(&conn, &name)?
     };
-    Ok(Json(sandbox_json(&state, &row, profile).await))
+    Ok(Json(sandbox_json(&state, &row, assignment).await))
 }
 
 #[derive(Deserialize)]
 struct PutBody {
     env: Option<envhash::SandboxEnv>,
+    // services is intentionally NOT accepted on PUT: the installed set is
+    // fixed by the image content at create time (S1), so it is immutable
+    // here. The UI renders it read-only; an unknown field is ignored by
+    // serde, but the field is declared for the API contract's clarity.
+    #[serde(default)]
+    services: Option<ServicesBody>,
     cpus: Option<f64>,
     mem_mb: Option<i64>,
 }
@@ -575,22 +771,30 @@ async fn put_sandbox(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let row = {
         let conn = state.db.lock().unwrap();
-        db::get_sandbox(&conn, &name)?.ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
+        db::get_sandbox(&conn, &name)?
+            .ok_or_else(|| ApiError::bad(format!("sandbox {name:?} not found")))?
     };
     if row.adopted {
-        return Err(ApiError::bad("adopted external stack: env/resource changes unsupported (design §3.8)"));
+        return Err(ApiError::bad(
+            "adopted external stack: env/resource changes unsupported (design §3.8)",
+        ));
     }
     check_limits(body.cpus, body.mem_mb)?;
     // Merge: absent fields keep current values; an EXPLICIT 0 CLEARS a
     // resource limit (the UI's "empty field = unlimited" - a plain null
     // would silently keep the old limit, which is not what a cleared input
     // means). A new env hash drives the recreate flow (design §3.6 PUT).
+    // body.services is deliberately IGNORED: the installed set is fixed at
+    // create time (image content). Named here so the API contract stays
+    // explicit that it accepted-but-ignored (serde would silently skip an
+    // undeclared field anyway; declaring it documents the intent).
+    let _ = &body.services;
     let env = body
         .env
         .unwrap_or_else(|| serde_json::from_str(&row.env_json).expect("env_json roundtrips"));
     let cpus = match body.cpus {
         Some(c) if c > 0.0 => Some(c),
-        Some(_) => None, // explicit 0 = clear
+        Some(_) => None,  // explicit 0 = clear
         None => row.cpus, // absent = keep
     };
     let mem_mb = match body.mem_mb {
@@ -598,10 +802,29 @@ async fn put_sandbox(
         Some(_) => None,
         None => row.mem_mb,
     };
-    env.to_manifest_checked(&state.repo).map_err(|e| ApiError::bad(format!("{e:#}")))?;
+    // S1: services are immutable on PUT, but the client's env swap must not
+    // drop the pi/pi-web scenarios — they live in env_json and are hidden
+    // from the env editor (the services area owns them). Re-normalize with
+    // the CURRENT row's four-switch shape (installed_services_of): pre-S1
+    // rows read all-on, so their first PUT-recreate bakes pi/pi-web again —
+    // same assembly bytes, same hash, image reuse — instead of silently
+    // stripping them (AC4).
+    let (env, services) = normalize_services(env, Some(&installed_services_of(&row)))?;
+    let services_json = services.canonical_json();
+    env.to_manifest_checked(&state.repo)
+        .map_err(|e| ApiError::bad(format!("{e:#}")))?;
 
     db::update_sandbox_status(&state.db.lock().unwrap(), &name, "creating")?;
-    let job_id = jobs::spawn_create(state.clone(), name.clone(), env, cpus, mem_mb, true).await?;
+    let job_id = jobs::spawn_create(
+        state.clone(),
+        name.clone(),
+        env,
+        cpus,
+        mem_mb,
+        true,
+        services_json,
+    )
+    .await?;
     Ok(Json(json!({ "job": job_id, "name": name })))
 }
 
@@ -629,7 +852,9 @@ async fn delete_sandbox(
     }
     // Row removal happens inside the job on success.
     let job_id = jobs::spawn_delete(state.clone(), name.clone(), volumes).await?;
-    Ok(Json(json!({ "job": job_id, "name": name, "volumes": volumes })))
+    Ok(Json(
+        json!({ "job": job_id, "name": name, "volumes": volumes }),
+    ))
 }
 
 /// Un-register an adopted external stack (design §3.8): remove the row +
@@ -649,11 +874,16 @@ async fn unadopt_sandbox(
         // Same assignment hygiene as the native delete path (jobs.rs): an
         // adopted row's assignment is usually inert (no MGR_URL), but it is
         // recorded and would be inherited by a same-name sandbox later.
-        if let Err(e) = crate::models::set_assignment(&conn, &row.name, None) {
+        if let Err(e) = crate::models::set_assignment(&conn, &row.name, None, None) {
             tracing::warn!(sandbox = %row.name, error = %e.message, "assignment cleanup failed");
         }
     }
-    if let Some(file) = row.external_compose.as_deref().map(PathBuf::from).filter(|p| p.exists()) {
+    if let Some(file) = row
+        .external_compose
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+    {
         match docker::compose_ps_file(&file).await {
             Ok(ps) => {
                 if let Some(ct) = find_service_container(&ps, DEFAULT_GATEWAY_SERVICE) {
@@ -706,10 +936,14 @@ async fn start_sandbox(
     } else {
         let compose_file = state.instance_dir(&name).join("compose.yml");
         if !compose_file.exists() {
-            return Err(ApiError::bad(format!("sandbox {name:?} has no compose file")));
+            return Err(ApiError::bad(format!(
+                "sandbox {name:?} has no compose file"
+            )));
         }
         docker::ensure_network("aio-mgr-net").await?;
-        docker::compose_up(&envhash::project_name(&name), &compose_file, false).await?
+        // S1: vnc profile only when the sandbox has the vnc service.
+        let svc = db::services_of(&row);
+        docker::compose_up(&envhash::project_name(&name), &compose_file, false, svc.vnc).await?
     };
     db::update_sandbox_status(&state.db.lock().unwrap(), &name, "running")?;
     Ok(Json(json!({ "ok": true, "output": out.trim() })))
@@ -767,7 +1001,9 @@ fn ps_live(ps: &[docker::ComposePsEntry]) -> &'static str {
 }
 
 fn not_running(name: &str, service: &str, live: &str) -> ApiError {
-    ApiError::bad(format!("sandbox {name:?} is {live} - start the sandbox before starting {service:?}"))
+    ApiError::bad(format!(
+        "sandbox {name:?} is {live} - start the sandbox before starting {service:?}"
+    ))
 }
 
 /// POST /api/sandboxes/:name/service/:service/start (D4): bring up ONE
@@ -809,6 +1045,16 @@ async fn service_start(
             ApiError::with_status(StatusCode::NOT_FOUND, format!("sandbox {name:?} not found"))
         })?
     };
+    // S1: on-demand services are only on-demand when INSTALLED — a sandbox
+    // created without code-server has no service block, no image, no pane;
+    // starting it would 502 against a nonexistent service. (The whitelist
+    // above currently admits only code-server; a future addition repeats
+    // this installed-check.)
+    if !row.adopted && service == "code-server" && !db::services_of(&row).code_server {
+        return Err(ApiError::bad(format!(
+            "{service:?} 未安装到此沙箱（创建时的服务开关已关闭）"
+        )));
+    }
     let out = if row.adopted {
         let compose_file = external_compose_file(&row)?;
         let live = ps_live(&docker::compose_ps_file(&compose_file).await?);
@@ -819,7 +1065,9 @@ async fn service_start(
     } else {
         let compose_file = state.instance_dir(&name).join("compose.yml");
         if !compose_file.exists() {
-            return Err(ApiError::bad(format!("sandbox {name:?} has no compose file")));
+            return Err(ApiError::bad(format!(
+                "sandbox {name:?} has no compose file"
+            )));
         }
         let project = envhash::project_name(&name);
         let live = ps_live(&docker::compose_ps(&project, &compose_file).await?);
@@ -828,7 +1076,9 @@ async fn service_start(
         }
         docker::compose_service_up(&project, &compose_file, profile, &service).await?
     };
-    Ok(Json(json!({ "ok": true, "service": service, "output": out.trim() })))
+    Ok(Json(
+        json!({ "ok": true, "service": service, "output": out.trim() }),
+    ))
 }
 
 /// PUT /api/sandboxes/:name/model_profile (D8): assign or unassign the
@@ -846,6 +1096,10 @@ async fn service_start(
 #[derive(Deserialize)]
 struct ModelProfileBody {
     profile: Option<String>,
+    /// S2 (D4c): the agent subset to render. Absent/null = ALL agents (also
+    /// the legacy-client meaning); `[]` = none (sandbox keeps local).
+    #[serde(default)]
+    agents: Option<Vec<String>>,
 }
 
 async fn put_model_profile(
@@ -861,9 +1115,19 @@ async fn put_model_profile(
         if db::get_sandbox(&conn, &name)?.is_none() {
             return Err(ApiError::bad(format!("sandbox {name:?} not found")));
         }
-        crate::models::set_assignment(&conn, &name, body.profile.as_deref())?;
+        crate::models::set_assignment(
+            &conn,
+            &name,
+            body.profile.as_deref(),
+            body.agents.as_deref(),
+        )?;
     }
-    Ok(Json(json!({ "ok": true, "name": name, "model_profile": body.profile })))
+    Ok(Json(
+        json!({
+            "ok": true, "name": name, "model_profile": body.profile,
+            "model_agents": body.agents,
+        }),
+    ))
 }
 
 async fn entry_url(
@@ -877,6 +1141,8 @@ async fn entry_url(
         }
     }
     // sbx- prefix: mirrors the total-gateway site blocks (caddy.rs render).
+    // Port-less on purpose - see the adopt handler's note above: the browser
+    // port is re-attached client-side by mgr-web's withMgrPort.
     Ok(Json(json!({
         "entry": format!("http://sbx-{name}.mgr.localhost/"),
         "piweb": format!("http://sbx-{name}-piweb.mgr.localhost/"),
@@ -885,26 +1151,77 @@ async fn entry_url(
 
 // ── images / jobs ──────────────────────────────────────────────────
 
+/// GET /api/images — one row per recorded image (S3: + combo description and
+/// live size. `combo` is NULL on pre-S3 rows (the frontend falls back to the
+/// env_hash); `size_bytes` is a live docker inspect that the frontend shows
+/// as "—" when it fails / the image is gone, never an error here).
 async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
     let rows = {
         let conn = state.db.lock().unwrap();
         db::list_images(&conn)?
     };
     let mut out = Vec::with_capacity(rows.len());
-    for (env_hash, tag, built_at, build_log) in rows {
+    for (env_hash, tag, built_at, build_log, combo) in rows {
         let refcount = {
             let conn = state.db.lock().unwrap();
             db::image_refcount(&conn, &env_hash)?
         };
+        // Live size of the base image (the row's tag): best-effort, "—" on
+        // failure (image deleted behind our back, docker down).
+        let size_bytes = docker::image_size(&tag).await.ok();
         out.push(json!({
             "env_hash": env_hash,
             "tag": tag,
             "built_at": built_at,
             "refcount": refcount,
             "build_log": build_log,
+            "combo": combo,
+            "size_bytes": size_bytes,
         }));
     }
     Ok(Json(json!({ "images": out })))
+}
+
+/// POST /api/images/:env_hash/delete — delete one recorded image's tag group
+/// (base/app/code-server), 202 + job (S3 R3: async, progress via GET
+/// /api/jobs/:id). Pre-check is synchronous: unknown row 404, referenced
+/// image 409 (refcount>0 — also covers a create/recreate in flight, whose
+/// sandbox already wrote env_hash by the time it holds the image).
+async fn delete_image(State(state): State<Arc<AppState>>, Path(h): Path<String>) -> ApiResult<Json<serde_json::Value>> {
+    if !valid_env_hash(&h) {
+        return Err(ApiError::bad("env_hash must be 64 hex chars"));
+    }
+    {
+        let conn = state.db.lock().unwrap();
+        // row existence + refcount in one lock: check row first (404), then
+        // the count (409). A missing row = already deleted = 404 (client
+        // refreshes).
+        let exists: bool = db::list_images(&conn)?.iter().any(|(eh, _, _, _, _)| eh == &h);
+        if !exists {
+            return Err(ApiError::bad(format!("image {h} not found")));
+        }
+        let rc = db::image_refcount(&conn, &h)?;
+        if rc > 0 {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                message: format!("image is referenced by {rc} sandbox(es)"),
+            });
+        }
+    }
+    let job = crate::jobs::spawn_image_delete(state.clone(), h).await?;
+    Ok(Json(json!({ "ok": true, "job": job })))
+}
+
+/// POST /api/images/cleanup — delete every refcount=0 image group + builder
+/// cache, 202 + job (S3 R4).
+async fn cleanup_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
+    let job = crate::jobs::spawn_image_cleanup(state.clone()).await?;
+    Ok(Json(json!({ "ok": true, "job": job })))
+}
+
+/// env_hash is a full sha256 hex digest (64 chars).
+fn valid_env_hash(h: &str) -> bool {
+    h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 async fn get_job(
@@ -957,10 +1274,9 @@ mod tests {
     fn adopt_body_defaults_services_to_none() {
         // The wire contract: gateway_service/app_service are OPTIONAL
         // (defaults live in the handler); name/compose_path are required.
-        let b: AdoptBody = serde_json::from_str(
-            r#"{"name":"legacy","compose_path":"docker-compose.yml"}"#,
-        )
-        .unwrap();
+        let b: AdoptBody =
+            serde_json::from_str(r#"{"name":"legacy","compose_path":"docker-compose.yml"}"#)
+                .unwrap();
         assert_eq!(b.name, "legacy");
         assert_eq!(b.compose_path, "docker-compose.yml");
         assert_eq!(b.gateway_service, None);
@@ -999,6 +1315,171 @@ mod tests {
         assert_eq!(find_service_container(&ps, "gateway"), Some("a-gateway-1"));
     }
 
+    // ── S1 normalize_services (four-switch -> env + Services) ────────
+
+    fn env_with(scenarios: &[&str]) -> envhash::SandboxEnv {
+        envhash::SandboxEnv {
+            scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
+            versions: Default::default(),
+        }
+    }
+
+    /// unwrap for ApiError (no Debug impl): panic with the message instead.
+    fn norm(
+        env: envhash::SandboxEnv,
+        body: Option<&ServicesBody>,
+    ) -> (envhash::SandboxEnv, db::Services) {
+        match normalize_services(env, body) {
+            Ok(v) => v,
+            Err(e) => panic!("normalize_services failed: {} {}", e.status, e.message),
+        }
+    }
+
+    #[test]
+    fn normalize_none_body_defaults_all_on_and_merges_stored_scenarios() {
+        // Absent services (old client / absent field) = the pre-S1
+        // unconditional behavior: everything on, existing scenario list
+        // keeps any pi/pi-web entries it already carries (they survive as
+        // stored scenarios, unlike a fresh normalize that rewrites them).
+        let env = env_with(&["node", "pi", "pi-web"]);
+        let (env2, svc) = norm(env, None);
+        assert_eq!(env2.scenarios, vec!["node", "pi", "pi-web"]);
+        assert_eq!(
+            svc,
+            db::Services {
+                code_server: true,
+                vnc: true
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_pi_off_removes_pi_and_pi_web_from_scenarios() {
+        let body = ServicesBody {
+            code_server: true,
+            vnc: true,
+            pi: false,
+            pi_web: false,
+        };
+        let (env2, _) = norm(env_with(&["node", "pi", "pi-web"]), Some(&body));
+        // pi / pi-web dropped, other scenarios retained. Services still
+        // carry the code_server/vnc switches untouched.
+        assert_eq!(env2.scenarios, vec!["node"]);
+        // Stored Services reflect only the two compose switches.
+        let (_, svc) = norm(env_with(&["node"]), Some(&body));
+        assert_eq!(
+            svc,
+            db::Services {
+                code_server: true,
+                vnc: true
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_pi_web_on_requires_pi_and_vnc() {
+        // R1: pi_web=true with pi or vnc off must 400 (pi-web's config lives
+        // under the pi install; its Chromium is the vnc sidecar's) - before
+        // any scenario rewriting.
+        for (pi, vnc) in [(false, true), (true, false), (false, false)] {
+            let body = ServicesBody {
+                code_server: false,
+                vnc,
+                pi,
+                pi_web: true,
+            };
+            assert!(
+                normalize_services(env_with(&[]), Some(&body)).is_err(),
+                "pi_web with pi={pi} vnc={vnc} must 400"
+            );
+        }
+
+        // Both deps on: scenarios carry pi + pi-web, switches pass through.
+        let body = ServicesBody {
+            code_server: false,
+            vnc: true,
+            pi: true,
+            pi_web: true,
+        };
+        let (env2, svc) = norm(env_with(&[]), Some(&body));
+        assert_eq!(env2.scenarios, vec!["pi", "pi-web"]);
+        // pi-web does NOT imply code-server (independent switch).
+        assert_eq!(
+            svc,
+            db::Services {
+                code_server: false,
+                vnc: true
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_old_body_without_services_field_defaults_all_on() {
+        // The wire contract: an old mgr-web POST (create, no services key)
+        // deserializes to all-on - Server default, matching pre-S1. All four
+        // switches on means pi/pi-web ALSO join the scenario set (they are
+        // surfaced through the services area, never two sources).
+        let body: SandboxBody =
+            serde_json::from_str(r#"{"name":"old","env":{"scenarios":["node"],"versions":{}}}"#)
+                .unwrap();
+        let (env2, svc) = norm(body.env, body.services.as_ref());
+        assert_eq!(env2.scenarios, vec!["node", "pi", "pi-web"]);
+        assert_eq!(
+            svc,
+            db::Services {
+                code_server: true,
+                vnc: true
+            }
+        );
+    }
+
+    // ── installed_services_of (S1 row read-back) ──────────────────────
+
+    fn row_with(services_json: Option<String>, env_json: &str) -> db::SandboxRow {
+        db::SandboxRow {
+            name: "t".into(),
+            created_at: 0,
+            env_json: env_json.into(),
+            env_hash: "h".into(),
+            cpus: None,
+            mem_mb: None,
+            status: "running".into(),
+            adopted: false,
+            external_compose: None,
+            services_json,
+        }
+    }
+
+    #[test]
+    fn installed_services_of_reads_all_on_for_pre_s1_rows() {
+        // Pre-S1 rows (services_json NULL) predate the switches: everything
+        // was built unconditionally (pi/pi-web were always_on scenarios,
+        // never listed in env.scenarios), so pi/pi_web read ON even with an
+        // empty scenario set. Deriving them from the empty set would make
+        // the first PUT silently strip pi/pi-web from an old sandbox.
+        let row = row_with(None, r#"{"scenarios":[],"versions":{"node":"22.23.2"}}"#);
+        let svc = installed_services_of(&row);
+        assert!(svc.code_server && svc.vnc && svc.pi && svc.pi_web);
+    }
+
+    #[test]
+    fn installed_services_of_derives_pi_from_scenarios_once_set() {
+        // Post-S1 rows: pi/pi_web ARE the scenario set; code_server/vnc come
+        // from services_json.
+        let row = row_with(
+            Some(
+                db::Services {
+                    code_server: false,
+                    vnc: true,
+                }
+                .canonical_json(),
+            ),
+            r#"{"scenarios":["node","pi"],"versions":{}}"#,
+        );
+        let svc = installed_services_of(&row);
+        assert!(!svc.code_server && svc.vnc && svc.pi && !svc.pi_web);
+    }
+
     // ── service_start (D4, unified Phase 3) ─────────────────────────
 
     fn insert_row(state: &AppState, name: &str) {
@@ -1015,6 +1496,7 @@ mod tests {
                 status: "running".into(),
                 adopted: false,
                 external_compose: None,
+                services_json: None,
             },
         )
         .expect("insert test sandbox");
@@ -1052,7 +1534,10 @@ mod tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         let v: serde_json::Value = r.json().await.unwrap();
-        assert!(v["error"].as_str().unwrap().contains("unknown on-demand service"));
+        assert!(v["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown on-demand service"));
     }
 
     #[tokio::test]
@@ -1062,7 +1547,9 @@ mod tests {
 
         let r = state
             .http
-            .post(format!("{base}/api/sandboxes/ghost/service/code-server/start"))
+            .post(format!(
+                "{base}/api/sandboxes/ghost/service/code-server/start"
+            ))
             .send()
             .await
             .unwrap();
@@ -1086,7 +1573,9 @@ mod tests {
 
         let r = state
             .http
-            .post(format!("{base}/api/sandboxes/svcstart/service/code-server/start"))
+            .post(format!(
+                "{base}/api/sandboxes/svcstart/service/code-server/start"
+            ))
             .send()
             .await
             .unwrap();

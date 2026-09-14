@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "验证 composegen/jobs 改动不违背既有 D 系决策"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "验证 services 字段向后兼容与错误形状"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门槛（测试/lint）"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门槛"}
+{"file": ".trellis/tasks/09-10-mgr-web-ux-batch2/prd.md", "reason": "对照 D1/D2 验收"}

@@ -1,6 +1,11 @@
 // EnvPicker - scenario + version selection UI shared by the create wizard and
 // the env editor (design §4: "环境配置编辑：同创建向导的场景/版本区").
 //
+// 09-11 prototype form (create-sandbox.html §3): per-layer `.layer` heading
+// over a `.rows` surface; each scenario is a `.row` (check + name/desc +
+// version select). Locked (always_on) rows carry the 「必装」 `.lock` chip
+// and a disabled check; unchecked rows dim via `.off`.
+//
 // Semantics mirror the config TUI (config/src/tui.rs + scenario.rs):
 //   - always_on scenarios are LOCKED ON (checkbox disabled, "always-on" pill);
 //     only their version dropdown is interactive. They are never part of
@@ -14,7 +19,7 @@
 // The value is a SandboxEnv ({scenarios, versions}) - the same contract as
 // POST/PUT bodies and the sandbox list's env field (types.ts single owner).
 
-import type { Lang } from "../i18n";
+import type { Lang, StringKey } from "../i18n";
 import { t } from "../i18n";
 import type { Scenario, SandboxEnv } from "../types";
 
@@ -25,6 +30,22 @@ interface Props {
   env: SandboxEnv;
   onChange: (env: SandboxEnv) => void;
 }
+
+/** Layer display order + label key (parent D2): L1 os / L2 shell / L3 lang /
+ * L4 app. Unknown categories (future scenarios) render last, like the config
+ * TUI's category_rank. */
+const LAYERS: { cats: string[]; labelKey: StringKey }[] = [
+  { cats: ["os"], labelKey: "layL1" },
+  { cats: ["shell"], labelKey: "layL2" },
+  { cats: ["lang"], labelKey: "layL3" },
+  { cats: ["app"], labelKey: "layL4" },
+];
+
+/** Scenario ids owned by the services area (S1, parent D1): pi and pi-web are
+ * surfaced there, NOT in the four-layer scenario section — a single switch
+ * in one place, never two. EnvPicker still honors their presence in
+ * env.scenarios internally (they travel in the same SandboxEnv). */
+const SERVICE_SCENARIOS = ["pi", "pi-web"];
 
 export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Element {
   const toggle = (id: string, on: boolean) => {
@@ -42,55 +63,66 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
     onChange({ ...env, versions: { ...env.versions, [id]: label } });
   };
 
+  const visible = scenarios.filter((s) => !SERVICE_SCENARIOS.includes(s.id));
+  const layered = LAYERS.map(({ cats, labelKey }) => ({
+    labelKey,
+    items: visible.filter((s) => cats.includes(s.category)),
+  })).filter((g) => g.items.length > 0);
+  const unknown = visible.filter((s) => !LAYERS.some((l) => l.cats.includes(s.category)));
+
+  const row = (s: Scenario) => {
+    const checked = s.always_on || env.scenarios.includes(s.id);
+    // Current version label: explicit selection > scenario default > first
+    // offered (matches gen's resolve_version fallback chain).
+    const current = env.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
+    return (
+      <div key={s.id} className={`row${s.always_on ? " locked" : ""}${checked ? "" : " off"}`}>
+        <input
+          className="check"
+          type="checkbox"
+          checked={checked}
+          disabled={s.always_on}
+          aria-label={s.name}
+          onChange={(e) => !s.always_on && toggle(s.id, e.target.checked)}
+        />
+        <div className="main-col">
+          <div className="name">
+            {s.name}
+            {s.always_on && <span className="lock">{t(lang, "wzLocked")}</span>}
+          </div>
+          <div className="desc">{s.description}</div>
+        </div>
+        {s.versions.length > 0 && (
+          <select
+            className="input"
+            aria-label={`${s.name} ${t(lang, "wzVersion")}`}
+            value={current}
+            onChange={(e) => setVersion(s.id, e.target.value)}
+          >
+            {s.versions.map((label) => (
+              <option key={label} value={label}>
+                {label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  };
+
+  const group = (labelKey: StringKey, items: Scenario[]) => (
+    <div key={labelKey}>
+      <p className="layer">{t(lang, labelKey)}</p>
+      <div className="rows" role="group" aria-label={t(lang, labelKey)}>
+        {items.map(row)}
+      </div>
+    </div>
+  );
+
   return (
     <div>
-      <div className="field">
-        <label>{t(lang, "wzScenarios")}</label>
-        <span className="hint">{t(lang, "wzScenariosHint")}</span>
-      </div>
-      <div className="scn-list" role="group" aria-label={t(lang, "wzScenarios")}>
-        {scenarios.map((s) => {
-          const checked = s.always_on || env.scenarios.includes(s.id);
-          // Current version label: explicit selection > scenario default >
-          // first offered (matches gen's resolve_version fallback chain).
-          const current =
-            env.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
-          return (
-            <div key={s.id} className={`scn-row${s.always_on ? " locked" : ""}`}>
-              <input
-                className="check"
-                type="checkbox"
-                checked={checked}
-                disabled={s.always_on}
-                aria-label={s.name}
-                onChange={(e) => !s.always_on && toggle(s.id, e.target.checked)}
-              />
-              <div className="scn-main">
-                <span className="scn-name">
-                  <span>{s.name}</span>
-                  {s.always_on && <span className="scn-lock">{t(lang, "wzLocked")}</span>}
-                </span>
-                <span className="scn-desc">{s.description}</span>
-              </div>
-              {s.versions.length > 0 && (
-                <div className="scn-ver">
-                  <select
-                    aria-label={`${s.name} ${t(lang, "wzVersion")}`}
-                    value={current}
-                    onChange={(e) => setVersion(s.id, e.target.value)}
-                  >
-                    {s.versions.map((label) => (
-                      <option key={label} value={label}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {layered.map((g) => group(g.labelKey, g.items))}
+      {unknown.length > 0 && group("layOther", unknown)}
     </div>
   );
 }

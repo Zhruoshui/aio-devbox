@@ -116,6 +116,60 @@ pub fn project_name(name: &str) -> String {
     format!("sbx-{name}")
 }
 
+/// Readable combo description for the images table (S3 R1, design §2).
+/// Format: `<scenario+...> [<id>@<label>...] [svc: cs,vnc,pi,piweb]` — the
+/// service list names the switches that are ON (all = `all`, none = `none`).
+///
+/// Service-switch source of truth (S1 normalization): only code_server and
+/// vnc live in db::Services; pi and pi-web are SCENARIOS (their ids in
+/// `env.scenarios`), folded there by routes.rs normalize_services — so the
+/// pi/pi-web switches are derived from the scenario list, not from Services.
+pub fn describe_combo(env: &SandboxEnv, services: &crate::db::Services) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // Scenarios + versions.
+    if env.scenarios.is_empty() {
+        parts.push("(base)".into());
+    } else {
+        let mut scens = env.scenarios.clone();
+        scens.sort();
+        parts.push(scens.join("+"));
+    }
+    if !env.versions.is_empty() {
+        let versions: Vec<String> = env
+            .versions
+            .iter()
+            .map(|(id, label)| format!("{id}@{label}"))
+            .collect();
+        parts.push(versions.join(","));
+    }
+
+    // Service switches: cs/vnc from Services; pi/piweb derived from the
+    // scenario list (S1 normalization — see the doc comment above).
+    let pi = env.scenarios.iter().any(|s| s == "pi");
+    let pi_web = env.scenarios.iter().any(|s| s == "pi-web");
+    let on: Vec<String> = [
+        ("cs", services.code_server),
+        ("vnc", services.vnc),
+        ("pi", pi),
+        ("piweb", pi_web),
+    ]
+    .into_iter()
+    .filter(|(_, on)| *on)
+    .map(|(name, _)| name.to_string())
+    .collect();
+    let svc = if on.len() == 4 {
+        "all".to_string()
+    } else if on.is_empty() {
+        "none".to_string()
+    } else {
+        on.join(",")
+    };
+    parts.push(format!("[svc: {svc}]"));
+
+    parts.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +196,57 @@ mod tests {
             versions: BTreeMap::new(),
         };
         assert_eq!(env.canonical_json(), r#"{"scenarios":["a","b"],"versions":{}}"#);
+    }
+
+    #[test]
+    fn describe_combo_shapes() {
+        use crate::db::Services;
+
+        // All-on: cs+vnc services with pi and pi-web as scenarios = `all`.
+        let env = SandboxEnv {
+            scenarios: vec!["node".into(), "python".into(), "pi".into(), "pi-web".into()],
+            versions: BTreeMap::from([("node".into(), "20".into()), ("python".into(), "3.12".into())]),
+        };
+        assert_eq!(
+            describe_combo(&env, &Services { code_server: true, vnc: true }),
+            "node+pi+pi-web+python node@20,python@3.12 [svc: all]"
+        );
+
+        // Scenarios sorted; versions appended sorted (BTreeMap order).
+        let env2 = SandboxEnv {
+            scenarios: vec!["b".into(), "a".into()],
+            versions: BTreeMap::new(),
+        };
+        assert_eq!(
+            describe_combo(&env2, &Services { code_server: true, vnc: true }),
+            "a+b [svc: cs,vnc]"
+        );
+
+        // Partial services: only on ones listed. pi/pi-web derived from
+        // scenarios, NOT from Services.
+        assert_eq!(
+            describe_combo(&env2, &Services { code_server: true, vnc: false }),
+            "a+b [svc: cs]"
+        );
+        let env3 = SandboxEnv {
+            scenarios: vec!["pi".into(), "pi-web".into()],
+            versions: BTreeMap::new(),
+        };
+        // pi/pi-web are SCENARIOS here (S1 normalization) — they surface in
+        // the service list from the scenarios, not from Services.
+        assert_eq!(
+            describe_combo(&env3, &Services { code_server: false, vnc: true }),
+            "pi+pi-web [svc: vnc,pi,piweb]"
+        );
+
+        // No scenarios = (base).
+        let base = SandboxEnv {
+            scenarios: vec![],
+            versions: BTreeMap::new(),
+        };
+        assert_eq!(
+            describe_combo(&base, &Services { code_server: false, vnc: false }),
+            "(base) [svc: none]"
+        );
     }
 }

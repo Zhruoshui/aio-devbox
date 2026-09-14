@@ -1,9 +1,11 @@
-# Minimal preset: the always_on baseline only (node + python + the pi/pi-web
-# AI-workbench stack are baked unconditionally by gen; the versioned ones have
-# their version selection pinned here). CI copies this to .aio/enabled.toml to
-# build the minimal variant. `scenarios = []` is a legal selection ->
-# Dockerfile.base is just head + tail + always_on fragments.
-scenarios = []
+# Minimal preset: the always_on baseline (node + python, versioned selection
+# pinned here) plus the default-on service-switch scenarios pi/pi-web
+# (S1/D1: the mgr create-wizard service toggles are scenario UI upgrades,
+# default all-on; repo CI builds with the defaults). CI copies this to
+# .aio/enabled.toml to build the minimal variant. `scenarios = [...]` lists
+# the non-always_on scenarios to bake; everything else (shell-utils/c23/mise/
+# fonts) is minimal's cut.
+scenarios = ["pi", "pi-web"]
 
 [[versions]]
 id = "node"

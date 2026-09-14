@@ -1,18 +1,24 @@
-// AgentTabs — the incremental agent binding tabs (pi/opencode), ported from
-// web/src/panes/models/AgentTabs.tsx with the sandbox-local parts trimmed
-// (Phase 4c): the assignment editor (provider dropdown + ModelPicker + save
-// through PUT /api/models/config) is kept verbatim, while the install-status
-// badge, live readback card, apply button/apply-result panel and the
-// LiveProviderList (native-file management) are dropped — those read and
-// write files INSIDE a sandbox, which mgr has no API for. The MgrNotice strip
-// links out to each running sandbox's workbench where that live view lives.
+// AgentTabs — the incremental agent tabs (pi/opencode), redesigned per the
+// 09-11 prototype (docs/Web-Prototype/models.html tab-pi/tab-opencode).
+//
+// Layout: .strip paradigm explainer → .two grid. Left column (.card.assign):
+// "当前指向" single-select over EVERY (provider, model) pair in the library,
+// rendered as .model-opt radio rows (mono id + provider · name · cost meta +
+// reasoning chip); the savebar below shows the dirty state with 保存/放弃.
+// Right column: SandboxTable (per-sandbox agent-subset switches).
+//
+// Data flow unchanged vs the pre-redesign tab: a radio pick patches the
+// canonical config through onUpdateAssignment (provider reset drops a model
+// the new provider doesn't list — ModelsPage's reducer); save PUTs the whole
+// config with ?profile=; the sandbox pull (≤60s) renders the result.
+// MgrNotice keeps the shared-library strip with running-sandbox links.
 
-import { useState } from "react";
-import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
-import { incompatibleReason, type CanonicalConfig } from "./types";
-import { MgrNotice, type SandboxLink } from "./MgrNotice";
-import { ModelPicker } from "./ModelPicker";
+import { Icon } from "../../icons";
+import type { Sandbox } from "../../types";
+import type { CanonicalConfig } from "./types";
+import { MgrNotice } from "./MgrNotice";
+import { SandboxTable, runningLinks } from "./SandboxTable";
 
 /** The incremental (single-assignment) agents. */
 type IncrementalAgent = "pi" | "opencode";
@@ -23,10 +29,18 @@ export function AgentTabs({
   agentDirty,
   saving,
   agentSaveMsg,
-  sandboxLinks,
+  profileId,
+  profileName,
+  profileNames,
+  sandboxList,
+  sbxBusy,
   onGoWorkspace,
+  onGoList,
+  onGoProfile,
+  onToggleSandboxAgent,
   onUpdateAssignment,
   onSaveAssignment,
+  onDiscardAssignment,
   lang,
 }: {
   agent: IncrementalAgent;
@@ -34,127 +48,131 @@ export function AgentTabs({
   agentDirty: Set<string>;
   saving: boolean;
   agentSaveMsg: { ok: boolean; text: string } | null;
-  sandboxLinks: SandboxLink[];
+  profileId: string;
+  profileName: string;
+  /** id → display name for every profile (SandboxTable's Profile column). */
+  profileNames: Record<string, string>;
+  sandboxList: Sandbox[] | null;
+  sbxBusy: string;
   onGoWorkspace?: (name: string) => void;
+  onGoList?: () => void;
+  onGoProfile: (id: string) => void;
+  onToggleSandboxAgent: (name: string, agent: string, on: boolean) => void;
   onUpdateAssignment: (agent: IncrementalAgent, patch: Record<string, unknown>) => void;
   onSaveAssignment: (agent: IncrementalAgent) => void;
+  onDiscardAssignment: (agent: IncrementalAgent) => void;
   lang: Lang;
 }): JSX.Element {
-  const [pickerOpen, setPickerOpen] = useState(false);
-
   const assignment = config.agents[agent];
   const isDirty = agentDirty.has(agent);
   const currentProviderId = assignment?.provider ?? "";
   const currentModelId = assignment?.model ?? "";
-  const providerList = Object.entries(config.providers);
-  const models = config.providers[currentProviderId]?.models ?? [];
-  const selectedModel = models.find((m) => m.id === currentModelId);
+  const currentKey = `${currentProviderId}/${currentModelId}`;
 
   return (
-    <div className="ml-agent">
-      {/* agent-head: 2xl name (install/live badges live in the sandbox UI) */}
-      <div className="ml-agent-head">
-        <span className="ml-agent-name">{agent}</span>
+    <div>
+      {/* paradigm strip (prototype: incremental render-target explainer) */}
+      <div className="strip">
+        <Icon name="info" />
+        <span>
+          {t(lang, "maStripIncremental")
+            .replace("{profile}", profileName || profileId)
+            .replace("{file}", agent === "pi" ? "~/.pi/models.json" : "opencode.json")}
+        </span>
       </div>
 
-      {/* paradigm strip */}
-      <div className="ml-paradigm-strip">
-        <span>{t(lang, "maParadigmIncremental")}</span>
-      </div>
+      <MgrNotice links={runningLinks(sandboxList)} lang={lang} onGoWorkspace={onGoWorkspace} />
 
-      <MgrNotice links={sandboxLinks} lang={lang} onGoWorkspace={onGoWorkspace} />
-
-      {/* assignment card */}
-      <div className="ml-form-card">
-        <h3>{t(lang, "mcAssign")}</h3>
-        <div className="ml-agent-form">
-          {/* provider dropdown */}
-          <div className="field">
-            <label>{t(lang, "mcProvider")}</label>
-            <select
-              value={currentProviderId}
-              onChange={(e) => {
-                onUpdateAssignment(agent, { provider: e.target.value });
-                setPickerOpen(false);
-              }}
-            >
-              <option value="">{t(lang, "mcSelectProvider")}</option>
-              {providerList.map(([id, p]) => {
-                const reason = incompatibleReason(agent, p);
-                // The currently-selected provider stays selectable even if it
-                // became incompatible after the assignment was saved (so the
-                // user can see and change it).
-                const isCurrent = id === currentProviderId;
-                return (
-                  <option key={id} value={id} disabled={reason !== null && !isCurrent}>
-                    {p.name || id}
-                    {reason && !isCurrent
-                      ? reason === "incompatible-claude"
-                        ? ` — ${t(lang, "mcIncompatibleClaude")}`
-                        : ` — ${t(lang, "mcIncompatibleCodex")}`
-                      : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          {/* model picker over the provider's models[] (no free text) */}
-          <div className="field">
-            <label>{t(lang, "mcModel")}</label>
-            <button
-              className="ml-model-trigger"
-              disabled={!currentProviderId}
-              onClick={() => setPickerOpen(!pickerOpen)}
-            >
-              <code>
-                {selectedModel
-                  ? selectedModel.name
-                    ? `${selectedModel.name} (${selectedModel.id})`
-                    : selectedModel.id
-                  : currentModelId || t(lang, "maPickModel")}
-              </code>
-              <Icon name={pickerOpen ? "chev-r" : "chev-l"} />
-            </button>
-            {pickerOpen &&
-              (models.length === 0 ? (
-                <div className="ml-hint">{t(lang, "maNoModelsInProvider")}</div>
-              ) : (
-                <ModelPicker
-                  models={models}
-                  selectedId={currentModelId || undefined}
-                  onPick={(id) => {
-                    onUpdateAssignment(agent, { model: id });
-                    setPickerOpen(false);
-                  }}
-                  lang={lang}
-                />
-              ))}
-          </div>
-        </div>
-
-        {/* save bar (no Apply: rendering happens sandbox-side on pull) */}
-        <div className="ml-savebar">
-          {isDirty && (
-            <span className="dirty">
-              <span className="dot" />
-              {t(lang, "mcDirty")}
+      <div className="two">
+        {/* left: current binding single-select */}
+        <div className="card assign">
+          <h3>
+            {t(lang, "maCurrentBinding")}{" "}
+            <span className="muted" style={{ fontWeight: 400 }}>
+              · {profileName || profileId}
             </span>
-          )}
-          {agentSaveMsg && (
-            <span className={`ml-msg${agentSaveMsg.ok ? " ok" : " err"}`}>
-              {agentSaveMsg.text}
-            </span>
-          )}
-          <span className="spacer" />
-          <button
-            className="btn btn-primary"
-            disabled={!isDirty || saving}
-            onClick={() => onSaveAssignment(agent)}
+          </h3>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            role="radiogroup"
+            aria-label={t(lang, "mcModel")}
           >
-            {t(lang, "mcSaveAssignment")}
-          </button>
+            {Object.entries(config.providers).flatMap(([pid, p]) =>
+              p.models.map((m) => {
+                const key = `${pid}/${m.id}`;
+                return (
+                  <label key={key} className="model-opt">
+                    <input
+                      className="radio"
+                      type="radio"
+                      name={`m-${agent}`}
+                      value={key}
+                      checked={key === currentKey}
+                      onChange={() =>
+                        onUpdateAssignment(agent, { provider: pid, model: m.id })
+                      }
+                    />
+                    <div>
+                      <div className="id">{m.id}</div>
+                      <div className="meta">
+                        {p.name || pid} · {m.name ?? m.id}
+                        {m.cost?.input != null || m.cost?.output != null
+                          ? ` · $${m.cost.input ?? 0} / $${m.cost.output ?? 0} ${t(
+                              lang,
+                              "maPerMillion",
+                            )}`
+                          : ` · ${t(lang, "maLocalNoCost")}`}
+                      </div>
+                    </div>
+                    {m.reasoning && <span className="chip tag">{t(lang, "mcReasoning")}</span>}
+                  </label>
+                );
+              }),
+            )}
+            {Object.keys(config.providers).length === 0 && (
+              <span className="ml-hint">{t(lang, "mcSelectProvider")}</span>
+            )}
+          </div>
+
+          <div className="savebar">
+            <span className={isDirty ? "ml-dirty" : undefined}>
+              {isDirty ? t(lang, "mcDirty") : t(lang, "maInSync")}
+            </span>
+            {agentSaveMsg && (
+              <span className={`ml-msg${agentSaveMsg.ok ? " ok" : " err"}`}>
+                {agentSaveMsg.text}
+              </span>
+            )}
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={!isDirty || saving}
+              onClick={() => onDiscardAssignment(agent)}
+            >
+              {t(lang, "maDiscard")}
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!isDirty || saving}
+              onClick={() => onSaveAssignment(agent)}
+            >
+              {saving ? t(lang, "mcSaving") : t(lang, "mcSave")}
+            </button>
+          </div>
         </div>
+
+        {/* right: per-sandbox agent-subset switches */}
+        <SandboxTable
+          agent={agent}
+          profileId={profileId}
+          profileNames={profileNames}
+          sandboxList={sandboxList}
+          sbxBusy={sbxBusy}
+          onGoWorkspace={onGoWorkspace}
+          onGoList={onGoList}
+          onGoProfile={onGoProfile}
+          onToggleSandboxAgent={onToggleSandboxAgent}
+          lang={lang}
+        />
       </div>
     </div>
   );

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-08-31
+- **Total Sessions**: 4
+- **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~664 | Active |
+| `journal-1.md` | ~1205 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-09-14 | mgr-web 原型重构收尾 —— S7 提交 + 任务归档 | `46d0332` | `main` |
 | 3 | 2026-08-31 | CI 镜像流水线落地：双预设 GHCR 自动构建全绿 + 首跑校准与 AC2 实测 | `fa4db01`, `c9eb0a2`, `4d52472`, `ec6ef8b`, `991849a`, `ef9f42d`, `89d9491`, `5d232e2` | `main` |
 | 2 | 2026-08-27 | pi/opencode 页签 live 配置管理(R2+R3) | `8aecf44` | `feat/aio-sandbox-mvp` |
 | 1 | 2026-08-26 | pi agent-browser 原生工具补全(烘焙 CLI + CDP wrapper 挂 VNC chromium) | `8f620b2` | `feat/aio-sandbox-mvp` |

@@ -62,17 +62,22 @@ pub fn render(rows: &[db::SandboxRow]) -> String {
              reverse_proxy sbx-{name}:8080\n}}\n"
         ));
         // pi-web gets its own origin (Next.js root-absolute assets cannot live
-        // under a subpath). Host is rewritten to the PUBLIC subdomain (not the
-        // upstream alias) because pi-web's request-security middleware
-        // validates Host: its allow-list accepts `*.localhost` suffixes and
-        // PI_WEB_ALLOWED_HOSTS entries (compose sets the latter as the second
-        // belt) - the bare docker alias `sbx-<name>-piweb:30141` matches
-        // neither (observed: 403 "Untrusted request").
+        // under a subpath). The browser's original Host header is passed
+        // through UNCHANGED (no header_up rewrite): pi-web's
+        // request-security middleware (a) validates Host against `*.localhost`
+        // suffixes / PI_WEB_ALLOWED_HOSTS — it strips the port via
+        // URL().hostname itself, so `sbx-<name>-piweb.mgr.localhost:8081`
+        // passes — and (b) for /api/* requires Origin == origin derived from
+        // Host. Rewriting Host to a PORT-LESS literal used to break (b)
+        // whenever the browser reached the total gateway through a
+        // non-default host port (Origin keeps :8081, rewritten Host does
+        // not → "Untrusted API request" 403, observed 09-10). A bare docker
+        // alias Host (`sbx-<name>-piweb:30141`) would still 403, but that
+        // never occurs through the gateway — the browser always sends the
+        // public subdomain.
         out.push_str(&format!(
             "\nhttp://sbx-{name}-piweb.mgr.localhost {{\n    \
-             reverse_proxy http://sbx-{name}-piweb:30141 {{\n        \
-             header_up Host sbx-{name}-piweb.mgr.localhost\n    \
-             }}\n}}\n"
+             reverse_proxy http://sbx-{name}-piweb:30141\n}}\n"
         ));
     }
     out
@@ -93,8 +98,7 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
     };
     let path = caddyfile_path(&state.data);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     // Back up the previous file, then write the new content IN PLACE.
     //
@@ -109,8 +113,7 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
         let bak = path.with_extension("bak");
         let _ = std::fs::copy(&path, &bak);
     }
-    std::fs::write(&path, render(&rows))
-        .with_context(|| format!("write {}", path.display()))?;
+    std::fs::write(&path, render(&rows)).with_context(|| format!("write {}", path.display()))?;
 
     // Reload through the selected channel; map the outcome into a short
     // human line for the job log.
@@ -121,7 +124,10 @@ pub async fn regenerate(state: &crate::state::AppState) -> Result<String> {
                 db::kv_set(&conn, "gateway_reload", "ok")
             };
             let hint = tail_hint(&out);
-            Ok(format!("gateway Caddyfile regenerated ({} sandboxes); reload ok{hint}", rows.len()))
+            Ok(format!(
+                "gateway Caddyfile regenerated ({} sandboxes); reload ok{hint}",
+                rows.len()
+            ))
         }
         Err(e) => {
             let msg = format!("{e:#}");
@@ -168,7 +174,9 @@ async fn reload(data: &Path) -> Result<String> {
         }
         None => {
             tracing::warn!("no caddy on PATH; Caddyfile written but not reloaded");
-            anyhow::bail!("no caddy binary on PATH (bare-metal form) - Caddyfile written, reload skipped")
+            anyhow::bail!(
+                "no caddy binary on PATH (bare-metal form) - Caddyfile written, reload skipped"
+            )
         }
     }
 }
@@ -223,6 +231,7 @@ mod tests {
             status: "running".into(),
             adopted: false,
             external_compose: None,
+            services_json: None,
         }
     }
 
@@ -232,10 +241,12 @@ mod tests {
         assert!(out.contains("http://sbx-alpha.mgr.localhost {"));
         assert!(out.contains("reverse_proxy sbx-alpha:8080"));
         assert!(out.contains("http://sbx-alpha-piweb.mgr.localhost {"));
-        // Host must be the PUBLIC subdomain (not the upstream alias+port):
-        // pi-web's request-security only accepts *.localhost suffixes and
-        // PI_WEB_ALLOWED_HOSTS entries - see the render comment.
-        assert!(out.contains("header_up Host sbx-alpha-piweb.mgr.localhost"));
+        // NO header_up Host rewrite on the piweb site: the browser's Host
+        // (with whatever port the total gateway was published under) must
+        // pass through verbatim so pi-web's Origin==Host check holds - see
+        // the render comment (403 "Untrusted API request" otherwise).
+        assert!(!out.contains("header_up Host"));
+        assert!(out.contains("reverse_proxy http://sbx-alpha-piweb:30141"));
     }
 
     #[test]

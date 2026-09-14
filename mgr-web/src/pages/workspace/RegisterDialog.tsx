@@ -162,7 +162,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
 
   return (
     <div
-      className="overlay"
+      className="overlay open"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) close();
@@ -180,26 +180,28 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
         </h2>
         <p className="sub">{t(lang, "dialogSub")}</p>
         <form onSubmit={submit} noValidate>
-          <div className="field">
-            <div className="seg" role="radiogroup" aria-label={t(lang, "dialogTitle")}>
-              {(["agent", "web"] as const).map((tp) => (
-                <button
-                  key={tp}
-                  type="button"
-                  role="radio"
-                  aria-checked={type === tp}
-                  className={`seg-btn${type === tp ? " active" : ""}`}
-                  onClick={() => setType(tp)}
-                >
+          <div className="type-row" role="radiogroup" aria-label={t(lang, "typeAgent")}>
+            {(["agent", "web"] as const).map((tp) => (
+              <label key={tp} className="type-opt">
+                <input
+                  className="radio"
+                  type="radio"
+                  name="rtype"
+                  checked={type === tp}
+                  onChange={() => setType(tp)}
+                />
+                <span>
                   {t(lang, tp === "agent" ? "typeAgent" : "typeWeb")}
-                </button>
-              ))}
-            </div>
+                  <small>{t(lang, tp === "agent" ? "typeAgentSub" : "typeWebSub")}</small>
+                </span>
+              </label>
+            ))}
           </div>
           <div className="field">
             <label htmlFor="f-label">{t(lang, "fieldLabel")}</label>
             <input
               id="f-label"
+              className="input"
               ref={firstFieldRef}
               name="label"
               maxLength={64}
@@ -223,6 +225,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
               <label htmlFor="f-cmd">{t(lang, "fieldCmd")}</label>
               <input
                 id="f-cmd"
+                className="input"
                 name="cmd"
                 maxLength={64}
                 placeholder={t(lang, "fieldCmdPh")}
@@ -246,6 +249,7 @@ export function RegisterDialog({ sandbox, lang, onClose, onProbe, onRegister }: 
               <label htmlFor="f-port">{t(lang, "fieldPort")}</label>
               <input
                 id="f-port"
+                className="input"
                 name="port"
                 inputMode="numeric"
                 pattern="[0-9]*"

@@ -173,13 +173,40 @@ export interface SandboxUsageEntry {
   usage: UsageResponse | null;
 }
 
+/** One day's usage for one (agent, model) — the S4 byDay series item.
+ * `date` is `YYYY-MM-DD` (UTC); `cost` present only when the source logged
+ * it (pi/opencode); claude/codex days carry no cost (AC4 hides the series). */
+export interface DayUsage {
+  date: string;
+  agent: string;
+  model: string;
+  in: number;
+  out: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost?: number;
+}
+
+/** Per-sandbox total derived by mgr from that sandbox's rows (S4 design §2). */
+export interface SandboxTotal {
+  name: string;
+  in: number;
+  out: number;
+  cost: number;
+}
+
 /** GET /api/usage?window= — the mgr-only multi-sandbox wrapper. */
 export interface UsageFanout {
   sandboxes: SandboxUsageEntry[];
+  /** S4: per-sandbox totals ({name, in, out, cost}) — absent on old mgr. */
+  totals?: SandboxTotal[];
 }
 
 export interface UsageResponse {
   rows: UsageRow[];
+  /** S4: last-14-days series, independent of the window param. Absent on
+   * old apps — the frontend hides the trend when it's missing. */
+  byDay?: DayUsage[];
   generatedAt: string;
 }
 
@@ -243,8 +270,28 @@ export function decodeUsage(json: unknown): UsageResponse {
       cost: typeof r.cost === "number" ? r.cost : undefined,
     });
   }
+  // S4: decode byDay (absent on old apps -> undefined, trend hidden).
+  const rawDays = Array.isArray(o.byDay) ? o.byDay : null;
+  const byDay: DayUsage[] | undefined = rawDays
+    ? rawDays
+        .map((d): DayUsage | null => {
+          if (!isObj(d) || typeof d.date !== "string") return null;
+          return {
+            date: d.date,
+            agent: typeof d.agent === "string" ? d.agent : "",
+            model: typeof d.model === "string" ? d.model : "",
+            in: asU64(d.in),
+            out: asU64(d.out),
+            cacheRead: asU64(d.cacheRead),
+            cacheWrite: asU64(d.cacheWrite),
+            cost: typeof d.cost === "number" ? d.cost : undefined,
+          };
+        })
+        .filter((d): d is DayUsage => d !== null)
+    : undefined;
   return {
     rows,
+    byDay,
     generatedAt: typeof o.generatedAt === "string" ? o.generatedAt : "",
   };
 }
@@ -264,7 +311,23 @@ export function decodeUsageFanout(json: unknown): UsageFanout {
       usage: e.usage == null ? null : decodeUsage(e.usage),
     });
   }
-  return { sandboxes };
+  // S4: decode totals (absent on old mgr -> totals falls back undefined and
+  // the frontend derives per-sandbox bars from entries).
+  const rawTotals = Array.isArray(o.totals) ? o.totals : null;
+  const totals: SandboxTotal[] | undefined = rawTotals
+    ? rawTotals
+        .map((e): SandboxTotal | null => {
+          if (!isObj(e) || typeof e.name !== "string") return null;
+          return {
+            name: e.name,
+            in: asU64(e.in),
+            out: asU64(e.out),
+            cost: typeof e.cost === "number" ? e.cost : 0,
+          };
+        })
+        .filter((e): e is SandboxTotal => e !== null)
+    : undefined;
+  return { sandboxes, totals };
 }
 
 export function decodeConfig(json: unknown): CanonicalConfig {
@@ -590,6 +653,21 @@ export function protocolLabel(p: string): string {
       return "openai resp";
     case "anthropic-messages":
       return "anthropic";
+    default:
+      return p;
+  }
+}
+
+/** Badge label for a provider protocol (prototype models.html pv card):
+ * the short protocol family, language-neutral — no i18n needed. */
+export function protocolBadge(p: string): string {
+  switch (p) {
+    case "anthropic-messages":
+      return "Anthropic";
+    case "openai-responses":
+      return "Responses";
+    case "openai-completions":
+      return "OpenAI compat";
     default:
       return p;
   }

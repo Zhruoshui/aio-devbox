@@ -18,7 +18,12 @@ use tokio::process::Command;
 
 /// Run `docker build` with the repo root as context; streams progress to the
 /// returned String instead of the terminal (job log).
-pub async fn build(context: &Path, dockerfile: &Path, tag: &str, build_args: &[(&str, &str)]) -> Result<String> {
+pub async fn build(
+    context: &Path,
+    dockerfile: &Path,
+    tag: &str,
+    build_args: &[(&str, &str)],
+) -> Result<String> {
     let mut args: Vec<String> = vec![
         "build".into(),
         "-f".into(),
@@ -83,7 +88,9 @@ pub async fn network_connect_alias(network: &str, container: &str, alias: &str) 
             }
             run_capture("docker", &["network", "disconnect", network, container])
                 .await
-                .with_context(|| format!("disconnect {container} from {network} before aliasing it as {alias}"))?;
+                .with_context(|| {
+                    format!("disconnect {container} from {network} before aliasing it as {alias}")
+                })?;
             run_capture(
                 "docker",
                 &["network", "connect", "--alias", alias, network, container],
@@ -104,15 +111,23 @@ pub async fn network_disconnect(network: &str, container: &str) {
     }
 }
 
-/// Profile flags every `up` carries (D4, code-server on-demand): vnc ONLY.
-/// vnc is a resident dependency - pi agent-browser hard-depends on the CDP
-/// Chromium inside it - while code-server is a pure editor surface nothing
-/// in the sandbox depends on, so it is NOT started with the sandbox: the
-/// workspace pane pulls it up through mgr's service-start route
-/// (compose_service_up below). Empirically (compose 5.2.0) an `up` without
-/// the code-server profile never starts it and leaves an already-started
-/// one running untouched.
-const UP_PROFILES: [&str; 2] = ["--profile", "vnc"];
+/// Profile flags for a sandbox `up` (D4: code-server is on-demand, never
+/// here — the workspace pane pulls it up through mgr's service-start route,
+/// compose_service_up below; empirically (compose 5.2.0) an `up` without the
+/// code-server profile never starts it and leaves an already-started one
+/// running untouched). S1: vnc is per-sandbox optional — a sandbox created
+/// without vnc carries no profile flag (its compose has no vnc service, so
+/// `--profile vnc` would silently match nothing; harmless but noisy).
+/// Adopted up (compose_up_file below) keeps the unconditional vnc flag:
+/// the external compose is unknown territory and a compose without a vnc
+/// service is unaffected by an unmatched profile.
+fn up_profiles(include_vnc: bool) -> Vec<&'static str> {
+    if include_vnc {
+        vec!["--profile", "vnc"]
+    } else {
+        Vec::new()
+    }
+}
 
 /// Profile flags that activate ONLY the on-demand code-server profile
 /// (carried by the single-service commands below).
@@ -126,11 +141,22 @@ pub const CODE_SERVER_PROFILE: [&str; 2] = ["--profile", "code-server"];
 /// code-server pane stops and tears down without error.
 const SANDBOX_PROFILES: [&str; 4] = ["--profile", "code-server", "--profile", "vnc"];
 
-/// `docker compose -p <project> -f <file> --profile vnc up -d
-/// [--force-recreate]`. The profile split (UP_PROFILES) is D4: vnc comes up
-/// with the sandbox, code-server does not (see compose_service_up).
-pub async fn compose_up(project: &str, compose_file: &Path, force_recreate: bool) -> Result<String> {
-    run_args(&up_args(&compose_prefix(project, compose_file), &UP_PROFILES, force_recreate)).await
+/// `docker compose -p <project> -f <file> [--profile vnc] up -d
+/// [--force-recreate]`. D4: vnc comes up with the sandbox (when installed,
+/// S1), code-server does not (see compose_service_up).
+pub async fn compose_up(
+    project: &str,
+    compose_file: &Path,
+    force_recreate: bool,
+    with_vnc: bool,
+) -> Result<String> {
+    let profiles = up_profiles(with_vnc);
+    run_args(&up_args(
+        &compose_prefix(project, compose_file),
+        &profiles,
+        force_recreate,
+    ))
+    .await
 }
 
 pub async fn compose_down(project: &str, compose_file: &Path, volumes: bool) -> Result<String> {
@@ -192,7 +218,16 @@ pub async fn compose_ps_file(compose_file: &Path) -> Result<Vec<ComposePsEntry>>
 /// adopted code-server (if the compose carries one behind a profile) is
 /// pulled up on demand like a native one.
 pub async fn compose_up_file(compose_file: &Path) -> Result<String> {
-    run_args(&up_args(&compose_file_prefix(compose_file), &UP_PROFILES, false)).await
+    // Adopted stacks are unknown territory: carry the vnc profile (pre-S1
+    // unconditional behavior; an adopted compose without a vnc service is
+    // unaffected - an unmatched --profile matches nothing).
+    let profiles = ["--profile", "vnc"];
+    run_args(&up_args(
+        &compose_file_prefix(compose_file),
+        &profiles,
+        false,
+    ))
+    .await
 }
 
 pub async fn compose_stop_file(compose_file: &Path) -> Result<String> {
@@ -212,7 +247,7 @@ pub async fn compose_restart_file(compose_file: &Path) -> Result<String> {
 // ── on-demand single-service lifecycle (D4, unified Phase 3) ────────
 //
 // code-server is profile-gated and deliberately NOT started by `up`
-// (UP_PROFILES above); these commands address exactly ONE profile-gated
+// (up_profiles above); these commands address exactly ONE profile-gated
 // service by name. Every one of them carries the service's own profile:
 // compose only sees a profile-gated service when its profile is active.
 
@@ -237,7 +272,12 @@ pub async fn compose_service_up(
     profiles: &[&str],
     service: &str,
 ) -> Result<String> {
-    run_args(&service_up_args(&compose_prefix(project, compose_file), profiles, service)).await
+    run_args(&service_up_args(
+        &compose_prefix(project, compose_file),
+        profiles,
+        service,
+    ))
+    .await
 }
 
 /// External-stack variant (no `-p`, the file is the identity): an adopted
@@ -248,7 +288,12 @@ pub async fn compose_service_up_file(
     profiles: &[&str],
     service: &str,
 ) -> Result<String> {
-    run_args(&service_up_args(&compose_file_prefix(compose_file), profiles, service)).await
+    run_args(&service_up_args(
+        &compose_file_prefix(compose_file),
+        profiles,
+        service,
+    ))
+    .await
 }
 
 /// `docker compose -p <project> -f <file> --profile code-server rm --force
@@ -265,7 +310,12 @@ pub async fn compose_service_rm(
     profiles: &[&str],
     service: &str,
 ) -> Result<String> {
-    run_args(&service_rm_args(&compose_prefix(project, compose_file), profiles, service)).await
+    run_args(&service_rm_args(
+        &compose_prefix(project, compose_file),
+        profiles,
+        service,
+    ))
+    .await
 }
 
 /// `docker exec <container> caddy reload --config <path>` - the containerized
@@ -274,7 +324,14 @@ pub async fn compose_service_rm(
 pub async fn caddy_reload_in_container(container: &str, config_path: &str) -> Result<String> {
     run_capture(
         "docker",
-        &["exec", container, "caddy", "reload", "--config", config_path],
+        &[
+            "exec",
+            container,
+            "caddy",
+            "reload",
+            "--config",
+            config_path,
+        ],
     )
     .await
 }
@@ -387,11 +444,7 @@ fn parse_ps_output(out: &str) -> Result<Vec<ComposePsEntry>> {
 
 /// `docker images` existence check (skipping a build when the tag exists).
 pub async fn image_exists(tag: &str) -> Result<bool> {
-    let out = run_capture(
-        "docker",
-        &["image", "inspect", "--format", "{{.Id}}", tag],
-    )
-    .await;
+    let out = run_capture("docker", &["image", "inspect", "--format", "{{.Id}}", tag]).await;
     match out {
         Ok(_) => Ok(true),
         Err(e) => {
@@ -407,6 +460,56 @@ pub async fn image_exists(tag: &str) -> Result<bool> {
             }
         }
     }
+}
+
+/// The image-name prefixes mgr owns and may delete (S3). Anything else is
+/// refused by image_rmi — a defensive line against deleting host/user
+/// images through the web UI (which only ever lists these prefixes).
+pub const OWNED_IMAGE_PREFIXES: [&str; 4] = [
+    "sandbox-base-",
+    "sandbox-app-",
+    "sandbox-code-server-",
+    "sandbox-vnc",
+];
+
+/// Whether a tag is one mgr may delete (S3 whitelist, see OWNED_IMAGE_PREFIXES).
+pub fn is_owned_image_tag(tag: &str) -> bool {
+    OWNED_IMAGE_PREFIXES.iter().any(|p| tag.starts_with(p))
+}
+
+/// `docker rmi -f <tag>` — forced because base/app/cs share a FROM chain,
+/// so deleting a group sequentially would otherwise trip "image is being
+/// used by ..." on the intermediate tags. Refuses tags outside the mgr-owned
+/// prefixes. The exit-on-missing-tag is NOT an error here (delete job
+/// iterates a group where a service may be off — skip it), so callers use
+/// image_exists() first.
+pub async fn image_rmi(tag: &str) -> Result<String> {
+    if !is_owned_image_tag(tag) {
+        bail!("refusing to delete non-mgr image {tag:?}");
+    }
+    run_capture("docker", &["rmi", "-f", tag]).await
+}
+
+/// `docker image inspect --format {{.Size}} <tag>` → size in bytes. A missing
+/// tag errors (the delete job uses image_exists() to skip; the list route
+/// turns an inspect failure into "—").
+pub async fn image_size(tag: &str) -> Result<u64> {
+    let out = run_capture(
+        "docker",
+        &["image", "inspect", "--format", "{{.Size}}", tag],
+    )
+    .await?;
+    let trimmed = out.trim();
+    let size: u64 = trimmed
+        .parse()
+        .with_context(|| format!("parse image size {trimmed:?} for {tag}"))?;
+    Ok(size)
+}
+
+/// `docker builder prune -f` — build-cache cleanup. Returns the full output
+/// (the "Total reclaimed space: <X>" line is what the cleanup job reports).
+pub async fn builder_prune() -> Result<String> {
+    run_capture("docker", &["builder", "prune", "-f"]).await
 }
 
 /// Captured run: stdout on success; anyhow error with stderr tail on failure.
@@ -429,12 +532,20 @@ async fn run_capture(program: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-
 fn tail_str(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("...{}", &s[s.len() - max..])
+        // Byte slicing must land on a char boundary: build output can carry
+        // multibyte UTF-8 (observed: a Chinese char inside '二'), and cutting
+        // mid-char would panic with "not a char boundary" (a tokio task
+        // abort that silently killed a create job, hiding the real build
+        // error). Walk forward from the cut point to the next boundary.
+        let mut idx = s.len() - max;
+        while idx < s.len() && !s.is_char_boundary(idx) {
+            idx += 1;
+        }
+        format!("...{}", &s[idx..])
     }
 }
 
@@ -471,7 +582,8 @@ mod tests {
 
     #[test]
     fn parse_ps_single_object_shape() {
-        let ps = parse_ps_output(r#"{"name":"a-app-1","service":"app","state":"running"}"#).unwrap();
+        let ps =
+            parse_ps_output(r#"{"name":"a-app-1","service":"app","state":"running"}"#).unwrap();
         assert_eq!(ps.len(), 1);
         assert_eq!(ps[0].name, "a-app-1");
     }
@@ -480,6 +592,21 @@ mod tests {
     fn parse_ps_blank_output_is_empty() {
         // No services at all (fresh project, everything down + pruned).
         assert!(parse_ps_output("  \n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn owned_image_tag_whitelist() {
+        // S3: only mgr-owned prefixes are deletable through the web UI.
+        assert!(is_owned_image_tag("sandbox-base-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-app-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-code-server-abcdef123456"));
+        assert!(is_owned_image_tag("sandbox-vnc"));
+        assert!(!is_owned_image_tag("ubuntu:24.04"));
+        assert!(!is_owned_image_tag("debian:bookworm-slim"));
+        assert!(!is_owned_image_tag("node:20"));
+        assert!(!is_owned_image_tag("registry.local/my-image"));
+        // Prefix must be exact - "sandbox-app2" is NOT "sandbox-app-".
+        assert!(!is_owned_image_tag("sandbox-app2-foo"));
     }
 
     #[test]
@@ -492,23 +619,45 @@ mod tests {
     // ── D4 profile split: argv shapes (pure builders, no docker needed) ──
 
     #[test]
-    fn up_args_carry_only_vnc_profile() {
-        // D4 core: `up` brings vnc (pi agent-browser's resident dependency)
-        // but NOT code-server (on-demand via compose_service_up).
-        let args = up_args(&["compose", "-p", "sbx-dev1", "-f", "/x/compose.yml"], &UP_PROFILES, false);
+    fn up_args_carry_only_vnc_profile_when_enabled() {
+        // D4 core + S1: `up` with vnc enabled brings vnc (pi agent-browser's
+        // resident dependency) but NOT code-server (on-demand via
+        // compose_service_up); with vnc disabled no profile flag at all.
+        let args = up_args(
+            &["compose", "-p", "sbx-dev1", "-f", "/x/compose.yml"],
+            &up_profiles(true),
+            false,
+        );
         assert_eq!(
             args,
             vec![
-                "compose", "-p", "sbx-dev1", "-f", "/x/compose.yml",
-                "--profile", "vnc", "up", "-d",
+                "compose",
+                "-p",
+                "sbx-dev1",
+                "-f",
+                "/x/compose.yml",
+                "--profile",
+                "vnc",
+                "up",
+                "-d",
             ]
         );
         assert!(!args.contains(&"code-server"));
+        let no_vnc = up_args(
+            &["compose", "-f", "/x/compose.yml"],
+            &up_profiles(false),
+            false,
+        );
+        assert_eq!(no_vnc, vec!["compose", "-f", "/x/compose.yml", "up", "-d"]);
     }
 
     #[test]
     fn up_args_force_recreate_appends_flag() {
-        let args = up_args(&["compose", "-f", "/x/compose.yml"], &UP_PROFILES, true);
+        let args = up_args(
+            &["compose", "-f", "/x/compose.yml"],
+            &up_profiles(true),
+            true,
+        );
         assert!(args.ends_with(&["up", "-d", "--force-recreate"]));
     }
 
@@ -525,8 +674,16 @@ mod tests {
         assert_eq!(
             args,
             vec![
-                "compose", "-p", "sbx-dev1", "-f", "/x/compose.yml",
-                "--profile", "code-server", "up", "-d", "code-server",
+                "compose",
+                "-p",
+                "sbx-dev1",
+                "-f",
+                "/x/compose.yml",
+                "--profile",
+                "code-server",
+                "up",
+                "-d",
+                "code-server",
             ]
         );
     }
@@ -543,8 +700,15 @@ mod tests {
         assert_eq!(
             args,
             vec![
-                "compose", "-f", "/x/compose.yml",
-                "--profile", "code-server", "rm", "--force", "--stop", "code-server",
+                "compose",
+                "-f",
+                "/x/compose.yml",
+                "--profile",
+                "code-server",
+                "rm",
+                "--force",
+                "--stop",
+                "code-server",
             ]
         );
     }
@@ -558,8 +722,9 @@ mod tests {
             SANDBOX_PROFILES,
             ["--profile", "code-server", "--profile", "vnc"]
         );
-        assert_eq!(UP_PROFILES, ["--profile", "vnc"]);
+        // S1: vnc profile is now per-sandbox conditional via up_profiles().
+        assert_eq!(up_profiles(true), ["--profile", "vnc"]);
+        assert!(up_profiles(false).is_empty());
         assert_eq!(CODE_SERVER_PROFILE, ["--profile", "code-server"]);
     }
 }
-

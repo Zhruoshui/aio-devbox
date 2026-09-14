@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "核对 images 契约与回滚兼容"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust 质量基线（docker job 错误处理）"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量基线"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "镜像删除语义落位核对"}

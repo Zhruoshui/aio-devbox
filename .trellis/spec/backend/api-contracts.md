@@ -235,13 +235,23 @@ mgr-web 列表页数据源;DB status 是"意图"(creating/running/error),`live`
 
 ### 3. Contracts
 
-列表项字段(13): `name/status/live/adopted/created_at/cpus/mem_mb/env/
-image/entry_url/piweb_url/model_profile/services[]`。URL 字段在 payload 里
-内联生成(`http://sbx-<name>.mgr.localhost/`),sbx- 前缀与 caddy.rs render
-及 composegen 网络别名三方共享同一身份——改前缀必须三处同改。
+列表项字段(14, S1 起): `name/status/live/adopted/created_at/cpus/mem_mb/
+env/image/entry_url/piweb_url/model_profile/services[]/installed_services`。
+URL 字段在 payload 里内联生成(`http://sbx-<name>.mgr.localhost/`),sbx-
+前缀与 caddy.rs render 及 composegen 网络别名三方共享同一身份——改前缀
+必须三处同改。
 `model_profile`: 所指派 profile id 或 `null`(未指派 = 沙箱保持本地
 models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** store
 (一次解析,非每行——models store 可能不小),详情逐行读。
+`services[]`: compose ps 的**运行时容器**列表(字段 13,命名被占用,所以
+服务开关字段不得叫 `services`——见下)。
+`installed_services`: **装了什么服务**的只读四开关
+`{code_server, vnc, pi, pi_web}`(S1,任务 09-10-mgr-create-services),
+由 `mgr/src/routes.rs::installed_services_of` 折叠:code_server/vnc 读
+`services_json` 列;pi/pi_web 由 `env.scenarios` 推导。**S1 之前的行
+(`services_json` NULL)→ 四开关全 true**——pre-S1 原生沙箱按"服务无条件"
+构建(pi/pi-web 当时是 always_on 场景,从不进 scenarios),推导自空集合
+会错误报告"未装";adopt 行同样保持 NULL→全开(adopt 流程的既定选择)。
 
 ### 4. Validation & Error Matrix
 
@@ -253,6 +263,31 @@ models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** st
 
 - `caddy.rs` render 单测(站点块存在/删除消失/mgr 静态站优先)锁 URL 形状。
 
+## POST/PUT sandboxes — services 四开关(S1,09-10-mgr-create-services)
+
+create 请求体与 PUT 请求体均可选带 `services: {code_server, vnc, pi,
+pi_web}`,**四键缺省全 true**(`ServicesBody` 手写 `Default`,防 derive 全
+false 把旧客户端无 services 字段的请求译成"全关")。归一化
+(`routes.rs::normalize_services`,create 与 PUT 同一 helper):
+
+- pi/pi_web 是**场景**(单源真值在 `env.scenarios`):开关先剔除再按结果
+  写回——`pi=true` 推 `"pi"`,`pi_web=true` 推 `"pi"` + `"pi-web"`;关掉
+  则从 scenarios 剔除。
+- **pi_web=true 时 `pi` 与 `vnc` 都不得为 false,否则 400**(错误
+  "pi-web 依赖 pi 与 vnc…")——pi-web 的配置挂在 pi 安装下、其 Chromium
+  由 vnc 侧车承载,两者缺一即矛盾(R1/AC3;前端联动是客户端一半,后端
+  校验兜底)。
+- code_server/vnc 原样写 `services_json` 列(只存这两个布尔;pi/pi_web
+  存两份即双源真值)。
+- 归一化**先于** `to_manifest_checked`:场景集进 manifest 校验。
+
+**PUT 的 services 字段刻意忽略**(声明并注释,不是 serde 静默跳过):安装
+集由镜像内容在 create 时定死,不可改。但 PUT 的 env 换血不能把隐藏在
+env.scenarios 里的 pi/pi-web 弄丢——PUT 侧用**当前行的四开关形状**
+(`installed_services_of`)重归一化:pre-S1 行读成全开 → 首次 PUT-recreate
+把 pi/pi-web 重新烘焙进场景 → 装配字节与 always_on 时代逐字节一致 →
+同 hash、复用镜像,不会静默剥掉已装服务(AC4 回归门)。
+
 ## PUT /api/sandboxes/:name — limits 三态语义
 
 **缺失 = 保留当前值;`>0` = 设置;`0` = 清除(无限制)。** `null` 与缺失
@@ -261,14 +296,22 @@ null 方案下 UI 无法区分"未更改"与"清除"。创建侧对偶:`0`/null 
 无限制。负数 400(`check_limits`)。改 env 走 recreate job(202 + `{job}`),
 卷保留。
 
-## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8)
+## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8; S2 增 agents)
 
-Body `{"profile": "<id>" | null}`(null/缺失 = 解绑)。**纯 kv 写,同步返回,
-绝不触发 recreate job**——沙箱的 60s 拉取自然生效;这是它与 `PUT
-/api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条路由的全部理由,
-不得合并。未知沙箱 400(`require_row` 同形);未知 profile id 404
-(models.rs `set_assignment`)。错误矩阵与写路径细节见
-[sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
+Body `{"profile": "<id>" | null, "agents": <subset> | null}`:
+- `profile`: 指派 id;null/缺失 = 解绑。
+- `agents`(S2, D4c): **整份替换**语义——缺省 = 全指派,`[]` = 零指派
+  (沙箱拉取 404 → 保持本地),数组 = 精确子集(仅渲染勾选 agent)。
+  **必须始终随 PUT 携带**,省略会让后端 serde default 把已有子集悄悄放大
+  为全指派(frontend 编辑页/快捷指派都显式传)。
+- **纯 kv 写,同步返回,绝不触发 recreate job**——沙箱的 60s 拉取自然生效;
+  这是它与 `PUT /api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条
+  路由的全部理由,不得合并。未知沙箱 400(`require_row` 同形);未知
+  profile id 404;agent 名不在 {pi,claude,codex,opencode} 白名单内 400
+  (models.rs `VALID_AGENTS`,`set_assignment`)。响应增
+  `model_agents`(与 body 同形);`GET /api/sandboxes`/`:name` 的
+  `sandbox_json` 增 `model_agents`(null = 全指派,旧数据兼容,AC4)。
+  错误矩阵与写路径细节见 [sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
 
 ## POST /api/sandboxes/:name/service/:service/start — 按需单服务拉起(unified Phase 3, D4)
 
@@ -293,7 +336,69 @@ piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
 同 env 第二个沙箱复用镜像(A5)时,`upsert_image` 以**空 log**命中
 `ON CONFLICT DO UPDATE`——必须 CASE WHEN 保留旧 build_log/built_at,否则
 原始构建日志被空值覆盖,镜像页日志按钮永久禁用。`mgr/src/db.rs` 单测
-锁语义(3 个)。
+锁语义(3 个)。S3 起 `upsert_image` 增 `combo` 参数(5 参):组合描述随
+每写携带,ON CONFLICT 时 `COALESCE(?5, images.combo)`——NULL combo 不覆盖
+已有描述(旧行 A5 复用场景)。
+
+## GET /api/models/usage (app) — byDay 序列(S4,D5)
+
+响应在既有 `rows` + `generatedAt` 之上增 `byDay`:近 14 个自然日
+(UTC)`(date, agent, model)` 的逐日聚合。
+
+```json
+{ "rows": [/* 不变 */], "byDay": [{ "date": "2026-09-10", "agent": "pi",
+  "model": "claude-sonnet-4-6", "in": 100, "out": 50, "cacheRead": 10,
+  "cacheWrite": 5, "cost": 0.01 }], "generatedAt": "…Z" }
+```
+
+- **与 window 参数解耦**(S4 关键语义):byDay 恒定最近 14 天
+  `[today-13 … today]`(扫描器先累加日桶、后做窗口 cutoff,再按
+  `now_day` 裁剪)。today/7d 窗口的 byDay 不因此被截断;all 窗口也不吐
+  出全部历史。
+- 每项 `cost` 仅当来源记账了成本(pi/opencode);claude/codex 日项
+  `cost` 缺省 → 前端隐藏成本系列(AC4)。
+- 无数据的日子**不发合成行**——前端按 14 日跨度 gap-fill 到 0。
+- 与 `rows` 的时间窗口互相独立:选某个 window 不影响趋势图。
+- 向后兼容:旧前端(无 byDay 消费)忽略该字段;旧 app(无 byDay)不返回
+  → 新前端隐藏趋势图。
+
+## GET /api/usage (mgr) — totals 派生(S4,D5)
+
+响应在既有 `sandboxes` 之上增 `totals`:
+
+```json
+{ "sandboxes": [/* 不变 */], "totals": [{ "name": "sbx-a", "in": 123,
+  "out": 45, "cost": 0.015 }] }
+```
+
+- `totals` 是 **mgr 对已缓存 entries 的纯 sum**(design §2),不含重新
+  扫描:对每个非 error entry 的 `usage.rows` 累加 `in`/`out`/`cost`
+  (`cost` 缺失按 0);error entry 的项三个字段全 0。
+- 用于合计视图的「分沙箱条形图」;若无 totals(旧 mgr)前端从 entries
+  推算。
+- 不入缓存——由 30s 缓存的 entries 派生,命中缓存即算。
+
+## images 管理端点(S3,D3)
+
+- `GET /api/images` — 每行 `{env_hash, tag, built_at, refcount, build_log,
+  combo, size_bytes}`。`combo` 为可读组合描述(create 时 envhash:
+  `describe_combo(env, services)` 写入;旧行 NULL,前端回退 env_hash[:12]。
+  pi/pi-web 服务开关从 env.scenarios 推导,S1 折叠后 Services 仅含
+  cs/vnc)。`size_bytes` = 实时 `docker image inspect {{.Size}}`(base tag),
+  查询失败/镜像不存在 → null(前端显示 —),**永不因此报错**。
+- `POST /api/images/:env_hash/delete` → **202 {job}**(kind `image-delete`)。
+  预检同步:env_hash 必须 64 hex(否则 400);行不存在 404;`refcount > 0`
+  → **409**(R3,含构建中引用——create/recreate 沙箱在 run_create 写
+  env_hash 后 refcount 即含之)。job 内**重查 refcount**(竞争窗口兜底),
+  `image_tags(hash)` 三 tag 依次 `image_rmi -f`(缺失跳过),全成功才
+  `delete_image_row`;任一 rmi 失败 → 中止报错、**DB 行保留**(下次构建
+  upsert 重建,R5 不半删)。**不碰 vnc**(全局共享无行可查)。
+- `POST /api/images/cleanup` → **202 {job}**(kind `image-cleanup`)。job
+  遍历 refcount=0 行逐行按上法删组(单行失败报告后继续,R4),累计回收
+  bytes + `docker builder prune`,log 汇总 `cleanup done: N image(s)
+  removed, M failed, reclaimed X bytes of images`。
+- rmi 安全:只允许 `image_tags(hash)` 产出的 `sandbox-` 前缀 tag
+  (`docker::is_owned_image_tag`),任意 tag 注入被拒。
 
 ## /api seam 404(app 与 mgr 同构)
 

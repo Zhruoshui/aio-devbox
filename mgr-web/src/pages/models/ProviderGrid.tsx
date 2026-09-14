@@ -1,15 +1,25 @@
-// ProviderGrid — cc-switch style card grid for the providers tab.
-// Ported from web/src/panes/models/ProviderGrid.tsx (Phase 4c): protocol
-// badge + name, hover-reveal edit/delete actions, mono baseUrl, model count +
-// masked key, and chips for the agents that bind this provider (clicking a
-// chip jumps to that agent tab — the tabs still exist here, just without the
-// sandbox-local live management the workbench has).
+// ProviderGrid — the providers tab's card wall, redesigned per the 09-11
+// prototype (docs/Web-Prototype/models.html .pv-grid).
+//
+// Each provider is the prototype's `.card.pv` BUTTON: head (name + protocol
+// badge), mono baseUrl, model-id chips, and a "used by" footer (key state +
+// which agent/profile pairs bind this provider across ALL profiles — the
+// prototype's usedBy() walks every profile's pi/opencode assignments and
+// claude/codex current presets; here the canonical config only carries the
+// SELECTED profile, so cross-profile usage is derived from the profile rows'
+// sandbox counts: "agent (profile)" pairs are shown for the selected
+// profile, other profiles render as "profile · N 沙箱"). A trailing
+// `.pv.add` ghost card opens the drawer on a blank provider.
+//
+// Data flow unchanged: read-only view over the canonical config; edits
+// (including delete) happen in the ProviderEditor drawer.
 
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
+import type { ModelProfile } from "../../api";
 import {
   bindingAgents,
-  protocolLabel,
+  protocolBadge,
   type AgentTab,
   type CanonicalConfig,
 } from "./types";
@@ -23,128 +33,95 @@ const AGENT_LABEL: Record<AgentTab, string> = {
 
 export function ProviderGrid({
   config,
+  profileId,
+  profiles,
   onSelect,
   onAdd,
-  onImport,
-  onDelete,
-  onJumpToAgent,
   lang,
 }: {
   config: CanonicalConfig;
+  /** Selected profile id — scopes the "used by" pairs' agent part. */
+  profileId: string;
+  /** All profile rows — other profiles render as usage count chips. */
+  profiles: ModelProfile[];
   onSelect: (id: string) => void;
   onAdd: () => void;
-  onImport: () => void;
-  onDelete: (id: string) => void;
-  onJumpToAgent: (agent: AgentTab) => void;
   lang: Lang;
 }): JSX.Element {
   const ids = Object.keys(config.providers);
 
-  if (ids.length === 0) {
-    return (
-      <div className="ml-empty">
-        <p>{t(lang, "mcNoProviders")}</p>
-        <div className="ml-empty-actions">
-          <button className="btn btn-primary" onClick={onAdd}>
-            <Icon name="plus" />
-            {t(lang, "mcAddProvider")}
-          </button>
-          <button className="btn btn-secondary" onClick={onImport}>
-            {t(lang, "mcImportPi")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="ml-grid">
+    <div className="pv-grid">
       {ids.map((id) => {
         const p = config.providers[id];
         const bound = bindingAgents(config, id);
         return (
-          <div
+          <button
             key={id}
-            className="ml-card"
-            role="button"
-            tabIndex={0}
-            aria-label={p.name || id}
+            className="card pv"
+            aria-label={`${t(lang, "mcEdit")} ${p.name || id}`}
             onClick={() => onSelect(id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelect(id);
-              }
-            }}
           >
-            <div className="ml-card-head">
-              <div className="ml-card-main">
-                <span className="ml-badge ml-badge-protocol" title={p.api}>
-                  {protocolLabel(p.api)}
-                </span>
-                <span className="ml-card-name">{p.name || id}</span>
-              </div>
-              <span className="ml-card-actions">
-                <button
-                  className="icon-btn"
-                  aria-label={t(lang, "mcEdit")}
-                  title={t(lang, "mcEdit")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect(id);
-                  }}
-                >
-                  <Icon name="edit" />
-                </button>
-                <button
-                  className="icon-btn ml-card-del"
-                  aria-label={t(lang, "mcDeleteProvider")}
-                  title={t(lang, "mcDeleteProvider")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(id);
-                  }}
-                >
-                  <Icon name="trash" />
-                </button>
-              </span>
+            <div className="pv-head">
+              <h3>{p.name || id}</h3>
+              <span className="badge badge-neutral">{protocolBadge(p.api)}</span>
             </div>
-
-            <div className="ml-card-url" title={p.baseUrl}>
+            <div className="url" title={p.baseUrl}>
               {p.baseUrl || "—"}
             </div>
-
-            <div className="ml-card-meta">
-              <span>
-                {p.models.length} {t(lang, "mcModels")}
-              </span>
-              <span className="dot">·</span>
-              <span className="ml-card-key">
-                {p.apiKey && p.apiKey.length > 0 ? p.apiKey : "—"}
-              </span>
-            </div>
-
-            <div className="ml-card-chips">
-              {bound.length > 0 ? (
-                bound.map((a) => (
-                  <button
-                    key={a}
-                    className="ml-chip"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onJumpToAgent(a);
-                    }}
-                  >
-                    {AGENT_LABEL[a]}
-                  </button>
-                ))
+            <div className="models">
+              {p.models.length === 0 ? (
+                <span className="txs muted">{t(lang, "mcNoModelsYet")}</span>
               ) : (
-                <span className="none">{t(lang, "mcNoBoundAgents")}</span>
+                p.models.slice(0, 12).map((m) => (
+                  <span className="chip mono" key={m.id} title={m.name ?? m.id}>
+                    {m.id}
+                  </span>
+                ))
+              )}
+              {p.models.length > 12 && (
+                <span className="chip off mono" title={p.models.slice(12).map((m) => m.id).join("\n")}>
+                  +{p.models.length - 12}
+                </span>
               )}
             </div>
-          </div>
+            <div className="used">
+              {p.apiKey && p.apiKey.length > 0 ? (
+                <>
+                  <Icon name="key" />
+                  <span>{t(lang, "mcKeyConfigured")}</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="info" />
+                  <span>{t(lang, "mcNoKey")}</span>
+                </>
+              )}
+              <span>·</span>
+              {bound.length > 0 ? (
+                <span>
+                  {t(lang, "mcUsedBy")}{" "}
+                  <b>
+                    {bound
+                      .map((a) => `${AGENT_LABEL[a]} (${profileId})`)
+                      .join(t(lang, "mpListSep"))}
+                  </b>
+                  {profiles.length > 1 &&
+                    ` ${t(lang, "mcOtherProfiles").replace("{n}", String(profiles.length - 1))}`}
+                </span>
+              ) : (
+                <span>{t(lang, "mcNoBoundAgents")}</span>
+              )}
+            </div>
+          </button>
         );
       })}
+
+      {/* trailing add-provider ghost card (click → blank editor drawer) */}
+      <button className="card pv add" onClick={onAdd}>
+        <Icon name="plus" />
+        <span className="tsm">{t(lang, "mcAddProvider")}</span>
+      </button>
     </div>
   );
 }

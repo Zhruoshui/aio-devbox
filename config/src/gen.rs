@@ -70,8 +70,10 @@ pub fn assemble_for(repo: &Path, enabled: &manifest::Enabled) -> Result<(String,
     let selected = enabled.expand(&known)?;
 
     // Deterministic order: by profile LAYER (category_rank) then id, then dedup.
-    // Always-on scenarios (L1 node/python + the L4 pi/pi-web workbench stack)
-    // are baked UNCONDITIONALLY - their version selection (if any) lives in
+    // Always-on scenarios (L1 node/python only since S1; S1 made the L4
+    // pi/pi-web workbench stack OPTIONAL - the mgr create-wizard services
+    // switches own them now, see scenarios/*/scenario.toml) are baked
+    // UNCONDITIONALLY - their version selection (if any) lives in
     // manifest.versions, not .scenarios - so
     // they are added here regardless of the selection. Layer order
     // (L1 os -> L2 shell -> L3 lang -> L4 app; L5 service future) makes the

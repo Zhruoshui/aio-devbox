@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "canonical store + 渲染器 + 同步链的既有契约，S2 扩展 agents 子集必须遵循"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "mgr 模型上收同步链与写降级规则、make mgr-up 重建注意事项"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "PUT /api/sandboxes/:name/model_profile 与 mgr 控制面 API 契约基线"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "AgentAssignControl 新组件与卡片化 UI 需遵循的组件规范"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "model_agents 字段与 null=全指派语义的类型安全约束"}

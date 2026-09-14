@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "核对 byDay 不破坏既有 usage 语义与缓存"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "核对 totals/byDay 向后兼容"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量基线"}

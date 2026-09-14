@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "核对折叠分支保持 presentational 约定、展开态不回归"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "tsc/build 门禁与质量基线"}

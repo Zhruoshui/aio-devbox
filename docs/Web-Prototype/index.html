@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mgr-web 重设计 · 原型总览</title>
+  <script>document.documentElement.dataset.mode = localStorage.getItem("mgr.theme") === "light" ? "light" : "dark";</script>
+  <link rel="stylesheet" href="mgr-web.css" />
+  <style>
+    .lede { font-size: var(--text-base); color: var(--muted); max-width: 72ch; }
+    .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-4); margin: var(--space-6) 0 var(--space-8); }
+    .screen { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); text-decoration: none; }
+    .screen:hover { box-shadow: 0 0 0 1px color-mix(in oklch, var(--fg) 28%, transparent), var(--elev-raised); }
+    .screen .top { display: flex; align-items: center; gap: var(--space-2); }
+    .screen .top .icon { color: var(--muted); }
+    .screen h2 { font-size: var(--text-base); flex: 1; }
+    .screen p { font-size: var(--text-sm); color: var(--muted); }
+    .screen .file { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); margin-top: auto; }
+    .screen .arrow { color: var(--muted); }
+    h2.sec { font-size: var(--text-lg); margin: var(--space-8) 0 var(--space-3); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+    .note { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); }
+    .note h3 { font-size: var(--text-sm); }
+    .note ul { margin: 0; padding-left: 18px; color: var(--fg-2); }
+    .note li + li { margin-top: 4px; }
+    .map td:first-child { font-family: var(--font-mono); font-size: var(--text-xs); white-space: nowrap; }
+  </style>
+</head>
+<body data-page="index">
+<div class="app">
+  <div data-rail></div>
+  <main class="main scroll">
+    <div class="page">
+      <header class="page-head" data-od-id="index-head">
+        <div>
+          <h1>mgr-web 重设计 · 原型总览</h1>
+          <p class="sub">高保真原型，四个核心页面各自独立成文件，共用同一份 Kumo token 与新 shell。左侧图标栏可直接在页面间切换，右下角主题按钮切换深浅色（与真实应用共用 <span class="mono">mgr.theme</span> 键）。</p>
+        </div>
+      </header>
+
+      <p class="lede">重设计的重心是「布局与操作便利性」：把原来的 216px 导航栏 + 260px 沙箱树两条竖栏，合并为一条 48px 图标栏加一个可收起的侧面板，把宽度还给多窗格工作台；管理页则统一页头、筛选与卡片信息层级，让高频操作（进入工作区、启停、指派 profile）一步可达。</p>
+
+      <section class="screens" data-od-id="screen-list">
+        <a class="card screen" href="workspace.html" data-od-id="screen-workspace">
+          <div class="top"><svg class="icon"><use href="#i-grid"/></svg><h2>工作区</h2><svg class="icon arrow"><use href="#i-arrowr"/></svg></div>
+          <p>默认落地页。图标栏 + 沙箱树侧面板 + golden-layout 多窗格；多沙箱窗格混排、节点更多菜单、注册自定义按钮对话框、空状态与状态栏。</p>
+          <span class="file">workspace.html ← WorkspacePage.tsx · SandboxTree.tsx · gl-kumo.css</span>
+        </a>
+        <a class="card screen" href="sandbox-list.html" data-od-id="screen-sandbox-list">
+          <div class="top"><svg class="icon"><use href="#i-terminal"/></svg><h2>沙箱列表</h2><svg class="icon arrow"><use href="#i-arrowr"/></svg></div>
+          <p>状态分段筛选 + 搜索；卡片重排信息层级：入口子域名、镜像 / 资源 / 创建、profile 快速指派、已安装服务与容器状态；删除走 alertdialog。</p>
+          <span class="file">sandbox-list.html ← SandboxListPage.tsx</span>
+        </a>
+        <a class="card screen" href="create-sandbox.html" data-od-id="screen-create">
+          <div class="top"><svg class="icon"><use href="#i-plus"/></svg><h2>新建沙箱</h2><svg class="icon arrow"><use href="#i-arrowr"/></svg></div>
+          <p>四步单页向导：名称 → 服务开关（pi Web 依赖联动）→ L1–L4 场景 → 资源；右侧粘性摘要实时显示入口、组合与「复用镜像 / 需构建」判断。</p>
+          <span class="file">create-sandbox.html ← CreatePage.tsx · ServicesPicker.tsx · EnvPicker.tsx</span>
+        </a>
+        <a class="card screen" href="models.html" data-od-id="screen-models">
+          <div class="top"><svg class="icon"><use href="#i-sliders"/></svg><h2>模型配置</h2><svg class="icon arrow"><use href="#i-arrowr"/></svg></div>
+          <p>Profile 选择条 + 五个 tab：供应商库卡片与编辑抽屉；pi / opencode 增量指派；Claude Code / Codex 预设切换；每个 agent 都带「生效沙箱」表。</p>
+          <span class="file">models.html ← pages/models/*</span>
+        </a>
+      </section>
+
+      <h2 class="sec">设计决策</h2>
+      <div class="grid2">
+        <div class="card note" data-od-id="note-shell">
+          <h3>Shell：一条图标栏 + 一个侧面板</h3>
+          <ul>
+            <li>48px 图标栏承载页面导航与主题 / 语言切换，取代 216px 侧栏；激活项以 2px 强调色指示条标记。</li>
+            <li>侧面板只在工作区出现，内容是沙箱树；点击图标栏「工作区」即可收起 / 展开，状态持久化。</li>
+            <li>其他管理页收起侧面板，内容区获得全宽，容器上限仍为 1200px。</li>
+            <li>golden-layout 的 40px 标签条、拖拽分屏、弹出子窗口等行为不动，只延续 gl-kumo.css 的 token 皮肤。</li>
+          </ul>
+        </div>
+        <div class="card note" data-od-id="note-tokens">
+          <h3>Token：原样沿用，不另起命名</h3>
+          <ul>
+            <li>`mgr-web.css` 顶部的 :root / [data-mode="dark"] 块与 styles.css 一字不差，深浅色只靠 token 覆盖同步。</li>
+            <li>强调色仅用于主 CTA 与激活指示；开关、复选、页面 tab 的选中态用前景色，避免蓝色泛滥。</li>
+            <li>状态用「颜色 + 文字」双重表达（徽标、状态点均带文字），不依赖单一颜色。</li>
+            <li>沿用 12 / 13 / 14px 紧凑刻度与 4px 节奏；标题句首大写、600 字重，不做字距与全大写。</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 class="sec" id="scope">本轮范围</h2>
+      <div class="grid2">
+        <div class="card note">
+          <h3>已重设计</h3>
+          <ul><li>工作区（默认落地页）</li><li>沙箱列表</li><li>新建沙箱向导</li><li>模型配置</li></ul>
+        </div>
+        <div class="card note">
+          <h3>沿用现状，未在本轮出图</h3>
+          <ul><li>长任务进度视图 JobView（创建 / 重建 / 删除日志）</li><li>镜像仓库表 ImagesPage</li><li>用量图表 UsagePage</li><li>导入外部栈 AdoptPage、编辑配置 EditPage</li></ul>
+          <p class="muted txs" style="margin-top:4px">这些页面可直接套用本原型的页头（.page-head）、卡片与表格组件，视觉即可保持一致。</p>
+        </div>
+      </div>
+
+      <h2 class="sec">文件与源码对应</h2>
+      <div class="card" style="overflow:hidden">
+        <table class="table map">
+          <thead><tr><th>原型文件</th><th>对应源码</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>mgr-web.css</td><td>src/styles.css</td><td>token 块相同；新增 .rail / .panel / .tree-* / .gl-* / .segmented / .switch 等组件层，可按块合入</td></tr>
+            <tr><td>mgr-shell.js</td><td>src/App.tsx · src/icons.tsx</td><td>图标栏导航与主题切换；sprite 中的图标名对应 &lt;Icon name&gt;</td></tr>
+            <tr><td>workspace.html</td><td>pages/WorkspacePage.tsx · workspace/SandboxTree.tsx · gl-kumo.css</td><td>.gl-* 类仅为静态镜像 golden-layout 的 .lm_* 几何，实施时仍由 gl-kumo.css 覆盖 .lm_*</td></tr>
+            <tr><td>sandbox-list.html</td><td>pages/SandboxListPage.tsx</td><td>卡片、筛选、删除 alertdialog、快速指派 popover</td></tr>
+            <tr><td>create-sandbox.html</td><td>pages/CreatePage.tsx · ServicesPicker.tsx · EnvPicker.tsx</td><td>服务依赖联动与镜像复用判断均对应现有后端字段（envhash）</td></tr>
+            <tr><td>models.html</td><td>pages/models/*</td><td>ProviderGrid / ProviderEditor / AgentTabs / PresetList 四块的新形态</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted txs" style="margin-top: var(--space-4)">原型中的沙箱、供应商、模型与价格均为示例数据，用于展示布局与交互；不代表真实环境。</p>
+    </div>
+  </main>
+</div>
+<script src="mgr-shell.js"></script>
+</body>
+</html>
