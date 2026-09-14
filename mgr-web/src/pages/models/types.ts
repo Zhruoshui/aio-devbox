@@ -658,6 +658,21 @@ export function protocolLabel(p: string): string {
   }
 }
 
+/** Badge label for a provider protocol (prototype models.html pv card):
+ * the short protocol family, language-neutral — no i18n needed. */
+export function protocolBadge(p: string): string {
+  switch (p) {
+    case "anthropic-messages":
+      return "Anthropic";
+    case "openai-responses":
+      return "Responses";
+    case "openai-completions":
+      return "OpenAI compat";
+    default:
+      return p;
+  }
+}
+
 /** Whether a string looks like a server-side masked apiKey (has "****"). */
 export function isMaskedKey(k: string | undefined): boolean {
   return !!k && k.includes("****");

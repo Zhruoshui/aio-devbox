@@ -275,6 +275,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
       "该 profile 正被 {n} 个沙箱使用，删除后这些沙箱将保持各自的本地模型配置。确认删除？",
     mpAssignedCount: "（{n} 个沙箱）",
     mpUnassigned: "未指派（保持沙箱本地配置）",
+    // 09-11 prototype redesign: profile-bar segmented + hint
+    mpPickProfile: "选择 profile",
+    mpSegCount: "{n} 个沙箱",
+    mpListSep: "、",
+    mpUnassignedHint: "未指派：{names}（保留本地配置，可在沙箱列表快速指派）",
+    mpAllAssigned: "所有沙箱均已指派",
     mpAssignTo: "模型 Profile",
     mpAssignHint:
       "指派后该沙箱定期拉取此 profile（约 1 分钟内生效），无需重建容器；解绑后沙箱保持本地模型配置。",
@@ -294,6 +300,27 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maParadigmSwitcher: "切换式 agent —— 维护多个命名预设，恰好一个当前生效（cc-switch 风格）。",
     maMgrNotice:
       "这里编辑的是当前所选 profile，指派到它的沙箱会定期拉取生效。agent 的安装状态与原生配置文件请在工作区对应沙箱的终端里查看：",
+    // 09-11 prototype redesign: agent tabs (strip / model-opt / savebar / sbx-tbl)
+    maStripIncremental:
+      "增量式 agent：profile「{profile}」为该 agent 指定唯一的供应商与模型，mgr 把它渲染进沙箱的 {file}，其余本地设置保持不变。",
+    maStripSwitcher:
+      "切换式 agent：profile「{profile}」可保存多套预设，同一时刻只有一套「当前」生效并渲染进沙箱的 {file}。",
+    maCurrentBinding: "当前指向",
+    maInSync: "已与 mgr 同步",
+    maDiscard: "放弃",
+    maPerMillion: "每百万 token",
+    maLocalNoCost: "本地，无成本",
+    maEffectiveSandboxes: "生效沙箱",
+    maNoSandboxes: "还没有沙箱。",
+    maAgentOn: "生效",
+    maAgentLocal: "保留本地",
+    maOtherProfile: "属于其他 profile",
+    maSwitchToProfile: "切到 {name}",
+    maGoAssign: "去指派",
+    maOpenWorkspace: "打开工作区",
+    maSbxTblNote:
+      "沙箱内的 agent 每 60 秒拉取一次渲染结果；关闭开关的 agent 保留沙箱本地文件不被覆盖。",
+    maTakingEffect: "正在生效",
     mcSelectedCount: "{n} 已选",
     mcNoBoundAgents: "未被任何 agent 绑定",
     mcBoundAgentsSub: "以下 agent 正在使用这个供应商：",
@@ -377,6 +404,15 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maSelectProviderFirst: "先选择供应商",
     maPickModel: "选择模型",
     maNoModelsInProvider: "该供应商还没有维护模型——到「供应商」页添加后再来分配",
+    // 09-11 prototype redesign: provider cards + drawer
+    mcNoModelsYet: "暂无模型",
+    mcKeyConfigured: "已配置密钥",
+    mcNoKey: "无密钥",
+    mcUsedBy: "用于",
+    mcOtherProfiles: "（另涉及 {n} 个 profile）",
+    mcEditProviderTitle: "编辑供应商",
+    mcFetchModelsTitle: "调用 /models 端点发现可用模型",
+    mcKeyHint: "密钥只存放在 mgr 数据目录，渲染到沙箱 agent 配置时按需注入。",
     mcEdit: "编辑",
     mcBasic: "基本信息",
     mcApiInherit: "继承",
@@ -676,6 +712,13 @@ const STRINGS: Record<Lang, Record<string, string>> = {
       "{n} sandbox(es) are assigned to this profile; after deletion they keep their local model config. Delete?",
     mpAssignedCount: " ({n} sandbox(es))",
     mpUnassigned: "Unassigned (sandbox keeps local config)",
+    // 09-11 prototype redesign: profile-bar segmented + hint
+    mpPickProfile: "Pick a profile",
+    mpSegCount: "{n} sandboxes",
+    mpListSep: ", ",
+    mpUnassignedHint:
+      "Unassigned: {names} (local config kept; quick-assign on the sandbox list)",
+    mpAllAssigned: "All sandboxes are assigned",
     mpAssignTo: "Model profile",
     mpAssignHint:
       "The assigned sandbox pulls this profile periodically (effective within ~1 min), no container recreate; unassigning leaves the local model config untouched.",
@@ -695,6 +738,27 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maParadigmSwitcher: "Switcher agent — multiple named presets, exactly one current (cc-switch style).",
     maMgrNotice:
       "This edits the SELECTED model profile; sandboxes assigned to it pull it periodically. Agent install status and native config files live in each sandbox's workspace:",
+    // 09-11 prototype redesign: agent tabs (strip / model-opt / savebar / sbx-tbl)
+    maStripIncremental:
+      "Incremental agent: profile “{profile}” points this agent at ONE provider + model; mgr renders it into the sandbox's {file}, other local settings stay untouched.",
+    maStripSwitcher:
+      "Switcher agent: profile “{profile}” keeps several named presets; exactly ONE is “current” and rendered into the sandbox's {file}.",
+    maCurrentBinding: "Current binding",
+    maInSync: "In sync with mgr",
+    maDiscard: "Discard",
+    maPerMillion: "per M tokens",
+    maLocalNoCost: "local, no cost",
+    maEffectiveSandboxes: "Effective sandboxes",
+    maNoSandboxes: "No sandboxes yet.",
+    maAgentOn: "active",
+    maAgentLocal: "local kept",
+    maOtherProfile: "belongs to another profile",
+    maSwitchToProfile: "Switch to {name}",
+    maGoAssign: "Assign",
+    maOpenWorkspace: "Open workspace",
+    maSbxTblNote:
+      "Sandbox agents pull the rendered result every 60 seconds; a switched-off agent keeps the sandbox-local file untouched.",
+    maTakingEffect: "taking effect",
     mcSelectedCount: "{n} selected",
     mcNoBoundAgents: "Not bound to any agent",
     mcBoundAgentsSub: "Agents currently using this provider:",
@@ -777,6 +841,16 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maSelectProviderFirst: "Select a provider first",
     maPickModel: "Pick a model",
     maNoModelsInProvider: "This provider has no models yet — add them in the Providers tab first",
+    // 09-11 prototype redesign: provider cards + drawer
+    mcNoModelsYet: "No models yet",
+    mcKeyConfigured: "API key configured",
+    mcNoKey: "No key",
+    mcUsedBy: "used by",
+    mcOtherProfiles: " (also in {n} other profiles)",
+    mcEditProviderTitle: "Edit provider",
+    mcFetchModelsTitle: "Call the /models endpoint to discover models",
+    mcKeyHint:
+      "Keys live only in the mgr data directory and are injected on demand when rendering sandbox agent configs.",
     mcEdit: "Edit",
     mcBasic: "Basic",
     mcApiInherit: "inherit",

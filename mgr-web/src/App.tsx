@@ -230,7 +230,11 @@ export function App(): JSX.Element {
         ) : page === "images" ? (
           <ImagesPage lang={lang} />
         ) : page === "models" ? (
-          <ModelsPage lang={lang} onGoWorkspace={goWorkspace} />
+          <ModelsPage
+            lang={lang}
+            onGoWorkspace={goWorkspace}
+            onGoList={() => nav("sandboxes")}
+          />
         ) : (
           <UsagePage lang={lang} />
         )}

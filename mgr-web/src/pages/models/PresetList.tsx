@@ -1,29 +1,34 @@
-// PresetList — cc-switch-style preset cards for the switch-style agents
-// (claude/codex), ported from web/src/panes/models/PresetList.tsx with the
-// sandbox-local parts trimmed (Phase 4c). Preset CRUD (add/edit/duplicate/
-// delete/set-current) edits the canonical config and commits through the
-// shared save bar (PUT /api/models/config) exactly like the workbench.
+// PresetList — the switch-style agent tabs (claude/codex), redesigned per
+// the 09-11 prototype (docs/Web-Prototype/models.html tab-claude/tab-codex).
 //
-// Trimmed vs the workbench: the install-status badge, the live-vs-current
-// match badge, the Apply button + apply-result panel — those act on files
-// inside one sandbox. "设为当前" (switch) is setCurrent + save in one click;
-// the sandbox-side render happens when the sandbox pulls the config.
+// Layout: .strip paradigm explainer → .two grid. Left column: "预设 (N)"
+// sec-head with 新建预设, then one .card.preset per preset (current gets the
+// .current ring + badge-ok 当前; body = provider · model mono line + a .kv
+// definition list of the agent-specific extras; footer = 切换为当前 /
+// 正在生效 + copy / edit / delete icon buttons). Editing and creating stay
+// inline PresetForm cards below the entry. Right column: SandboxTable.
+//
+// Data flow unchanged: preset CRUD edits the canonical config in memory and
+// commits through the savebar (PUT /api/models/config?profile=); "切换为当前"
+// is setCurrent + save in one click; the sandbox-side render happens when
+// the sandbox pulls the config (≤60s).
 
 import { useState } from "react";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
+import type { Sandbox } from "../../types";
 import {
   emptyClaudePreset,
   emptyCodexPreset,
   incompatibleReason,
-  protocolLabel,
   type AnyPreset,
   type CanonicalConfig,
   type ClaudePreset,
   type CodexPreset,
   type PresetAgent,
 } from "./types";
-import { MgrNotice, type SandboxLink } from "./MgrNotice";
+import { MgrNotice } from "./MgrNotice";
+import { SandboxTable, runningLinks } from "./SandboxTable";
 
 /** Editing target: null = closed, "" = new-preset form, else a preset id. */
 type EditTarget = string | null;
@@ -34,14 +39,22 @@ export function PresetList({
   agentDirty,
   saving,
   agentSaveMsg,
-  sandboxLinks,
+  profileId,
+  profileName,
+  profileNames,
+  sandboxList,
+  sbxBusy,
   onGoWorkspace,
+  onGoList,
+  onGoProfile,
+  onToggleSandboxAgent,
   onAddPreset,
   onUpdatePreset,
   onDeletePreset,
   onDuplicatePreset,
   onSwitchPreset,
   onSaveAssignment,
+  onDiscardAssignment,
   lang,
 }: {
   agent: PresetAgent;
@@ -49,8 +62,16 @@ export function PresetList({
   agentDirty: Set<string>;
   saving: boolean;
   agentSaveMsg: { ok: boolean; text: string } | null;
-  sandboxLinks: SandboxLink[];
+  profileId: string;
+  profileName: string;
+  /** id → display name for every profile (SandboxTable's Profile column). */
+  profileNames: Record<string, string>;
+  sandboxList: Sandbox[] | null;
+  sbxBusy: string;
   onGoWorkspace?: (name: string) => void;
+  onGoList?: () => void;
+  onGoProfile: (id: string) => void;
+  onToggleSandboxAgent: (name: string, agent: string, on: boolean) => void;
   onAddPreset: (agent: PresetAgent, preset: AnyPreset) => void;
   onUpdatePreset: (agent: PresetAgent, id: string, preset: AnyPreset) => void;
   onDeletePreset: (agent: PresetAgent, id: string) => void;
@@ -58,6 +79,7 @@ export function PresetList({
   /** Switch = setCurrent + save, one click (the render happens sandbox-side). */
   onSwitchPreset: (agent: PresetAgent, id: string) => void;
   onSaveAssignment: (agent: PresetAgent) => void;
+  onDiscardAssignment: (agent: PresetAgent) => void;
   lang: Lang;
 }): JSX.Element {
   const [editing, setEditing] = useState<EditTarget>(null);
@@ -68,188 +90,246 @@ export function PresetList({
   const isDirty = agentDirty.has(agent);
 
   return (
-    <div className="ml-agent ml-preset-list">
-      {/* agent-head: 2xl name (install/live badges live in the sandbox UI) */}
-      <div className="ml-agent-head">
-        <span className="ml-agent-name">
-          {agent === "claude" ? "Claude" : "Codex"}
+    <div>
+      {/* paradigm strip (prototype: switch-style render-target explainer) */}
+      <div className="strip">
+        <Icon name="info" />
+        <span>
+          {t(lang, "maStripSwitcher")
+            .replace("{profile}", profileName || profileId)
+            .replace(
+              "{file}",
+              agent === "claude" ? "~/.claude/settings.json" : "~/.codex/config.toml",
+            )}
         </span>
       </div>
 
-      {/* paradigm strip */}
-      <div className="ml-paradigm-strip">
-        <span>{t(lang, "maParadigmSwitcher")}</span>
-      </div>
+      <MgrNotice links={runningLinks(sandboxList)} lang={lang} onGoWorkspace={onGoWorkspace} />
 
-      <MgrNotice links={sandboxLinks} lang={lang} onGoWorkspace={onGoWorkspace} />
-
-      {/* sec-head: preset count + new-preset entry */}
-      <div className="ml-sec-head">
-        <h2>
-          {t(lang, "maPresetHeading")} ({presets.length})
-        </h2>
-        <div className="ml-sec-actions">
-          <button
-            className="btn btn-primary"
-            disabled={editing !== null || isDirty || saving}
-            onClick={() => setEditing("")}
-          >
-            <Icon name="plus" />
-            {t(lang, "maNewPreset")}
-          </button>
-        </div>
-      </div>
-
-      {presets.length === 0 && editing === null && (
-        <div className="ml-empty">{t(lang, "maNoPresets")}</div>
-      )}
-
-      {/* new-preset form */}
-      {editing === "" && (
-        <div className="ml-preset-form-wrap">
-          <div className="ml-preset-form-title">{t(lang, "maNewPreset")}</div>
-          <PresetForm
-            agent={agent}
-            preset={agent === "claude" ? emptyClaudePreset() : emptyCodexPreset()}
-            config={config}
-            onSave={(p) => {
-              onAddPreset(agent, p);
-              setEditing(null);
-            }}
-            onCancel={() => setEditing(null)}
-            lang={lang}
-          />
-        </div>
-      )}
-
-      {/* preset cards */}
-      {presets.map((preset, idx) => {
-        const isCurrent = preset.id === currentId;
-        const provider = config.providers[preset.provider];
-        const incompat = provider ? incompatibleReason(agent, provider) : null;
-        return (
-          <div key={preset.id} className={`ml-preset-card${isCurrent ? " is-current" : ""}`}>
-            <div className="ml-preset-card-row">
-              <span className="ml-preset-name">{preset.name || t(lang, "maDefaultPreset")}</span>
-              {provider && (
-                <span className="ml-badge ml-badge-protocol" title={preset.provider}>
-                  {protocolLabel(provider.api)}
+      <div className="two">
+        {/* left: preset cards */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+          <div className="sec-head" style={{ margin: 0 }}>
+            <div>
+              <h2 style={{ fontSize: "var(--text-base)", margin: 0 }}>
+                {t(lang, "maPresetHeading")}{" "}
+                <span className="muted" style={{ fontWeight: 400 }}>
+                  ({presets.length})
                 </span>
-              )}
-              {incompat && (
-                <span className="ml-badge ml-badge-warn">
-                  {incompat === "incompatible-claude"
-                    ? t(lang, "mcIncompatibleClaude")
-                    : t(lang, "mcIncompatibleCodex")}
-                </span>
-              )}
-              {isCurrent && (
-                <span className="ml-badge ml-badge-current">{t(lang, "maCurrent")}</span>
-              )}
-              <span className="ml-preset-actions">
-                {!isCurrent && (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={isDirty || saving}
-                    onClick={() => onSwitchPreset(agent, preset.id)}
-                  >
-                    {t(lang, "maSetCurrent")}
-                  </button>
-                )}
-                <button
-                  className="icon-btn"
-                  disabled={isDirty || saving}
-                  aria-label={t(lang, "mcEdit")}
-                  title={t(lang, "mcEdit")}
-                  onClick={() => setEditing(editing === preset.id ? null : preset.id)}
-                >
-                  <Icon name="edit" />
-                </button>
-                <button
-                  className="icon-btn"
-                  disabled={isDirty || saving}
-                  aria-label={t(lang, "maDuplicate")}
-                  title={t(lang, "maDuplicate")}
-                  onClick={() => onDuplicatePreset(agent, preset.id)}
-                >
-                  <Icon name="copy" />
-                </button>
-                <button
-                  className="icon-btn ml-cell-del"
-                  disabled={isDirty || saving}
-                  aria-label={t(lang, "mcDeleteProvider")}
-                  title={t(lang, "mcDeleteProvider")}
-                  onClick={() => {
-                    if (confirm(t(lang, "maDeletePresetConfirm"))) {
-                      onDeletePreset(agent, preset.id);
-                    }
-                  }}
-                >
-                  <Icon name="trash" />
-                </button>
-              </span>
+              </h2>
             </div>
-            <div className="ml-preset-meta">
-              <code>{preset.provider || "—"}</code>
-              <span className="arrow">→</span>
-              <code>{preset.model || "—"}</code>
+            <div className="sec-acts">
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={editing !== null || isDirty || saving}
+                onClick={() => setEditing("")}
+              >
+                <Icon name="plus" />
+                {t(lang, "maNewPreset")}
+              </button>
             </div>
-
-            {/* inline editor */}
-            {editing === preset.id && (
-              <div className="ml-preset-form-wrap">
-                <PresetForm
-                  agent={agent}
-                  preset={preset}
-                  config={config}
-                  onSave={(p) => {
-                    onUpdatePreset(agent, preset.id, p);
-                    setEditing(null);
-                  }}
-                  onCancel={() => setEditing(null)}
-                  lang={lang}
-                />
-              </div>
-            )}
-            {idx < presets.length - 1 && <div className="ml-preset-divider" />}
           </div>
-        );
-      })}
 
-      {/* no-current warning — currentId "" is the freshly-added-first-preset
-       * placeholder (backend backfills the id on PUT), not "unset"; only a
-       * genuinely null/absent current warns. */}
-      {presets.length > 0 && currentId == null && (
-        <div className="ml-warn-strip">
-          <Icon name="alert" />
-          {t(lang, "maNoCurrentPreset")}
+          {/* new-preset form */}
+          {editing === "" && (
+            <div className="card assign">
+              <h3 className="ml-preset-form-title">{t(lang, "maNewPreset")}</h3>
+              <PresetForm
+                agent={agent}
+                preset={agent === "claude" ? emptyClaudePreset() : emptyCodexPreset()}
+                config={config}
+                onSave={(p) => {
+                  onAddPreset(agent, p);
+                  setEditing(null);
+                }}
+                onCancel={() => setEditing(null)}
+                lang={lang}
+              />
+            </div>
+          )}
+
+          {presets.length === 0 && editing === null && (
+            <div
+              className="card card-pad muted tsm"
+              style={{ textAlign: "center", padding: "var(--space-8)" }}
+            >
+              {t(lang, "maNoPresets")}
+            </div>
+          )}
+
+          {/* preset cards */}
+          {presets.map((preset) => {
+            const isCurrent = preset.id === currentId;
+            const provider = config.providers[preset.provider];
+            const incompat = provider ? incompatibleReason(agent, provider) : null;
+            return (
+              <div key={preset.id} className={`card preset${isCurrent ? " current" : ""}`}>
+                <div className="preset-head">
+                  <h3>{preset.name || t(lang, "maDefaultPreset")}</h3>
+                  {incompat && (
+                    <span className="badge badge-warn">
+                      {incompat === "incompatible-claude"
+                        ? t(lang, "mcIncompatibleClaude")
+                        : t(lang, "mcIncompatibleCodex")}
+                    </span>
+                  )}
+                  {isCurrent && (
+                    <span className="badge badge-ok">
+                      <span className="dot" />
+                      {t(lang, "maCurrent")}
+                    </span>
+                  )}
+                </div>
+                <div className="mono tsm">
+                  {(provider ? provider.name || preset.provider : preset.provider || "—")}{" "}
+                  · {preset.model || "—"}
+                </div>
+                <dl className="kv">{presetExtras(agent, preset)}</dl>
+                <div className="preset-acts">
+                  {isCurrent ? (
+                    <span className="txs muted" style={{ marginRight: "auto" }}>
+                      {t(lang, "maTakingEffect")}
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={isDirty || saving}
+                      onClick={() => onSwitchPreset(agent, preset.id)}
+                    >
+                      {t(lang, "maSetCurrent")}
+                    </button>
+                  )}
+                  <button
+                    className="icon-btn"
+                    disabled={isDirty || saving}
+                    aria-label={t(lang, "maDuplicate")}
+                    title={t(lang, "maDuplicate")}
+                    onClick={() => onDuplicatePreset(agent, preset.id)}
+                  >
+                    <Icon name="copy" />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    disabled={isDirty || saving}
+                    aria-label={t(lang, "mcEdit")}
+                    title={t(lang, "mcEdit")}
+                    onClick={() => setEditing(editing === preset.id ? null : preset.id)}
+                  >
+                    <Icon name="edit" />
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    disabled={isDirty || saving}
+                    aria-label={t(lang, "mcDeleteProvider")}
+                    title={t(lang, "mcDeleteProvider")}
+                    onClick={() => {
+                      if (confirm(t(lang, "maDeletePresetConfirm"))) {
+                        onDeletePreset(agent, preset.id);
+                      }
+                    }}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                </div>
+
+                {/* inline editor */}
+                {editing === preset.id && (
+                  <div className="ml-preset-form-wrap">
+                    <PresetForm
+                      agent={agent}
+                      preset={preset}
+                      config={config}
+                      onSave={(p) => {
+                        onUpdatePreset(agent, preset.id, p);
+                        setEditing(null);
+                      }}
+                      onCancel={() => setEditing(null)}
+                      lang={lang}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* no-current warning — currentId "" is the freshly-added-first-preset
+           * placeholder (backend backfills the id on PUT), not "unset"; only
+           * a genuinely null/absent current warns. */}
+          {presets.length > 0 && currentId == null && (
+            <div className="ml-warn-strip">
+              <Icon name="alert" />
+              {t(lang, "maNoCurrentPreset")}
+            </div>
+          )}
+
+          {/* save bar */}
+          <div className="savebar">
+            <span className={isDirty ? "ml-dirty" : undefined}>
+              {isDirty ? t(lang, "mcDirty") : t(lang, "maInSync")}
+            </span>
+            {agentSaveMsg && (
+              <span className={`ml-msg${agentSaveMsg.ok ? " ok" : " err"}`}>
+                {agentSaveMsg.text}
+              </span>
+            )}
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={!isDirty || saving}
+              onClick={() => onDiscardAssignment(agent)}
+            >
+              {t(lang, "maDiscard")}
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!isDirty || saving}
+              onClick={() => onSaveAssignment(agent)}
+            >
+              {saving ? t(lang, "mcSaving") : t(lang, "mcSave")}
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* save bar (no Apply: rendering happens sandbox-side on pull) */}
-      <div className="ml-savebar">
-        {isDirty && (
-          <span className="dirty">
-            <span className="dot" />
-            {t(lang, "mcDirty")}
-          </span>
-        )}
-        {agentSaveMsg && (
-          <span className={`ml-msg${agentSaveMsg.ok ? " ok" : " err"}`}>
-            {agentSaveMsg.text}
-          </span>
-        )}
-        <span className="spacer" />
-        <button
-          className="btn btn-primary"
-          disabled={!isDirty || saving}
-          onClick={() => onSaveAssignment(agent)}
-        >
-          {t(lang, "mcSave")}
-        </button>
+        {/* right: per-sandbox agent-subset switches */}
+        <SandboxTable
+          agent={agent}
+          profileId={profileId}
+          profileNames={profileNames}
+          sandboxList={sandboxList}
+          sbxBusy={sbxBusy}
+          onGoWorkspace={onGoWorkspace}
+          onGoList={onGoList}
+          onGoProfile={onGoProfile}
+          onToggleSandboxAgent={onToggleSandboxAgent}
+          lang={lang}
+        />
       </div>
     </div>
   );
+}
+
+/** The preset card's .kv extras (prototype: Opus 映射 / 认证字段 / 推理强度 /
+ * wire API). Null optional values render as —. Flat dt/dd pairs keep the
+ * .kv grid's two-column auto-placement (label | value) intact. */
+function presetExtras(agent: PresetAgent, preset: AnyPreset): JSX.Element[] {
+  const rows: [string, string][] = [];
+  if (agent === "claude") {
+    const p = preset as ClaudePreset;
+    rows.push(["Haiku 映射", p.haikuModel || "—"]);
+    rows.push(["Sonnet 映射", p.sonnetModel || "—"]);
+    rows.push(["Opus 映射", p.opusModel || "—"]);
+    rows.push([
+      "认证字段",
+      p.authField === "API_KEY" ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN",
+    ]);
+  } else {
+    const p = preset as CodexPreset;
+    rows.push(["推理强度", p.reasoningEffort || "—"]);
+    rows.push(["wire API", p.wireApi]);
+  }
+  return rows.flatMap(([k, v]) => [
+    <dt key={k}>{k}</dt>,
+    <dd key={`${k}:v`}>{v}</dd>,
+  ]);
 }
 
 // ── form ─────────────────────────────────────────────────────────
@@ -333,6 +413,7 @@ function PresetForm({
       <div className="field">
         <label>{t(lang, "mcName")}</label>
         <input
+          className="input"
           value={name}
           placeholder={t(lang, "maDefaultPreset")}
           onChange={(e) => setName(e.target.value)}
@@ -342,6 +423,7 @@ function PresetForm({
       <div className="field">
         <label>{t(lang, "mcProvider")}</label>
         <select
+          className="input"
           value={provider}
           onChange={(e) => {
             const next = e.target.value;
@@ -372,7 +454,7 @@ function PresetForm({
       <div className="field">
         <label>{t(lang, "mcModel")}</label>
         {models.length > 0 ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
+          <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
             <option value="">—</option>
             {models.map((m) => (
               <option key={m.id} value={m.id}>
@@ -383,6 +465,7 @@ function PresetForm({
         ) : (
           // Manual fallback when the provider has no discovered models yet.
           <input
+            className="input mono"
             value={model}
             placeholder={provider ? t(lang, "maModelManual") : t(lang, "maSelectProviderFirst")}
             disabled={!provider}
@@ -397,23 +480,35 @@ function PresetForm({
             <label>
               {t(lang, "mcHaikuModel")} <span className="hint">{t(lang, "mcFollowMain")}</span>
             </label>
-            <input value={haikuModel} onChange={(e) => setHaikuModel(e.target.value)} />
+            <input
+              className="input mono"
+              value={haikuModel}
+              onChange={(e) => setHaikuModel(e.target.value)}
+            />
           </div>
           <div className="field">
             <label>
               {t(lang, "mcSonnetModel")} <span className="hint">{t(lang, "mcFollowMain")}</span>
             </label>
-            <input value={sonnetModel} onChange={(e) => setSonnetModel(e.target.value)} />
+            <input
+              className="input mono"
+              value={sonnetModel}
+              onChange={(e) => setSonnetModel(e.target.value)}
+            />
           </div>
           <div className="field">
             <label>
               {t(lang, "mcOpusModel")} <span className="hint">{t(lang, "mcFollowMain")}</span>
             </label>
-            <input value={opusModel} onChange={(e) => setOpusModel(e.target.value)} />
+            <input
+              className="input mono"
+              value={opusModel}
+              onChange={(e) => setOpusModel(e.target.value)}
+            />
           </div>
           <div className="field">
             <label>{t(lang, "mcAuthField")}</label>
-            <select value={authField} onChange={(e) => setAuthField(e.target.value)}>
+            <select className="input" value={authField} onChange={(e) => setAuthField(e.target.value)}>
               <option value="AUTH_TOKEN">ANTHROPIC_AUTH_TOKEN</option>
               <option value="API_KEY">ANTHROPIC_API_KEY</option>
             </select>
@@ -425,7 +520,11 @@ function PresetForm({
         <>
           <div className="field">
             <label>{t(lang, "mcReasoningEffort")}</label>
-            <select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value)}>
+            <select
+              className="input"
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(e.target.value)}
+            >
               <option value="">{t(lang, "mcEffortNone")}</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
@@ -436,7 +535,7 @@ function PresetForm({
             <label>
               {t(lang, "mcWireApi")} <span className="hint">{t(lang, "mcWireApiDerived")}</span>
             </label>
-            <select value={wireApi} onChange={(e) => setWireApi(e.target.value)}>
+            <select className="input" value={wireApi} onChange={(e) => setWireApi(e.target.value)}>
               <option value="responses">responses</option>
               <option value="chat">chat</option>
             </select>

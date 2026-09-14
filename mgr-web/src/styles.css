@@ -1358,60 +1358,49 @@ body {
  * ported (mgr has no sandbox-local agent APIs). z-order: scrim 30 < drawer
  * 31 < overlay 40 (discover modal above the drawer, same as the workbench). */
 
-/* ── profile bar (models page, unified Phase 4 / D8) ─────────────── */
-.ml-profile-bar {
+/* ── profile bar + tabs (09-11 prototype redesign, models.html) ─── */
+.profile-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-3);
-  padding: var(--space-3);
-  margin: 0 0 var(--space-4);
-  background: var(--surface-warm);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--surface);
   border-radius: var(--radius-lg);
-}
-.ml-profile-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-.ml-profile-label select {
-  min-width: 200px;
-}
-
-.ml-tabs {
-  display: inline-flex;
+  box-shadow: var(--elev-ring);
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  margin: 0 0 var(--space-6);
-  background: var(--surface-warm);
-  border-radius: var(--radius-lg);
-  align-self: flex-start;
 }
-.ml-tab {
-  height: 34px;
-  padding: 0 var(--space-4);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--muted);
+.profile-bar .lbl {
   font-size: var(--text-sm);
   font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
 }
-.ml-tab:hover {
-  color: var(--fg);
+.profile-bar .hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-left: auto;
 }
-.ml-tab.active {
-  color: var(--fg);
-  background: var(--surface);
-  box-shadow: var(--elev-ring);
+/* section heading — title + sub + actions (prototype .sec-head) */
+.sec-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
-.ml-tab:focus-visible {
-  box-shadow: var(--focus-ring);
+.sec-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.sec-head p {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 70ch;
+}
+.sec-acts {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 /* loading / error / empty states */
@@ -1434,240 +1423,150 @@ body {
   color: var(--muted);
   text-align: center;
 }
-.ml-empty-actions {
-  display: flex;
-  gap: var(--space-2);
-}
 .ml-hint {
   font-size: var(--text-sm);
   color: var(--muted);
 }
 
-/* section heading — title + sub + actions */
-.ml-sec-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  padding: 0 0 var(--space-4);
-}
-.ml-sec-head h2 {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 600;
-}
-.ml-sec-head p {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-.ml-sec-actions {
-  display: flex;
-  gap: var(--space-2);
-}
+/* section heading（ml-sec-head → .sec-head/.sec-acts 由原型类接管） */
 
-/* ── provider card grid ─────────────────────────────────────────── */
-.ml-grid {
+/* ── provider card grid (prototype .pv-grid / .pv) ───────────────── */
+.pv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-4);
-  align-content: start;
 }
-.ml-card {
+.pv {
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-ring), var(--elev-raised);
+  gap: var(--space-3);
+  text-align: left;
   cursor: pointer;
-  transition: background var(--motion-fast) ease;
+  border: 0;
 }
-.ml-card:hover {
-  background: color-mix(in oklch, var(--surface) 92%, var(--fg));
+.pv:hover {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--fg) 28%, transparent), var(--elev-raised);
 }
-.ml-card:focus-visible {
+.pv:focus-visible {
   box-shadow: var(--focus-ring);
 }
-.ml-card-head {
+.pv-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  min-width: 0;
 }
-.ml-card-main {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-}
-.ml-card-name {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.pv-head h3 {
+  margin: 0;
   font-size: var(--text-base);
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ml-card-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity var(--motion-fast) ease;
-}
-.ml-card:hover .ml-card-actions,
-.ml-card:focus-within .ml-card-actions {
-  opacity: 1;
-}
-.ml-card-actions .icon-btn:focus-visible {
-  opacity: 1;
-}
-.ml-card-url {
+.pv .url {
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: var(--text-xs);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: var(--space-2);
 }
-.ml-card-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--muted);
-  margin-bottom: var(--space-2);
-}
-.ml-card-meta .dot {
-  color: var(--border);
-}
-.ml-card-key {
-  font-family: var(--font-mono);
-  color: var(--muted);
-}
-.ml-card-chips {
+.pv .models {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-soft);
+  gap: 4px;
 }
-.ml-card-chips .none {
+.pv .used {
   font-size: var(--text-xs);
   color: var(--muted);
-}
-.ml-chip {
-  padding: 2px var(--space-2);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-pill);
-  background: var(--surface-warm);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  text-decoration: none;
-  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease;
-}
-.ml-chip:hover {
-  color: var(--fg);
-  border-color: var(--border);
-}
-
-/* badges / pills */
-.ml-badge {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
+  gap: var(--space-1);
+  margin-top: auto;
+}
+.pv .used b {
+  color: var(--fg-2);
   font-weight: 500;
 }
-.ml-badge-protocol {
-  background: var(--surface-warm);
+.pv.add {
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
-  font-family: var(--font-mono);
-  border: 1px solid var(--border-soft);
+  box-shadow: inset 0 0 0 1px var(--border);
+  background: transparent;
+  min-height: 150px;
 }
-.ml-badge-ok {
-  background: color-mix(in oklch, var(--success) 14%, transparent);
-  color: var(--success);
-}
-.ml-badge-warn {
-  background: color-mix(in oklch, var(--warn) 16%, transparent);
-  color: color-mix(in oklch, var(--warn) 78%, black);
-}
-.ml-badge .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
-  display: inline-block;
-  margin-right: 5px;
+.pv.add:hover {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--fg) 3%, transparent);
 }
 
-/* ── editor drawer + scrim (viewport-fixed; see section header) ──── */
-.ml-scrim {
+/* ── editor drawer (prototype .drawer/.scrim/.sheet) ─────────────── */
+.drawer {
   position: fixed;
   inset: 0;
-  z-index: 30;
-  background: color-mix(in oklch, var(--bg) 60%, transparent);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-base) var(--ease-standard);
+  z-index: 100;
+  display: none;
 }
-.ml-scrim.open {
-  opacity: 1;
-  pointer-events: auto;
+.drawer.open {
+  display: block;
 }
-.ml-drawer {
-  position: fixed;
+.drawer .scrim {
+  position: absolute;
+  inset: 0;
+  background: oklch(0% 0 0 / 0.4);
+}
+.drawer .sheet {
+  position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(460px, 94%);
+  width: 460px;
+  max-width: 100%;
+  background: var(--surface);
+  box-shadow: -1px 0 0 var(--border), -8px 0 32px oklch(0% 0 0 / 0.2);
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border-left: 1px solid var(--border-soft);
-  box-shadow: var(--elev-ring), -8px 0 24px oklch(0% 0 0 / 0.35);
-  transform: translateX(100%);
-  transition: transform var(--motion-base) var(--ease-standard);
-  z-index: 31;
 }
-.ml-drawer.open {
-  transform: translateX(0);
-}
-.ml-drawer-head {
+.drawer .sheet-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-soft);
+  height: 52px;
   flex-shrink: 0;
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
 }
-.ml-drawer-title {
+.drawer .sheet-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-lg);
-  font-weight: 600;
 }
-.ml-drawer-body {
+.drawer .sheet-body {
   flex: 1;
-  overflow: auto;
+  overflow-y: auto;
   padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-4);
+}
+.drawer .sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.drawer .sheet-foot .btn-primary {
+  margin-left: auto;
 }
 .ml-section-title {
   display: block;
@@ -1676,51 +1575,6 @@ body {
   font-weight: 600;
   color: var(--muted);
 }
-.ml-dgroup {
-  display: flex;
-  flex-direction: column;
-}
-.ml-dgroup-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  padding: 0;
-  margin-bottom: var(--space-3);
-  background: transparent;
-  border: 0;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-.ml-dgroup-toggle h3 {
-  margin: 0;
-}
-.ml-dgroup-toggle .icon {
-  color: var(--muted);
-  transition: transform var(--motion-fast) ease;
-}
-.ml-dgroup-toggle.collapsed .icon {
-  transform: rotate(-90deg);
-}
-.ml-dgroup-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.ml-key-row {
-  display: flex;
-  gap: var(--space-1);
-  align-items: center;
-}
-.ml-key-row input {
-  flex: 1;
-}
-.ml-key-row .icon-btn {
-  flex-shrink: 0;
-}
-
 .ml-json-area {
   width: 100%;
   padding: var(--space-2) var(--space-3);
@@ -1736,17 +1590,46 @@ body {
 .ml-json-area:focus-visible {
   box-shadow: var(--focus-ring);
 }
-
-.ml-models-head {
+/* drawer 内部分组/折叠/Key 行（沿用旧 editor 的辅助类；原型的 .mtable
+ * 模型表未采用——ModelRow 折叠行保留测试/catalog fill 等真实功能） */
+.ml-dgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ml-dgroup-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
 }
-.ml-models-actions {
+.ml-dgroup-toggle .icon {
+  color: var(--muted);
+  transition: transform var(--motion-fast) ease;
+}
+.ml-dgroup-toggle[aria-expanded="false"] .icon {
+  transform: rotate(-90deg);
+}
+.ml-key-row {
+  position: relative;
   display: flex;
-  gap: var(--space-1);
+}
+.ml-key-row input {
+  flex: 1;
+  padding-right: 34px;
+}
+.ml-key-row .icon-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 /* ── model list (collapsed/expanded rows) ────────────────────────── */
@@ -1905,57 +1788,7 @@ body {
   margin-top: var(--space-1);
 }
 
-/* ── ModelPicker ─────────────────────────────────────────────────── */
-.ml-model-picker-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  text-align: left;
-  cursor: pointer;
-  color: var(--fg);
-}
-.ml-model-picker-item:hover {
-  background: var(--surface-warm);
-}
-.ml-model-picker-item.is-selected {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
-}
-
-/* model picker trigger button (agent assignment) */
-.ml-model-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  height: 36px;
-  padding: 0 var(--space-3);
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.ml-model-trigger:hover {
-  border-color: color-mix(in oklch, var(--border) 60%, var(--fg));
-}
-.ml-model-trigger:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-.ml-model-trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.ml-model-trigger .icon {
-  color: var(--muted);
-}
+/* ── ModelPicker（09-11 改版后由 .model-opt 单选组取代，类已删） ── */
 
 /* ── shared table pieces (usage detail table) ────────────────────── */
 .ml-table {
@@ -1994,23 +1827,12 @@ body {
 .ml-cell-del {
   opacity: 0.6;
 }
-.ml-table tr:hover .ml-cell-del,
-.ml-preset-card:hover .ml-cell-del {
+.ml-table tr:hover .ml-cell-del {
   opacity: 1;
 }
 
 /* ── save bars / messages ────────────────────────────────────────── */
-.ml-drawer-savebar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
-  border-top: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-.ml-drawer-savebar .spacer {
-  flex: 1;
-}
+/* 09-11 改版：.ml-drawer-savebar 由 .drawer .sheet-foot 接管，已删。 */
 .ml-dirty {
   font-size: var(--text-xs);
   color: var(--warn);
@@ -2031,82 +1853,138 @@ body {
   color: var(--danger);
 }
 
-/* ── agent tabs + preset list ────────────────────────────────────── */
-.ml-agent {
-  max-width: 760px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.ml-agent-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.ml-agent-name {
-  font-size: var(--text-2xl);
-  font-weight: 600;
-  margin-right: var(--space-1);
-}
-.ml-agent-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.ml-paradigm-strip {
+/* ── agent tabs + preset list (prototype .strip/.two/.assign) ────── */
+.strip {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  background: var(--surface-warm);
+  margin-bottom: var(--space-4);
   border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.ml-form-card {
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-ring), var(--elev-raised);
-  padding: var(--space-5);
-}
-.ml-form-card h3 {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-base);
-  font-weight: 600;
-}
-.ml-form-card .sub {
-  margin: 0 0 var(--space-3);
+  background: var(--surface-warm);
   font-size: var(--text-sm);
   color: var(--muted);
+  flex-wrap: wrap;
 }
-.ml-savebar {
+.strip .icon {
+  color: var(--fg);
+  flex-shrink: 0;
+}
+.two {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .two {
+    grid-template-columns: 1fr;
+  }
+}
+.assign {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.assign h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.model-opt {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-warm);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-lg);
-  flex-wrap: wrap;
-  margin-top: var(--space-4);
+  box-shadow: var(--elev-ring);
+  cursor: pointer;
 }
-.ml-savebar .dirty {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.model-opt:has(:checked) {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+.model-opt:focus-within {
+  box-shadow: var(--focus-ring);
+}
+.model-opt .id {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.model-opt .meta {
   font-size: var(--text-xs);
-  color: var(--warn);
+  color: var(--muted);
 }
-.ml-savebar .dirty .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warn);
+.model-opt .tag {
+  margin-left: auto;
 }
-.ml-savebar .spacer {
+.savebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.savebar .btn-primary {
+  margin-left: auto;
+}
+.sbx-tbl td:first-child {
+  font-weight: 500;
+}
+.sbx-tbl .other {
+  color: var(--muted);
+}
+/* preset 卡片（claude/codex 左栏） */
+.preset {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.preset.current {
+  box-shadow: 0 0 0 1.5px var(--fg), var(--elev-raised);
+}
+.preset-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.preset-head h3 {
+  margin: 0;
+  font-size: var(--text-base);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
+.preset .kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3);
+  font-size: var(--text-xs);
+  margin: 0;
+}
+.preset .kv dt {
+  color: var(--muted);
+}
+.preset .kv dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+.preset-acts {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-1);
+}
+.preset-acts .btn-secondary {
+  margin-right: auto;
+}
 /* mgr notice strip (agent tabs: shared library + sandbox links) */
 .ml-mgr-note {
   display: flex;
@@ -2122,78 +2000,20 @@ body {
 .ml-mgr-note .icon {
   flex-shrink: 0;
 }
-
-/* ── preset list (claude/codex, cc-switch style) ─────────────────── */
-.ml-preset-list {
-  gap: var(--space-3);
-}
-.ml-preset-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-ring), var(--elev-raised);
-  transition: box-shadow var(--motion-fast) ease;
-}
-/* current preset: accent ring instead of a badge */
-.ml-preset-card.is-current {
-  box-shadow: 0 0 0 1.5px var(--accent), var(--elev-raised);
-}
-/* S2 provider card wall (agent tabs): the ACTIVE (currently-assigned)
- * provider card gets the same accent ring as the current preset. */
-.ml-agent-cards {
-  margin-bottom: var(--space-4);
-}
-.ml-agent-cards .ml-card.is-active {
-  box-shadow: 0 0 0 1.5px var(--accent), var(--elev-raised);
-  cursor: pointer;
-}
-.ml-preset-card-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.ml-preset-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  font-size: var(--text-base);
-}
-.ml-preset-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.ml-preset-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+.ml-chip {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface-warm);
+  color: var(--muted);
   font-size: var(--text-xs);
-  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease;
 }
-.ml-preset-meta .arrow {
-  color: var(--muted);
-  opacity: 0.6;
-}
-.ml-preset-meta code {
-  font-family: var(--font-mono);
+.ml-chip:hover {
   color: var(--fg);
-}
-.ml-preset-divider {
-  border-top: 1px solid var(--border-soft);
-  margin: var(--space-1) 0;
-}
-.ml-badge-current {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
-  color: var(--accent);
-  font-weight: 600;
+  border-color: var(--border);
 }
 /* warn strip for a missing current preset */
 .ml-warn-strip {

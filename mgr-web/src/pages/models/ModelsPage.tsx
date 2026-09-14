@@ -1,31 +1,29 @@
-// ModelsPage — the mgr model-config page, ported from the workbench's
-// ModelsPane (web/src/panes/models/ModelsPane.tsx, Phase 4c), extended to
-// multi-profile (unified Phase 4, prd D8 / design §4.4).
+// ModelsPage — the mgr model-config page, redesigned per the 09-11 prototype
+// (docs/Web-Prototype/models.html).
 //
-// Owns ALL state and /api/models/* handlers for this page and delegates each
-// tab's render to a focused sub-component (same split as the workbench):
-//   providers → ProviderGrid (card grid) + ProviderEditor drawer
-//   pi/opencode → AgentTabs (assignment editor; live parts trimmed)
-//   claude/codex → PresetList (preset CRUD; apply trimmed)
+// Structure (prototype): page-head → .profile-bar (.segmented profile picker
+// with per-profile sandbox counts + rename/delete/new icon buttons +
+// unassigned-sandboxes hint) → .tabs (role=tablist, providers/pi/opencode/
+// Claude/Codex) → per-tab panels:
+//   providers → ProviderGrid (.pv-grid cards + .pv.add) + ProviderEditor drawer
+//   pi/opencode → AgentTabs (.strip + .two: .assign radio group + SandboxTable)
+//   claude/codex → PresetList (.strip + .two: .preset cards + SandboxTable)
 //
 // EVERY tab edits the SELECTED profile (profileId state → ?profile= on every
-// config/import/discover/test call); the profile bar above the tabs owns
-// create/rename/delete (mgr/src/models.rs profile routes). Per-sandbox
-// ASSIGNMENT lives on EditPage, not here.
-//
-// Differences vs the workbench pane (mgr has no sandbox-local agent APIs):
-//   - no usage tab (usage is its own page over GET /api/usage);
-//   - no GET /api/models/agents, no apply, no live provider management;
-//   - "switch preset" = setCurrent + save in one click — the agent render
-//     happens sandbox-side when the sandbox pulls the config;
-//   - lang arrives as a prop (App owns it) instead of localStorage.
+// config/import/discover/test call); the profile bar owns create/rename/
+// delete (mgr/src/models.rs profile routes). The agent tabs additionally
+// render a SandboxTable (per-sandbox assignment switches over
+// PUT /api/sandboxes/:name/model_profile — the contract SandboxListPage's
+// quick-assign popover already uses; assignment edits are committed
+// immediately per switch, unlike the canonical config's dirty-set save).
 //
 // API contract: GET/PUT /api/models/config(?profile=) + GET/POST
 // /api/models/profiles + PUT/DELETE /api/models/profiles/:id + POST
 // /api/models/import/pi + POST /api/models/discover + POST /api/models/test
-// + GET /api/models/catalog (mgr/src/models.rs). Responses decode once in
-// ./types (or arrive as typed api.ts results); all rendering consumes the
-// typed CanonicalConfig.
+// + GET /api/models/catalog (mgr/src/models.rs) + GET /api/sandboxes +
+// PUT /api/sandboxes/:name/model_profile. Responses decode once in ./types
+// (or arrive as typed api.ts results); all rendering consumes the typed
+// CanonicalConfig.
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -38,14 +36,15 @@ import {
   listModelProfiles,
   listSandboxes,
   putModelsConfig,
+  putSandboxModelProfile,
   renameModelProfile,
   testModel,
   type ModelProfile,
 } from "../../api";
-import { t, type Lang } from "../../i18n";
+import type { Sandbox } from "../../types";
+import { fmt, t, type Lang } from "../../i18n";
 import { Icon } from "../../icons";
 import { AgentTabs } from "./AgentTabs";
-import type { SandboxLink } from "./MgrNotice";
 import { PresetList } from "./PresetList";
 import { ProviderEditor } from "./ProviderEditor";
 import { ProviderGrid } from "./ProviderGrid";
@@ -84,7 +83,7 @@ function tabLabel(lang: Lang, key: TabKey): string {
     case "opencode":
       return "opencode";
     case "claude":
-      return "Claude";
+      return "Claude Code";
     case "codex":
       return "Codex";
   }
@@ -93,12 +92,16 @@ function tabLabel(lang: Lang, key: TabKey): string {
 export function ModelsPage({
   lang,
   onGoWorkspace,
+  onGoList,
 }: {
   lang: Lang;
   /** MgrNotice chip target (design §4.4): "去工作区" — navigates to the
    * workspace page focused on that sandbox, replacing the old new-tab
    * entry_url link. */
   onGoWorkspace?: (name: string) => void;
+  /** SandboxTable "去指派" target — navigates to the sandbox list page
+   * (09-11 prototype: the unassigned row's action link). */
+  onGoList?: () => void;
 }): JSX.Element {
   const [tab, setTab] = useState<TabKey>("providers");
   const [config, setConfig] = useState<CanonicalConfig | null>(null);
@@ -143,9 +146,13 @@ export function ModelsPage({
     text: string;
   } | null>(null);
 
-  // Sandbox workbench links for the agent tabs' MgrNotice (entry_url per
-  // running sandbox — that is where the live agent view lives).
-  const [sandboxLinks, setSandboxLinks] = useState<SandboxLink[] | null>(null);
+  // Full sandbox list (09-11 prototype): feeds the profile-bar's
+  // unassigned hint, the agent tabs' SandboxTable (assignment switches) and
+  // the MgrNotice running links. Fetched once on mount, refreshed whenever
+  // an agent tab is shown (assignments change as sandboxes start/stop).
+  const [sandboxList, setSandboxList] = useState<Sandbox[] | null>(null);
+  // Sandbox name with an assignment toggle in flight (row switch disabled).
+  const [sbxBusy, setSbxBusy] = useState("");
 
   // ── profile list / selection (D8) ────────────────────────────────
 
@@ -201,22 +208,17 @@ export function ModelsPage({
     void fetchConfig(profileId);
   }, [profileId, fetchConfig]);
 
-  // Sandbox links refresh whenever an agent tab is shown (cheap list call;
-  // running state changes as sandboxes start/stop).
+  // Sandbox list refresh: once on mount (profile-bar hint) and again
+  // whenever an agent tab is shown (the SandboxTable's switches and the
+  // MgrNotice links read live state).
   useEffect(() => {
-    if (tab === "providers") return;
     let cancelled = false;
     listSandboxes()
       .then((r) => {
-        if (cancelled) return;
-        setSandboxLinks(
-          r.sandboxes
-            .filter((s) => s.live === "running")
-            .map((s) => ({ name: s.name })),
-        );
+        if (!cancelled) setSandboxList(r.sandboxes);
       })
       .catch(() => {
-        /* links are advisory — keep whatever we had */
+        /* advisory — keep whatever we had */
       });
     return () => {
       cancelled = true;
@@ -853,9 +855,78 @@ export function ModelsPage({
     [config, lang, fetchConfig, profileId],
   );
 
+  /** SandboxTable switch: flip one agent's membership in the sandbox's
+   * assignment subset and commit immediately (PUT /model_profile — the same
+   * contract as the list page's quick-assign popover; ~1min sandbox-side
+   * pull). `null` model_agents means ALL four agents — decode before
+   * toggling, re-encode all-four back to null (canonical "all"). */
+  const handleToggleSandboxAgent = useCallback(
+    async (name: string, agent: string, on: boolean): Promise<void> => {
+      if (!profileId || sbxBusy !== "") return;
+      const sb = sandboxList?.find((s) => s.name === name);
+      if (!sb || sb.model_profile !== profileId) return;
+      const ALL = ["pi", "opencode", "claude", "codex"];
+      const current = sb.model_agents ?? ALL;
+      const next = on
+        ? ALL.filter((a) => current.includes(a) || a === agent)
+        : current.filter((a) => a !== agent);
+      const wire = next.length === ALL.length ? null : next;
+      setSbxBusy(name);
+      setAgentSaveMsg(null);
+      try {
+        await putSandboxModelProfile(name, profileId, wire);
+        setSandboxList((prev) =>
+          prev
+            ? prev.map((s) =>
+                s.name === name ? { ...s, model_agents: wire } : s,
+              )
+            : prev,
+        );
+      } catch (e) {
+        setAgentSaveMsg({
+          ok: false,
+          text: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setSbxBusy("");
+        window.setTimeout(() => setAgentSaveMsg(null), 3000);
+      }
+    },
+    [profileId, sandboxList, sbxBusy],
+  );
+
+  /** Agent-tab "放弃": drop unsaved canonical edits by re-fetching the
+   * profile's config from mgr (the saved truth) and clearing the dirty bit. */
+  const handleDiscardAssignment = useCallback(
+    (agent: AgentTab): void => {
+      if (profileId === undefined) return;
+      void fetchConfig(profileId);
+      setAgentDirty((prev) => {
+        const n = new Set(prev);
+        n.delete(agent);
+        return n;
+      });
+    },
+    [profileId, fetchConfig],
+  );
+
   // ── render ──────────────────────────────────────────────────────
 
   const selected = config && selectedId ? config.providers[selectedId] : null;
+
+  // Profile-bar helpers (prototype renderProfiles): live count + hint.
+  const countAssigned = (id: string): number =>
+    (sandboxList ?? []).filter((s) => s.model_profile === id).length;
+  const unassigned = (sandboxList ?? []).filter((s) => !s.model_profile);
+  const unassignedHint = !sandboxList
+    ? ""
+    : unassigned.length > 0
+      ? t(lang, "mpUnassignedHint").replace("{names}", unassigned.map((s) => s.name).join(t(lang, "mpListSep")))
+      : t(lang, "mpAllAssigned");
+  const currentProfileName =
+    profiles?.find((p) => p.id === profileId)?.name ?? "";
+  const profileNames: Record<string, string> = {};
+  for (const p of profiles ?? []) profileNames[p.id] = p.name;
 
   const jumpToAgent = (agent: AgentTab): void => {
     setSelectedId(null);
@@ -869,62 +940,74 @@ export function ModelsPage({
         <p className="sub">{t(lang, "modelsSub")}</p>
       </div>
 
-      {/* Profile bar (D8): every tab below edits the selected profile.
-       * The selector is disabled while the list loads (first render);
-       * rename/delete act on the selected profile only. */}
-      <div className="ml-profile-bar">
-        <label className="ml-profile-label">
-          {t(lang, "mpProfile")}
-          <select
-            value={profileId ?? ""}
-            disabled={profiles === null || profiles.length === 0}
-            onChange={(e) => setProfileId(e.target.value)}
-          >
-            {(profiles ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.assigned.length > 0
-                  ? t(lang, "mpAssignedCount").replace("{n}", String(p.assigned.length))
-                  : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="ml-sec-actions">
-          <button
-            className="btn btn-secondary btn-sm"
-            title={t(lang, "mpRenameTitle")}
-            disabled={!profileId}
-            onClick={() => void handleRenameProfile()}
-          >
-            {t(lang, "mpRename")}
-          </button>
-          <button
-            className="btn btn-danger-text btn-sm"
-            title={t(lang, "mpDeleteTitle")}
-            disabled={!profileId || (profiles?.length ?? 0) <= 1}
-            onClick={() => void handleDeleteProfile()}
-          >
-            {t(lang, "delete")}
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => void handleCreateProfile()}>
-            <Icon name="plus" />
-            {t(lang, "mpNew")}
-          </button>
+      {/* Profile bar (D8 / prototype .profile-bar): every tab below edits
+       * the selected profile. The segmented picker shows per-profile
+       * sandbox counts (live from the sandbox list, not the profile row's
+       * `assigned` — both agree except during the 4s list poll window);
+       * rename/delete act on the selected profile only; the trailing hint
+       * lists unassigned sandboxes. */}
+      <div className="profile-bar">
+        <span className="lbl">{t(lang, "mpProfile")}</span>
+        <div
+          className="segmented"
+          role="group"
+          aria-label={t(lang, "mpPickProfile")}
+        >
+          {(profiles ?? []).map((p) => (
+            <button
+              key={p.id}
+              aria-pressed={p.id === profileId}
+              onClick={() => setProfileId(p.id)}
+            >
+              {p.name}
+              <span className="cnt">
+                {fmt(lang, "mpSegCount", countAssigned(p.id))}
+              </span>
+            </button>
+          ))}
         </div>
+        <button
+          className="icon-btn"
+          title={t(lang, "mpRenameTitle")}
+          aria-label={t(lang, "mpRenameTitle")}
+          disabled={!profileId}
+          onClick={() => void handleRenameProfile()}
+        >
+          <Icon name="edit" />
+        </button>
+        <button
+          className="icon-btn danger"
+          title={t(lang, "mpDeleteTitle")}
+          aria-label={t(lang, "mpDeleteTitle")}
+          disabled={!profileId || (profiles?.length ?? 0) <= 1}
+          onClick={() => void handleDeleteProfile()}
+        >
+          <Icon name="trash" />
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => void handleCreateProfile()}>
+          <Icon name="plus" />
+          {t(lang, "mpNew")}
+        </button>
+        <span className="hint">{unassignedHint}</span>
         {profileMsg && (
-          <span className={`wizard-msg ${profileMsg.ok ? "ok" : "err"}`}>{profileMsg.text}</span>
+          <span className={`ml-msg${profileMsg.ok ? " ok" : " err"}`}>
+            {profileMsg.text}
+          </span>
         )}
       </div>
 
-      <div className="ml-tabs">
+      <div className="tabs" role="tablist">
         {TAB_KEYS.map((k) => (
           <button
             key={k}
-            className={`ml-tab${tab === k ? " active" : ""}`}
+            role="tab"
+            aria-selected={tab === k}
             onClick={() => setTab(k)}
           >
             {tabLabel(lang, k)}
+            {k === "providers" && config && (
+              <span className="cnt">{Object.keys(config.providers).length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -940,14 +1023,24 @@ export function ModelsPage({
           agentDirty={agentDirty}
           saving={saving}
           agentSaveMsg={agentSaveMsg}
-          sandboxLinks={sandboxLinks ?? []}
+          profileId={profileId ?? ""}
+          profileName={currentProfileName}
+          profileNames={profileNames}
+          sandboxList={sandboxList}
+          sbxBusy={sbxBusy}
           onGoWorkspace={onGoWorkspace}
+          onGoList={onGoList}
+          onGoProfile={(id) => setProfileId(id)}
+          onToggleSandboxAgent={(name, agent, on) =>
+            void handleToggleSandboxAgent(name, agent, on)
+          }
           onAddPreset={addPreset}
           onUpdatePreset={updatePreset}
           onDeletePreset={deletePreset}
           onDuplicatePreset={duplicatePreset}
           onSwitchPreset={(a, id) => void handleSwitchPreset(a, id)}
           onSaveAssignment={(a) => void handleSaveAssignment(a)}
+          onDiscardAssignment={handleDiscardAssignment}
           lang={lang}
         />
       ) : tab !== "providers" ? (
@@ -957,20 +1050,30 @@ export function ModelsPage({
           agentDirty={agentDirty}
           saving={saving}
           agentSaveMsg={agentSaveMsg}
-          sandboxLinks={sandboxLinks ?? []}
+          profileId={profileId ?? ""}
+          profileName={currentProfileName}
+          profileNames={profileNames}
+          sandboxList={sandboxList}
+          sbxBusy={sbxBusy}
           onGoWorkspace={onGoWorkspace}
+          onGoList={onGoList}
+          onGoProfile={(id) => setProfileId(id)}
+          onToggleSandboxAgent={(name, agent, on) =>
+            void handleToggleSandboxAgent(name, agent, on)
+          }
           onUpdateAssignment={updateAgentAssignment}
           onSaveAssignment={(a) => void handleSaveAssignment(a)}
+          onDiscardAssignment={handleDiscardAssignment}
           lang={lang}
         />
       ) : config ? (
-        <>
-          <div className="ml-sec-head">
+        <div className="tab-panel active">
+          <div className="sec-head">
             <div>
               <h2>{t(lang, "mcProviders")}</h2>
               <p>{t(lang, "mcProvidersSub")}</p>
             </div>
-            <div className="ml-sec-actions">
+            <div className="sec-acts">
               <button className="btn btn-secondary" onClick={() => void handleImport()}>
                 {t(lang, "mcImportPi")}
               </button>
@@ -982,14 +1085,13 @@ export function ModelsPage({
           </div>
           <ProviderGrid
             config={config}
+            profileId={profileId ?? ""}
+            profiles={profiles ?? []}
             onSelect={setSelectedId}
             onAdd={addProvider}
-            onImport={() => void handleImport()}
-            onDelete={deleteProvider}
-            onJumpToAgent={jumpToAgent}
             lang={lang}
           />
-        </>
+        </div>
       ) : null}
 
       {/* The drawer + scrim are viewport-fixed (see ProviderEditor); rendered

@@ -1039,3 +1039,72 @@ SandboxTree 可折叠为竖向首字母图标条 + hover flyout。两折叠独�
 
 [OK] S5 实现+检查+spec 更新完成,已提交 `849cb9b`(task 仍 in_progress,
 待实机 AC 后归档)。
+
+## Session 10: mgr-web 原型重构 S6 —— 模型配置页新形态
+
+### Summary
+
+按 docs/Web-Prototype/models.html 重构模型配置页：profile 分段条 + 五
+tab 新形态；供应商卡片墙 + 编辑抽屉；agent tabs 双栏（model-opt 单选 /
+preset 卡片 + 生效沙箱表）。API 契约零改动。
+
+### Main Changes
+
+- **CSS (styles.css ~680 行 diff)**：删除被接管的 .ml-profile-bar/.ml-tabs/
+  .ml-grid/.ml-card/.ml-badge/.ml-scrim/.ml-drawer/.ml-agent/.ml-form-card/
+  .ml-savebar/.ml-preset-card/.ml-model-picker/.ml-model-trigger/
+  .ml-sec-head 等旧类；新增原型类 .profile-bar/.sec-head/.sec-acts/.pv-grid/
+  .pv/.drawer(.scrim/.sheet)/.strip/.two/.assign/.model-opt/.savebar/.sbx-tbl/
+  .preset/.mtable；保留共用类（.ml-loading/.ml-hint/.ml-table/.ml-model-row/
+  .ml-test-pill/.ml-chip/.ml-mgr-note/.ml-warn-strip/.ml-preset-form*/.ml-dirty/
+  .ml-msg/.ml-json-area/.ml-section-title/.ml-dgroup）。
+- **ModelsPage**：profile-bar（.segmented 计数 + rename/del icon-btn + 新建
+  ghost + 未指派 hint）；拉全量 sandbox 列表（计数/hint/SandboxTable 共用，
+  tab 切换时刷新）；.tabs role=tablist + providers 计数；新增
+  handleToggleSandboxAgent（PUT model_profile，null=all 编解码）+
+  handleDiscardAssignment（重拉 config 清 dirty）；onGoList prop 接 App。
+- **ProviderGrid**：.pv 卡片按钮（协议 badge/mono url/模型 chips 上限 12 +
+  溢出计数/密钥状态/used-by 行）；尾部 .pv.add 幽灵卡；删除/编辑入口全部
+  收进 drawer（grid 上的 hover 动作删除）。
+- **ProviderEditor**：.drawer>.scrim+.sheet 三段结构（sheet-head/body/foot）；
+  字段迁移 .field/.input/.field-row/.input-wrap；发现模型 modal 与测试 pill/
+  catalog fill 全保留；Escape/scrim 关闭。
+- **AgentTabs**：.strip 增量式说明 + .two 双栏；左栏 .assign「当前指向」
+  model-opt 单选组（全库 provider×model 平铺 + 成本/推理 meta）+ savebar
+  （dirty/放弃/保存）；右栏 SandboxTable。
+- **PresetList**：.strip 切换式说明 + .two；左栏 .preset 卡片（current 高亮
+  环 + badge-ok 当前 + kv extras + 切换/复制/编辑/删除）+ 内联 PresetForm；
+  右栏 SandboxTable。
+- **SandboxTable (新)**：生效沙箱表——mine 行 .switch 勾选 agent 子集（立即
+  PUT，~1min 生效）；其他 profile 行「切到」按钮（切 profileId 不动数据）；
+  未指派行「去指派」→ onGoList。
+- **i18n**：新增 30 键 ×2 语言（mpSegHint 系/maStrip*/maSbxTbl 系/
+  mcKeyConfigured 系）。
+- **杂项**：ModelPicker.tsx 删除（model-opt 取代）；ImagesPage 的
+  .ml-sec-actions → .sec-acts；types.ts 增 protocolBadge()。
+
+### Key Findings
+
+- 原型 usedBy 跨 profile 计算需要所有 profile 的 config，而 mgr 的 config
+  API 按 profile 拉取——降级为「当前 profile 的 agent 对 + 其他 profile
+  计数」提示，数据语义不损。
+- model_agents null = 全部四 agent 的 wire 语义在 toggle 时要解码再编码：
+  全选回写 null（canonical all），空集写 []（拉取后完全不变）。
+- .kv 网格 dt/dd 必须平铺交替（flatMap [dt,dd]），分两组 map 会破坏
+  grid-template-columns: auto 1fr 的配对。
+- profile-bar 的 segmented 计数用 sandbox 列表现算而非 profile.assigned
+  （两者只在 4s 轮询窗口内可能不一致，展示一致性更好）。
+
+### Testing
+
+- [OK] mgr-web: tsc --noEmit 0 错 + vite build 通过（3 次，含 App 接线后）
+- [OK] git diff 确认 api.ts / types.ts 零改动（无后端契约变化）
+- [OK] 无残留 .ml-* 死引用（grep 全 tsx）；新 CSS 无硬编码色（仅原型原样
+  的 oklch(0 0 0) scrim/阴影）
+- [留宿主机] make mgr-up 后目视：profile 切换/重命名/删除、供应商抽屉
+  编辑+发现+测试、agent tab 指派+生效沙箱开关、preset 切换、双语切换
+
+### Next Steps
+
+- S7：其余 5 页套壳（JobView/Images/Usage/Adopt/Edit）+ 原型文件入库 +
+  全站验收 + spec 更新 + 提交。
