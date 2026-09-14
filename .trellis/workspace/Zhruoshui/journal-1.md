@@ -1108,3 +1108,98 @@ preset 卡片 + 生效沙箱表）。API 契约零改动。
 
 - S7：其余 5 页套壳（JobView/Images/Usage/Adopt/Edit）+ 原型文件入库 +
   全站验收 + spec 更新 + 提交。
+
+## Session 11: mgr-web 原型重构 S7 —— 全站套壳 + 构建验收 + 入库收尾
+
+### Summary
+
+原型重构最后一步：其余 5 页（JobView/Images/Usage/Adopt/Edit）套 .page
+脚手架 + 组件层类；styles.css 退役被 components.css 接管的旧类（净删
+~400 行）；原型设计基准 7 文件入库 docs/Web-Prototype/；全站实机截图
+验收（14 张，深/浅色 × 中/英，零 console 错误）；spec 三份更新 + 提交。
+
+### Main Changes
+
+- **JobView**：.job-head 退役 → .page-head（h1 + #id/sandbox mono sub +
+  .page-actions 放 spinner/ok/danger badge）；主体保留 .job 列（横幅 +
+  日志尾随 + 返回）。
+- **ImagesPage**：.img-table 退役 → .card.card-pad 包共享 .table（右对齐
+  数字列 .r）；页头沿用组件层。
+- **UsagePage**：窗口切换 → .segmented、沙箱选择器 → button.chip
+  （.is-selected 沿用 segmented 的 lifted 态）；按天明细 select 换
+  .input.sm；仅图表区页面局部样式保留。
+- **AdoptPage / EditPage**：表单控件全部换 .input + .field.invalid/.err
+  组件层标准（.field-error 退役，RegisterDialog 条件告警保留）；
+  EditPage 页头换 h1+mono name sub、加载态 .ml-loading。
+- **styles.css**：+41/−443——退役 .sidebar 壳（S2 rail 已接管）、裸
+  .field input 覆盖（S1 risk1 遗留）、.badge/.dot 旧副本、job-head、
+  img-table、pre-S3 .ws-node 族；页面注释标明退役去向。
+- **原型入库**：docs/Web-Prototype/ 7 文件（5 HTML + mgr-web.css +
+  mgr-shell.js）随本次提交进仓库，作为设计基准。
+- **spec**：frontend/index.md（rail+panel shell、components.css/icons/
+  NodeMenu、.page 脚手架）、directory-structure.md（目录树重写 + CSS
+  分层/脚手架/弹层三条约定）、component-guidelines.md（组件层优先 +
+  弹层统一契约 + 图标/i18n 门两节）。
+
+### Key Findings
+
+- mgr.localhost 实机验收通道：aio-vnc-1（app netns）与 mgr 网隔离、
+  host.docker.internal 不通，但**宿主桥网关 172.20.0.1 可达 mgr gateway
+  发布的 80 口**——chromium `--host-resolver-rules="MAP mgr.localhost
+  172.20.0.1"` + puppeteer 即可全站截图，无需重建镜像（热部署走
+  tar 流覆盖 mgr-api /app/static）。
+- Read 工具读 PNG 在本环境会上传 CDN——配 mcp analyze_image（远程 URL）
+  做视觉验收，闭环成立。
+- 工作区终端窗格由保存布局自动恢复（布局持久化键未受 shell 重构影响），
+  验收脚本不必显式开终端。
+- 列表页 devv 沙箱的镜像名截断/未知状态 badge/错误态仍可「进入」均为
+  该沙箱自身数据状态（error 状态卡），非本轮回归，不在 S7 范围。
+
+### Testing
+
+- [OK] mgr-web: npm run build（tsc --noEmit && vite build）通过
+- [OK] 全站 14 截图验收（工作区/列表/镜像/模型/用量 × 深色中文，编辑/
+  导入/树展开/筛选运行中，浅色英文 ×3）：布局、rail 激活态、badge、
+  表格、空态、终端窗格恢复全部正常
+- [OK] puppeteer console/pageerror/requestfailed 全程零错误
+- [OK] i18n 双语门：t() keyof Strings 强类型，build 过 = 双语齐
+- [OK] git diff 无 api.ts/types.ts/后端改动（契约零变化）
+- [未验] JobView 运行态截图（需真实 job 触发；改动仅页头重构，构建 +
+  组件类他页已验）
+
+### Next Steps
+
+- 任务收尾（trellis finish-work：归档 09-11-mgr-web-prototype-redesign）。
+
+
+## Session 4: mgr-web 原型重构收尾 —— S7 提交 + 任务归档
+
+**Date**: 2026-09-14
+**Task**: mgr-web 原型重构收尾 —— S7 提交 + 任务归档
+**Branch**: `main`
+
+### Summary
+
+上会话 S7（其余五页套壳/styles 旧类退役/原型入库/spec 三份）改动一直挂在工作树未提交。本会话验证构建（tsc+vite 全绿、无调试残留）后提交 46d0332，归档 09-11-mgr-web-prototype-redesign。batch2 四个子任务（S2-S5）PRD 验收框均未勾，保持 in_progress 不动。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `46d0332` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
