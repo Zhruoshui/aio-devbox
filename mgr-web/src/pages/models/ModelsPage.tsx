@@ -26,6 +26,7 @@
 // CanonicalConfig.
 
 import { useCallback, useEffect, useState } from "react";
+import { ConfirmDialog, PromptDialog } from "../../components/Dialogs";
 import {
   createModelProfile,
   deleteModelProfile,
@@ -74,6 +75,10 @@ type TabKey = "providers" | "pi" | "opencode" | "claude" | "codex";
 
 const TAB_KEYS: TabKey[] = ["providers", "pi", "opencode", "claude", "codex"];
 
+/** R1: which in-app dialog is open (replacing the native confirm()/prompt();
+ * null = closed). All four flows act on the SELECTED profile. */
+type ProfileDialog = "import" | "create" | "rename" | "delete" | null;
+
 function tabLabel(lang: Lang, key: TabKey): string {
   switch (key) {
     case "providers":
@@ -115,6 +120,9 @@ export function ModelsPage({
   const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
   const [profileId, setProfileId] = useState<string | undefined>(undefined);
   const [profileMsg, setProfileMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // R1: in-app dialog for the profile-bar actions (import / create / rename /
+  // delete confirm + name prompts).
+  const [profileDialog, setProfileDialog] = useState<ProfileDialog>(null);
 
   // Editor drawer state: `selectedId` non-null opens the drawer for that
   // provider. It also carries the provider whose headers/compat textareas are
@@ -446,7 +454,7 @@ export function ModelsPage({
   }, [config, selectedId, headersText, compatText, lang, fetchConfig, profileId]);
 
   const handleImport = useCallback(async (): Promise<void> => {
-    if (!confirm(t(lang, "mcImportConfirm")) || profileId === undefined) return;
+    if (profileId === undefined) return;
     try {
       const resp = await importPiModels(profileId);
       setSaveMsg({
@@ -470,10 +478,12 @@ export function ModelsPage({
     window.setTimeout(() => setProfileMsg(null), 3000);
   };
 
-  const handleCreateProfile = useCallback(async (): Promise<void> => {
-    const name = prompt(t(lang, "mpNewName"));
-    if (name === null) return;
-    const trimmed = name.trim();
+  // Profile prompts/confirmations go through the shared in-app dialogs (R1):
+  // the buttons below only OPEN the dialog; the do* callbacks run once the
+  // dialog's confirm/submit fires (empty prompt submissions no-op, matching
+  // the old native-prompt guard).
+  const handleCreateProfile = useCallback(async (raw: string): Promise<void> => {
+    const trimmed = raw.trim();
     if (trimmed === "") return;
     try {
       const created = await createModelProfile(trimmed);
@@ -487,33 +497,26 @@ export function ModelsPage({
     }
   }, [lang, refreshProfiles]);
 
-  const handleRenameProfile = useCallback(async (): Promise<void> => {
-    if (!profileId || !profiles) return;
-    const current = profiles.find((p) => p.id === profileId);
-    if (!current) return;
-    const name = prompt(t(lang, "mpRenamePrompt"), current.name);
-    if (name === null) return;
-    const trimmed = name.trim();
-    if (trimmed === "" || trimmed === current.name) return;
-    try {
-      await renameModelProfile(profileId, trimmed);
-      await refreshProfiles();
-      flashProfileMsg(true, t(lang, "mcSaved"));
-    } catch (e) {
-      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
-    }
-  }, [lang, profileId, profiles, refreshProfiles]);
+  const handleRenameProfile = useCallback(
+    async (raw: string): Promise<void> => {
+      if (!profileId || !profiles) return;
+      const current = profiles.find((p) => p.id === profileId);
+      if (!current) return;
+      const trimmed = raw.trim();
+      if (trimmed === "" || trimmed === current.name) return;
+      try {
+        await renameModelProfile(profileId, trimmed);
+        await refreshProfiles();
+        flashProfileMsg(true, t(lang, "mcSaved"));
+      } catch (e) {
+        flashProfileMsg(false, e instanceof Error ? e.message : String(e));
+      }
+    },
+    [lang, profileId, profiles, refreshProfiles],
+  );
 
   const handleDeleteProfile = useCallback(async (): Promise<void> => {
-    if (!profileId || !profiles) return;
-    const current = profiles.find((p) => p.id === profileId);
-    if (!current) return;
-    const usage = current.assigned.length;
-    const confirmText =
-      usage > 0
-        ? t(lang, "mpDeleteConfirmAssigned").replace("{n}", String(usage))
-        : t(lang, "mpDeleteConfirm");
-    if (!confirm(confirmText)) return;
+    if (!profileId) return;
     try {
       await deleteModelProfile(profileId);
       await refreshProfiles();
@@ -522,7 +525,7 @@ export function ModelsPage({
       // The backend refuses the last profile (400) — surfaced as-is.
       flashProfileMsg(false, e instanceof Error ? e.message : String(e));
     }
-  }, [lang, profileId, profiles, refreshProfiles]);
+  }, [lang, profileId, refreshProfiles]);
 
   // ── test + discover ─────────────────────────────────────────────
 
@@ -937,7 +940,6 @@ export function ModelsPage({
     <div className="page models-page">
       <div className="page-head">
         <h1>{t(lang, "navModels")}</h1>
-        <p className="sub">{t(lang, "modelsSub")}</p>
       </div>
 
       {/* Profile bar (D8 / prototype .profile-bar): every tab below edits
@@ -971,7 +973,7 @@ export function ModelsPage({
           title={t(lang, "mpRenameTitle")}
           aria-label={t(lang, "mpRenameTitle")}
           disabled={!profileId}
-          onClick={() => void handleRenameProfile()}
+          onClick={() => setProfileDialog("rename")}
         >
           <Icon name="edit" />
         </button>
@@ -980,11 +982,11 @@ export function ModelsPage({
           title={t(lang, "mpDeleteTitle")}
           aria-label={t(lang, "mpDeleteTitle")}
           disabled={!profileId || (profiles?.length ?? 0) <= 1}
-          onClick={() => void handleDeleteProfile()}
+          onClick={() => setProfileDialog("delete")}
         >
           <Icon name="trash" />
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => void handleCreateProfile()}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setProfileDialog("create")}>
           <Icon name="plus" />
           {t(lang, "mpNew")}
         </button>
@@ -1071,10 +1073,9 @@ export function ModelsPage({
           <div className="sec-head">
             <div>
               <h2>{t(lang, "mcProviders")}</h2>
-              <p>{t(lang, "mcProvidersSub")}</p>
             </div>
             <div className="sec-acts">
-              <button className="btn btn-secondary" onClick={() => void handleImport()}>
+              <button className="btn btn-secondary" onClick={() => setProfileDialog("import")}>
                 {t(lang, "mcImportPi")}
               </button>
               <button className="btn btn-primary" onClick={addProvider}>
@@ -1129,6 +1130,69 @@ export function ModelsPage({
           onJumpToAgent={jumpToAgent}
           onDeleteProvider={() => deleteProvider(selectedId)}
           lang={lang}
+        />
+      )}
+
+      {/* R1: in-app dialogs for the profile bar + pi import (native
+       * confirm()/prompt() removed). Rendered as a page-level sibling so the
+       * overlay covers everything regardless of the active tab. */}
+      {profileDialog === "import" && (
+        <ConfirmDialog
+          lang={lang}
+          title={t(lang, "mcImportPi")}
+          desc={t(lang, "mcImportConfirm")}
+          onConfirm={() => {
+            setProfileDialog(null);
+            void handleImport();
+          }}
+          onCancel={() => setProfileDialog(null)}
+        />
+      )}
+      {profileDialog === "create" && (
+        <PromptDialog
+          lang={lang}
+          title={t(lang, "mpNew")}
+          desc={t(lang, "mpNewName")}
+          confirmLabel={t(lang, "mpNew")}
+          onSubmit={(v) => {
+            setProfileDialog(null);
+            void handleCreateProfile(v);
+          }}
+          onCancel={() => setProfileDialog(null)}
+        />
+      )}
+      {profileDialog === "rename" && (
+        <PromptDialog
+          lang={lang}
+          title={t(lang, "mpRenameTitle")}
+          desc={t(lang, "mpRenamePrompt")}
+          defaultValue={profiles?.find((p) => p.id === profileId)?.name ?? ""}
+          onSubmit={(v) => {
+            setProfileDialog(null);
+            void handleRenameProfile(v);
+          }}
+          onCancel={() => setProfileDialog(null)}
+        />
+      )}
+      {profileDialog === "delete" && (
+        <ConfirmDialog
+          lang={lang}
+          danger
+          title={t(lang, "mpDeleteTitle")}
+          desc={
+            (profiles?.find((p) => p.id === profileId)?.assigned.length ?? 0) > 0
+              ? t(lang, "mpDeleteConfirmAssigned").replace(
+                  "{n}",
+                  String(profiles?.find((p) => p.id === profileId)?.assigned.length ?? 0),
+                )
+              : t(lang, "mpDeleteConfirm")
+          }
+          confirmLabel={t(lang, "delete")}
+          onConfirm={() => {
+            setProfileDialog(null);
+            void handleDeleteProfile();
+          }}
+          onCancel={() => setProfileDialog(null)}
         />
       )}
     </div>

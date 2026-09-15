@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web 整体架构:App shell、.page/.page-head 脚手架、组件层与页面层 CSS 的分层规则"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "overlay/dialog 契约(alertdialog 用于破坏性确认、Escape/scrim 关闭)、components.css 优先、icons/i18n 强类型约束"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "构建门禁与质量检查要求"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "i18n t() 类型约束:缺 key 或缺语言列会导致 tsc 失败"}

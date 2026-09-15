@@ -265,7 +265,6 @@ export function CreatePage({
       <div className="page-head">
         <div>
           <h1>{t(lang, "wzTitle")}</h1>
-          <p className="sub">{t(lang, "wzSub")}</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={onCancel}>
@@ -291,7 +290,6 @@ export function CreatePage({
                 <span className="n">1</span>
                 {t(lang, "wzName")}
               </h2>
-              <p>{t(lang, "wzNameSecSub")}</p>
             </div>
             <div className={`field${nameErr !== "" ? " invalid" : ""}`} style={{ maxWidth: 420 }}>
               <label htmlFor="wz-name">{t(lang, "wzNameField")}</label>

@@ -120,7 +120,6 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
     <div className="page">
       <div className="page-head">
         <h1>{t(lang, "imgTitle")}</h1>
-        <p className="sub">{t(lang, "imgSub")}</p>
         <div className="sec-acts">
           <button
             className="btn btn-secondary"

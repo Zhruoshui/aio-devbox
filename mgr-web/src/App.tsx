@@ -115,7 +115,8 @@ export function App(): JSX.Element {
 
   /** Toggle the workspace sandbox-tree panel. The rail's "workspace" button
    * flip-flops this when already on the workspace page (prototype
-   * workspace.html wsNav behavior); the panel's own head button too. */
+   * workspace.html wsNav behavior); the panel head's own collapse button was
+   * removed (R5 — the tree's collapse button covers it). */
   const togglePanel = () => setPanelHidden((h) => !h);
   /** Rail "workspace" click: if already on workspace, toggle the panel;
    * otherwise navigate (and reveal the panel). */
@@ -212,7 +213,6 @@ export function App(): JSX.Element {
             lang={lang}
             focus={wsFocus}
             onManage={() => nav("sandboxes")}
-            panelOnToggle={togglePanel}
             onEditSandbox={(name) => {
               setSbxView({ view: "edit", name });
               setPage("sandboxes");

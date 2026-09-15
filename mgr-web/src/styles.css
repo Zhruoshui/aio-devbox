@@ -1549,9 +1549,15 @@ body {
   white-space: nowrap;
 }
 .ml-table td {
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-2);
   border-bottom: 1px solid var(--border-soft);
   vertical-align: middle;
+}
+/* R4: .ml-num's text-align:right loses to `.ml-table th` (higher
+ * specificity), leaving numeric headers left-aligned over right-aligned
+ * cells — re-assert it on th. */
+.ml-table th.ml-num {
+  text-align: right;
 }
 .ml-table tbody tr:last-child td {
   border-bottom: 0;
@@ -1875,7 +1881,10 @@ body {
   overflow-x: auto;
 }
 /* usage detail table: independently scrollable with a sticky header; the
- * min-width keeps columns from crushing into wraps on narrow pages. */
+ * min-width keeps columns from crushing into wraps on narrow pages.
+ * R4: border-collapse:separate (vs .ml-table's collapse) so the sticky th
+ * keeps its border and column geometry while scrolled — collapsed borders
+ * scroll away and let header/body columns drift. */
 .ml-table-scroll {
   overflow: auto;
   max-height: 60vh;
@@ -1883,11 +1892,20 @@ body {
 }
 .ml-usage-table {
   min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 .ml-usage-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+/* R4: give th the same clip contract as the td.ml-cell-clip columns so
+ * header and body share column widths (long provider/model ids). */
+.ml-usage-table thead th {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* long model/provider ids: clip, never wrap or push the table wide */
 .ml-cell-clip {

@@ -252,7 +252,6 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
             <Icon name="refresh" />
           </button>
         </div>
-        <p className="sub">{t(lang, "usageSub")}</p>
       </div>
 
       {error && <div className="status error">{t(lang, "loadFailed")}{error}</div>}

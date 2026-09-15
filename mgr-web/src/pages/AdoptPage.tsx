@@ -79,7 +79,6 @@ export function AdoptPage({ lang, onCancel, onAdopted }: Props): JSX.Element {
             {t(lang, "cancel")}
           </button>
         </div>
-        <p className="sub">{t(lang, "adSub")}</p>
       </div>
       <div className="wizard">
         <div className={`field${nameErr !== "" ? " invalid" : ""}`} style={{ maxWidth: 480 }}>

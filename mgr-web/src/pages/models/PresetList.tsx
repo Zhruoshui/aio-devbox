@@ -14,6 +14,7 @@
 // the sandbox pulls the config (≤60s).
 
 import { useState } from "react";
+import { ConfirmDialog } from "../../components/Dialogs";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
 import type { Sandbox } from "../../types";
@@ -83,6 +84,9 @@ export function PresetList({
   lang: Lang;
 }): JSX.Element {
   const [editing, setEditing] = useState<EditTarget>(null);
+  // R1: preset deletion confirms through the shared in-app dialog (the
+  // native confirm() is gone); the id being deleted, null = closed.
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const block = agent === "claude" ? config.agents.claude : config.agents.codex;
   const presets: AnyPreset[] = block?.presets ?? [];
@@ -222,11 +226,7 @@ export function PresetList({
                     disabled={isDirty || saving}
                     aria-label={t(lang, "mcDeleteProvider")}
                     title={t(lang, "mcDeleteProvider")}
-                    onClick={() => {
-                      if (confirm(t(lang, "maDeletePresetConfirm"))) {
-                        onDeletePreset(agent, preset.id);
-                      }
-                    }}
+                    onClick={() => setDeleteTarget(preset.id)}
                   >
                     <Icon name="trash" />
                   </button>
@@ -303,6 +303,22 @@ export function PresetList({
           lang={lang}
         />
       </div>
+
+      {/* R1: destructive delete confirm (shared ConfirmDialog). */}
+      {deleteTarget !== null && (
+        <ConfirmDialog
+          lang={lang}
+          danger
+          title={t(lang, "mcDeleteProvider")}
+          desc={t(lang, "maDeletePresetConfirm")}
+          confirmLabel={t(lang, "mcDeleteProvider")}
+          onConfirm={() => {
+            onDeletePreset(agent, deleteTarget);
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
