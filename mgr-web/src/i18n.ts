@@ -40,6 +40,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wsTreeLoadFailed: "工具清单加载失败：",
     wsResetLayout: "重置布局",
     sidebarEmpty: "暂无可用按钮。",
+    manageSandboxesShort: "管理",
     openInstanceSuffix: "，点击打开新实例",
     removePrefix: "移除 ",
     register: "注册按钮",
@@ -53,7 +54,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     custom: "自定义",
     openTerminal: "打开终端",
     viewInList: "在沙箱列表中查看",
-    hidePanel: "收起侧面板",
     manageSandboxes: "管理沙箱",
     mgrConnected: "已连接 mgr-api",
     layoutSaved: "布局已保存",
@@ -65,8 +65,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     csRetry: "重试",
     popin: "返回工作区",
     dialogTitle: "注册自定义按钮",
+    dialogConfirm: "确认",
     dialogSub:
-      "按钮持久保存到该沙箱的工作区卷，重建容器后仍然可用。终端按钮在沙箱内执行命令；web 按钮预览你在这个沙箱里起的 dev server 端口。",
+      "按钮持久保存到该沙箱的工作区卷；终端按钮执行命令，web 按钮预览 dev server 端口。",
     typeAgent: "终端命令",
     typeAgentSub: "在登录 shell 中执行",
     typeWeb: "Web 端口预览",
@@ -75,10 +76,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     fieldLabelPh: "例如：跟踪日志",
     fieldCmd: "启动命令",
     fieldCmdPh: "例如：make logs",
-    fieldCmdHint: "在登录 shell 的 PATH 中执行；命令真实存在时按钮才会出现。",
+    fieldCmdHint: "命令真实存在时按钮才会出现。",
     fieldPort: "端口号",
     fieldPortPh: "例如：5173",
-    fieldPortHint: "dev server 在该沙箱终端里监听的端口；有服务监听时按钮才会出现。",
+    fieldPortHint: "有服务监听该端口时按钮才会出现。",
     dialogSubmit: "添加按钮",
     errLabel: "请填写按钮名称。",
     errCmd: "请填写启动命令。",
@@ -90,8 +91,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // sandbox list
     refresh: "刷新",
     newSandbox: "新建沙箱",
-    listSub:
-      "每个沙箱是一组彼此隔离的容器（网关 / app / VNC / code-server）。状态每 4 秒轮询一次；创建、重建、删除走长任务流并可查看日志。",
     filterAll: "全部",
     filterByStatus: "按状态筛选",
     searchNamePh: "按名称搜索…",
@@ -126,7 +125,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     sbServices: "服务",
     sbAdopted: "外部栈",
     sbExternalNote:
-      "导入的外部栈：仅支持启停与状态展示，不支持改配置；删除仅移除登记，容器与数据卷不受影响。",
+      "导入的外部栈仅支持启停与状态展示；删除仅移除登记，容器与数据卷不受影响。",
     // status badges
     stRunning: "运行中",
     stStopped: "已停止",
@@ -137,20 +136,18 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     stAdopted: "纳管",
     // wizard
     wzTitle: "新建沙箱",
-    wzSub: "场景选择决定镜像内容：相同选择的沙箱共享同一镜像，不重复构建。首次出现的组合需要构建镜像，耗时以分钟计。",
     wzName: "名称",
     wzNameField: "沙箱名称",
     wzNamePh: "例如：dev3",
-    wzNameHint: "小写字母、数字、连字符，以字母或数字开头，最长 32 个字符。",
+    wzNameHint: "小写字母、数字、连字符，最长 32 字符。",
     wzNameErr: "名称需为 [a-z0-9-]，以字母或数字开头，最长 32 字符。",
     wzNameTaken: "该名称已被占用。",
-    wzNameSecSub: "将作为子域名 sbx-<名称>.mgr.localhost 的前缀，创建后不可更改。",
     wzScenarios: "场景",
-    wzScenariosHint: "按层级排列。标记「必装」的场景固定烘焙，只能选版本；其余按需勾选。",
+    wzScenariosHint: "「必装」场景固定烘焙，只能选版本。",
     wzLocked: "必装",
     wzVersion: "版本",
     wzServices: "服务",
-    wzServicesHint: "创建时决定是否安装，已建的沙箱不可更改。关闭的服务不进入 compose，镜像也不构建对应层。",
+    wzServicesHint: "创建时决定，之后不可更改。",
     svcPiWebDep: "依赖 pi + VNC",
     svcCsDesc: "浏览器里的 VS Code。容器不随沙箱启动，打开编辑器窗格时按需拉起，沙箱停止时一并停止。",
     svcVncDesc: "Xvnc + Chromium 侧车，为图形程序与 pi Web 的浏览器代理提供桌面。",
@@ -172,7 +169,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzCpusPh: "例如：4",
     wzMem: "内存上限",
     wzMemPh: "例如：8192",
-    wzResHint: "留空表示不限制。创建后修改资源需要重启沙箱生效（走重建流程，数据卷保留）。",
+    wzResHint: "留空表示不限制；修改后需重建生效（数据卷保留）。",
     wzResErr: "CPU 需为正数；内存需为 128 以上的整数（MB）。",
     wzCpusErr: "CPU 需为正数。",
     wzMemErr: "内存需为 128 以上的整数（MB）。",
@@ -198,10 +195,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // adopt wizard (import an existing compose stack)
     adoptExisting: "导入现有栈",
     adTitle: "导入现有栈",
-    adSub: "把一个已在运行的 compose 栈登记到 mgr：不重建容器，接入子域名路由；此后可启停与查看状态。",
     adComposePath: "Compose 文件",
     adPathPh: "docker-compose.yml",
-    adPathHint: "相对 mgr 仓库根目录的路径，也可填绝对路径；该栈需已运行（如 make up）。",
+    adPathHint: "相对 mgr 仓库根目录或绝对路径；该栈需已运行（如 make up）。",
     adPathErr: "请填写 compose 文件路径。",
     adAdvanced: "高级（服务名）",
     adGwService: "gateway 服务名",
@@ -217,7 +213,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     confirmUnadopt: "移除登记",
     // env editor
     edTitle: "编辑配置",
-    edSub: "修改场景或版本会改变镜像内容：保存后走重建流程（数据卷保留）。仅修改资源也需要重启容器。",
     edSave: "保存并重建",
     edSameEnv: "配置未变化。",
     edSvcFixed: "服务在创建时固定，由镜像内容决定，不可更改。",
@@ -234,7 +229,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     jobFailedHint: "失败原因见下方日志尾部。沙箱状态已标记为 error，可修正配置后重试。",
     // images page
     imgTitle: "镜像",
-    imgSub: "按环境哈希共享：相同场景/版本选择指向同一镜像，引用数归零后可手动清理。",
     imgTag: "镜像 tag",
     imgBuiltAt: "构建时间",
     imgRefcount: "引用沙箱数",
@@ -259,8 +253,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)
-    modelsSub:
-      "统一管理多套模型 profile（供应商、密钥与模型预设），并在每个沙箱的编辑页指派；所指派沙箱保存后自动拉取生效（最长约 1 分钟延迟）。",
     mpProfile: "Profile",
     mpNew: "新建 Profile",
     mpNewName: "新 profile 名称：",
@@ -279,15 +271,15 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mpPickProfile: "选择 profile",
     mpSegCount: "{n} 个沙箱",
     mpListSep: "、",
-    mpUnassignedHint: "未指派：{names}（保留本地配置，可在沙箱列表快速指派）",
+    mpUnassignedHint: "未指派：{names}（可在沙箱列表快速指派）",
     mpAllAssigned: "所有沙箱均已指派",
     mpAssignTo: "模型 Profile",
     mpAssignHint:
-      "指派后该沙箱定期拉取此 profile（约 1 分钟内生效），无需重建容器；解绑后沙箱保持本地模型配置。",
+      "指派后约 1 分钟内生效，无需重建容器；解绑后沙箱保持本地模型配置。",
     // S2 agent subset (D4): which agent configs the assignment renders
     mpAgents: "Agent 子集",
     mpAgentsHint:
-      "勾选的 agent 才会渲染配置文件；未勾选的 agent 保持本地配置不动。零勾选 = 沙箱拉取后配置完全不变。",
+      "勾选的 agent 才会渲染配置；零勾选 = 拉取后配置不变。",
     mpAgentsAll: "全部 agent",
     mpQuickAssign: "快捷指派",
     mpQuickAssignHint: "保存后约 1 分钟内生效，无需重建容器。",
@@ -295,14 +287,13 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mpAgentsNone: "未勾选任何 agent（拉取后本地配置不变）",
     mpNoProfiles: "（无 profile）",
     mcProviders: "供应商库",
-    mcProvidersSub: "统一管理各 agent 使用的 API 供应商、密钥与模型目录。",
     maParadigmIncremental: "增量式 agent —— 单一「供应商 + 模型」绑定，通过下拉直接选择。",
     maParadigmSwitcher: "切换式 agent —— 维护多个命名预设，恰好一个当前生效（cc-switch 风格）。",
     maMgrNotice:
-      "这里编辑的是当前所选 profile，指派到它的沙箱会定期拉取生效。agent 的安装状态与原生配置文件请在工作区对应沙箱的终端里查看：",
+      "这里编辑的是当前所选 profile，指派的沙箱定期拉取生效。agent 安装状态请在工作区终端查看：",
     // 09-11 prototype redesign: agent tabs (strip / model-opt / savebar / sbx-tbl)
     maStripIncremental:
-      "增量式 agent：profile「{profile}」为该 agent 指定唯一的供应商与模型，mgr 把它渲染进沙箱的 {file}，其余本地设置保持不变。",
+      "增量式 agent：profile「{profile}」为该 agent 指定唯一的供应商与模型，渲染进沙箱的 {file}。",
     maStripSwitcher:
       "切换式 agent：profile「{profile}」可保存多套预设，同一时刻只有一套「当前」生效并渲染进沙箱的 {file}。",
     maCurrentBinding: "当前指向",
@@ -319,7 +310,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maGoAssign: "去指派",
     maOpenWorkspace: "打开工作区",
     maSbxTblNote:
-      "沙箱内的 agent 每 60 秒拉取一次渲染结果；关闭开关的 agent 保留沙箱本地文件不被覆盖。",
+      "沙箱内 agent 每 60 秒拉取一次；关闭开关的 agent 保留本地文件。",
     maTakingEffect: "正在生效",
     mcSelectedCount: "{n} 已选",
     mcNoBoundAgents: "未被任何 agent 绑定",
@@ -412,7 +403,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcOtherProfiles: "（另涉及 {n} 个 profile）",
     mcEditProviderTitle: "编辑供应商",
     mcFetchModelsTitle: "调用 /models 端点发现可用模型",
-    mcKeyHint: "密钥只存放在 mgr 数据目录，渲染到沙箱 agent 配置时按需注入。",
+    mcKeyHint: "密钥只存放在 mgr 数据目录，渲染时按需注入。",
     mcEdit: "编辑",
     mcBasic: "基本信息",
     mcApiInherit: "继承",
@@ -421,7 +412,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcBoundAgents: "被此供应商绑定的 Agent",
     mcNoBindings: "暂无绑定",
     // usage page (multi-sandbox view over GET /api/usage)
-    usageSub: "汇总各运行中沙箱的 token 用量与成本（沙箱本地聚合，mgr 侧 30 秒缓存）。",
     muAll: "全部合计",
     muColSandbox: "沙箱",
     muNoSandboxes: "没有运行中的沙箱——创建或启动一个后，这里会展示其用量。",
@@ -475,8 +465,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wsTreeEmpty: "No sandboxes yet.",
     wsStoppedHint: "Sandbox is stopped — start it to load its tools.",
     wsTreeLoadFailed: "Failed to load tools: ",
-    wsResetLayout: "Reset layout",
+    wsResetLayout: "Reset",
     sidebarEmpty: "No buttons available.",
+    manageSandboxesShort: "Manage",
     openInstanceSuffix: " - click to open a new instance",
     removePrefix: "Remove ",
     register: "Register button",
@@ -490,7 +481,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     custom: "custom",
     openTerminal: "Open terminal",
     viewInList: "View in sandbox list",
-    hidePanel: "Collapse side panel",
     manageSandboxes: "Manage sandboxes",
     mgrConnected: "mgr-api connected",
     layoutSaved: "Layout saved",
@@ -502,8 +492,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     csRetry: "Retry",
     popin: "Dock back to workspace",
     dialogTitle: "Register a custom button",
+    dialogConfirm: "Confirm",
     dialogSub:
-      "Buttons persist to that sandbox's workspace volume, surviving container rebuilds. Terminal buttons run a command inside the sandbox; web buttons preview a dev server port you started there.",
+      "Buttons persist to that sandbox's workspace volume; terminal buttons run a command, web buttons preview a dev server port.",
     typeAgent: "Terminal command",
     typeAgentSub: "Runs in the login shell",
     typeWeb: "Web port preview",
@@ -512,10 +503,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     fieldLabelPh: "e.g. Tail logs",
     fieldCmd: "Command",
     fieldCmdPh: "e.g. make logs",
-    fieldCmdHint: "Runs on the login shell's PATH; the button only appears when the command actually exists.",
+    fieldCmdHint: "The button appears only when the command actually exists.",
     fieldPort: "Port",
     fieldPortPh: "e.g. 5173",
-    fieldPortHint: "The port your dev server listens on in that sandbox's terminal; the button only appears when something is listening.",
+    fieldPortHint: "The button appears only when something listens on the port.",
     dialogSubmit: "Add button",
     errLabel: "Button name is required.",
     errCmd: "Command is required.",
@@ -527,8 +518,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // sandbox list
     refresh: "Refresh",
     newSandbox: "New sandbox",
-    listSub:
-      "Each sandbox is an isolated set of containers (gateway / app / VNC / code-server). Status polls every 4s; create, rebuild and delete run as long jobs with logs.",
     filterAll: "All",
     filterByStatus: "Filter by status",
     searchNamePh: "Search by name…",
@@ -563,7 +552,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     sbServices: "Services",
     sbAdopted: "external stack",
     sbExternalNote:
-      "Adopted external stack: start/stop and status only, no config changes; deleting only removes the registration — containers and volumes are untouched.",
+      "Adopted external stack: start/stop and status only; deleting only removes the registration — containers and volumes stay.",
     // status badges
     stRunning: "running",
     stStopped: "stopped",
@@ -574,20 +563,18 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     stAdopted: "adopted",
     // wizard
     wzTitle: "New sandbox",
-    wzSub: "Scenarios define the image contents: identical selections share one image, no rebuild. A first-seen combination builds a new image and takes minutes.",
     wzName: "Name",
     wzNameField: "Sandbox name",
     wzNamePh: "e.g. dev3",
-    wzNameHint: "lowercase letters, digits, hyphens; must start with a letter or digit, max 32 chars.",
+    wzNameHint: "lowercase letters, digits, hyphens, max 32 chars.",
     wzNameErr: "Name must be [a-z0-9-], start with a letter or digit, max 32 chars.",
     wzNameTaken: "That name is already taken.",
-    wzNameSecSub: "Becomes the sbx-<name>.mgr.localhost subdomain prefix; cannot be changed after creation.",
     wzScenarios: "Scenarios",
-    wzScenariosHint: "Arranged by layer. Always-on scenarios are baked unconditionally - only their version is selectable; the rest are optional.",
+    wzScenariosHint: "Always-on scenarios are baked - only their version is selectable.",
     wzLocked: "always-on",
     wzVersion: "Version",
     wzServices: "Services",
-    wzServicesHint: "Chosen at create time; cannot be changed afterwards. Disabled services stay out of compose and their image layers are not built.",
+    wzServicesHint: "Chosen at create time; cannot be changed later.",
     svcPiWebDep: "needs pi + VNC",
     svcCsDesc: "VS Code in the browser. The container does not start with the sandbox; it is pulled up on demand when an editor pane opens and stops with the sandbox.",
     svcVncDesc: "Xvnc + Chromium sidecar, providing a desktop for graphical programs and pi Web's browser proxy.",
@@ -609,7 +596,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzCpusPh: "e.g. 4",
     wzMem: "Memory cap",
     wzMemPh: "e.g. 8192",
-    wzResHint: "Empty = unlimited. Later resource changes take effect via the recreate flow (volumes kept).",
+    wzResHint: "Empty = unlimited; changes take effect via recreate (volumes kept).",
     wzResErr: "CPUs must be a positive number; memory an integer of 128+ MB.",
     wzCpusErr: "CPUs must be a positive number.",
     wzMemErr: "Memory must be an integer of 128+ MB.",
@@ -635,10 +622,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // adopt wizard (import an existing compose stack)
     adoptExisting: "Adopt stack",
     adTitle: "Adopt existing stack",
-    adSub: "Register an already-running compose stack under mgr: no containers are recreated, subdomain routes are wired in; start/stop and status from then on.",
     adComposePath: "Compose file",
     adPathPh: "docker-compose.yml",
-    adPathHint: "Path relative to mgr's repo root, or absolute; the stack must be running (e.g. make up).",
+    adPathHint: "Relative to mgr's repo root, or absolute; the stack must be running (e.g. make up).",
     adPathErr: "Compose file path is required.",
     adAdvanced: "Advanced (service names)",
     adGwService: "gateway service name",
@@ -654,7 +640,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     confirmUnadopt: "Unregister",
     // env editor
     edTitle: "Edit config",
-    edSub: "Changing scenarios or versions changes the image: saving runs the recreate flow (volumes are kept). Resource-only changes also restart the container.",
     edSave: "Save & recreate",
     edSameEnv: "No changes yet.",
     edSvcFixed: "Services are fixed at create time by the image content and cannot be changed.",
@@ -671,7 +656,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     jobFailedHint: "See the log tail below for the failure reason. The sandbox is marked error; fix the config and retry.",
     // images page
     imgTitle: "Images",
-    imgSub: "Shared by env hash: identical scenario/version selections point at one image; clean up manually once unreferenced.",
     imgTag: "Image tag",
     imgBuiltAt: "Built at",
     imgRefcount: "Referring sandboxes",
@@ -696,8 +680,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)
-    modelsSub:
-      "Manage multiple model profiles (providers, keys, presets) and assign one per sandbox in its edit page; assigned sandboxes pull changes automatically (up to ~1 min delay).",
     mpProfile: "Profile",
     mpNew: "New profile",
     mpNewName: "New profile name:",
@@ -717,15 +699,15 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mpSegCount: "{n} sandboxes",
     mpListSep: ", ",
     mpUnassignedHint:
-      "Unassigned: {names} (local config kept; quick-assign on the sandbox list)",
+      "Unassigned: {names} (quick-assign on the sandbox list)",
     mpAllAssigned: "All sandboxes are assigned",
     mpAssignTo: "Model profile",
     mpAssignHint:
-      "The assigned sandbox pulls this profile periodically (effective within ~1 min), no container recreate; unassigning leaves the local model config untouched.",
+      "Effective within ~1 min after assigning, no recreate; unassigning keeps the local model config.",
     // S2 agent subset (D4): which agent configs the assignment renders
     mpAgents: "Agent subset",
     mpAgentsHint:
-      "Only checked agents get their config rendered; unchecked agents keep their local config. Zero checked = nothing changes on pull.",
+      "Only checked agents get their config rendered; zero checked = nothing changes on pull.",
     mpAgentsAll: "All agents",
     mpQuickAssign: "Quick assign",
     mpQuickAssignHint: "Effective within ~1 min after saving; no container recreate.",
@@ -733,14 +715,13 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mpAgentsNone: "No agents checked (local config unchanged on pull)",
     mpNoProfiles: "(no profiles)",
     mcProviders: "Providers",
-    mcProvidersSub: "Manage API providers, keys, and model catalogs shared across agents.",
     maParadigmIncremental: "Incremental agent — one provider + model binding, picked from dropdowns.",
     maParadigmSwitcher: "Switcher agent — multiple named presets, exactly one current (cc-switch style).",
     maMgrNotice:
-      "This edits the SELECTED model profile; sandboxes assigned to it pull it periodically. Agent install status and native config files live in each sandbox's workspace:",
+      "This edits the SELECTED model profile; assigned sandboxes pull it periodically. Check agent install status in the workspace terminal:",
     // 09-11 prototype redesign: agent tabs (strip / model-opt / savebar / sbx-tbl)
     maStripIncremental:
-      "Incremental agent: profile “{profile}” points this agent at ONE provider + model; mgr renders it into the sandbox's {file}, other local settings stay untouched.",
+      "Incremental agent: profile “{profile}” points this agent at ONE provider + model, rendered into the sandbox's {file}.",
     maStripSwitcher:
       "Switcher agent: profile “{profile}” keeps several named presets; exactly ONE is “current” and rendered into the sandbox's {file}.",
     maCurrentBinding: "Current binding",
@@ -757,7 +738,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     maGoAssign: "Assign",
     maOpenWorkspace: "Open workspace",
     maSbxTblNote:
-      "Sandbox agents pull the rendered result every 60 seconds; a switched-off agent keeps the sandbox-local file untouched.",
+      "Sandbox agents pull every 60 seconds; switched-off agents keep their local files.",
     maTakingEffect: "taking effect",
     mcSelectedCount: "{n} selected",
     mcNoBoundAgents: "Not bound to any agent",
@@ -850,7 +831,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcEditProviderTitle: "Edit provider",
     mcFetchModelsTitle: "Call the /models endpoint to discover models",
     mcKeyHint:
-      "Keys live only in the mgr data directory and are injected on demand when rendering sandbox agent configs.",
+      "Keys live only in the mgr data directory, injected on demand when rendering.",
     mcEdit: "Edit",
     mcBasic: "Basic",
     mcApiInherit: "inherit",
@@ -859,7 +840,6 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcBoundAgents: "Agents using this provider",
     mcNoBindings: "No agents bound",
     // usage page (multi-sandbox view over GET /api/usage)
-    usageSub: "Token and cost usage across running sandboxes (aggregated per sandbox, 30s cache on mgr).",
     muAll: "All sandboxes",
     muColSandbox: "Sandbox",
     muNoSandboxes: "No running sandboxes — create or start one and its usage will show up here.",

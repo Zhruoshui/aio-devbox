@@ -92,8 +92,49 @@ copy it from an existing one:
   (NodeMenu's `useLayoutEffect` measure pattern); full-screen ones use the
   `.overlay`/`.drawer` wrappers.
 
+## Dialogs: use `components/Dialogs.tsx`, never browser-native (09-15)
+
+Browser-native `confirm()` / `prompt()` / `alert()` are **banned** — all five
+legacy call sites (ModelsPage import/rename/delete, PresetList delete) were
+migrated to `src/components/Dialogs.tsx`. New confirmation or text-input flows
+MUST reuse these instead of rolling a new inline dialog:
+
+- `ConfirmDialog { open, title, desc?, danger?, confirmLabel?, cancelLabel?, onConfirm, onCancel }`
+  — destructive confirms pass `danger` (renders `role="alertdialog"` +
+  `btn-danger`), plain confirms use primary styling (`role="dialog"`).
+- `PromptDialog { ..., defaultValue?, placeholder? }` — submit is a real
+  `<form>`, so Enter submits natively; opener's focus is captured on mount and
+  restored on unmount via the shared `useDialogChrome` hook (Esc via document
+  keydown, first-control focus, select-on-open for prefilled values).
+
+Both are conditional renders of `.overlay.open` > `.dialog` (no CSS of their
+own). A shared confirm label lives at i18n key `dialogConfirm` — don't reuse
+`confirmDelete` ("确认删除") for non-destructive confirms.
+
+## Table numeric columns: `th.ml-num` needs its own override
+
+`.ml-table th { text-align: left }` out-specifies `.ml-num { text-align:
+right }`, so a right-aligned `th` with `className="ml-num"` alone renders
+left-aligned while its `td`s are right-aligned — this was the actual cause of
+the usage-table "misalignment" report (09-15), not padding. Any new table with
+numeric columns must include an explicit `th.ml-num { text-align: right }`
+rule (styles.css) rather than relying on the shared `.ml-num` class.
+
+> **Warning**: CSS cascade between layers is order-dependent — `components.css`
+> is imported after `styles.css` (see `main.tsx` header comment) so its rules
+> win ties. A components.css override of a styles.css property that styles.css
+> sets with equal specificity works today only because of this import order;
+> reordering imports silently breaks such overrides. Prefer higher specificity
+> or explicit property resets over relying on the tie-break when touching
+> layered component CSS (e.g. `.ws-tree-foot` needs an explicit
+> `flex-direction: row` because the legacy styles.css block sets `column`).
+
 Icons come from `icons.tsx` (`IconName` keys aligned with the prototype's
 `mgr-shell.js`): add the path there, never inline a one-off `<svg>` in a
 page. New user-facing strings go through `i18n.ts` — `t()` is typed
 `keyof Strings`, so a missing key (or a missing language column) fails
-`tsc`; the build gate doubles as the bilingual gate.
+`tsc`; the build gate doubles as the bilingual gate. Deleting a key means
+deleting it from BOTH the zh-CN and en blocks in the same change and removing
+every call site — grep for the key name afterward, watching for false
+substring hits on shared prefixes (e.g. `wzSub` vs the still-valid
+`wzSubmitting`).

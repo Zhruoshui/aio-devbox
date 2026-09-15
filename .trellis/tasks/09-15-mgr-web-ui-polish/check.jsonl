@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "校验对话框是否符合 overlay 契约、i18n 双语是否同步"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "校验构建门禁与检查清单"}

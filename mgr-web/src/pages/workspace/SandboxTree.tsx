@@ -61,10 +61,6 @@ interface Props {
    * WorkspacePage (persisted separately from the app sidebar collapse, R4). */
   collapsed: boolean;
   onCollapseToggle: () => void;
-  /** Hide the whole side panel (App-owned mgr.panelHidden; prototype
-   * panel-head's collapse button). Distinct from the tree's own flyout
-   * collapse above. */
-  panelOnToggle?: () => void;
   onToggle: (name: string) => void;
   onLaunch: (sandbox: string, service: ServiceEntry) => void;
   onStart: (name: string) => void;
@@ -131,7 +127,6 @@ export function SandboxTree({
   paneCounts,
   collapsed,
   onCollapseToggle,
-  panelOnToggle,
   footer,
   onToggle,
   onLaunch,
@@ -167,16 +162,6 @@ export function SandboxTree({
         >
           <Icon name={collapsed ? "chev-r" : "chev-l"} />
         </button>
-        {panelOnToggle && !collapsed && (
-          <button
-            className="icon-btn"
-            title={t(lang, "hidePanel")}
-            aria-label={t(lang, "hidePanel")}
-            onClick={panelOnToggle}
-          >
-            <Icon name="panel" />
-          </button>
-        )}
       </div>
       {!collapsed && (
         <div className="ws-search">
@@ -401,7 +386,9 @@ export function SandboxTree({
           );
         })}
       </div>
-      {footer}
+      {/* footer (reset layout / manage) only in the expanded tree — the
+       * collapsed 44px icon rail has no room for the wrapped buttons. */}
+      {!collapsed && footer}
     </aside>
   );
 }

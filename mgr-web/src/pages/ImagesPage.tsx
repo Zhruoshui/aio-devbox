@@ -120,7 +120,6 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
     <div className="page">
       <div className="page-head">
         <h1>{t(lang, "imgTitle")}</h1>
-        <p className="sub">{t(lang, "imgSub")}</p>
         <div className="sec-acts">
           <button
             className="btn btn-secondary"
@@ -149,7 +148,7 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                 <th>{t(lang, "imgTag")}</th>
                 <th>env hash</th>
                 <th>{t(lang, "imgCombo")}</th>
-                <th>{t(lang, "imgSize")}</th>
+                <th className="r">{t(lang, "imgSize")}</th>
                 <th>{t(lang, "imgBuiltAt")}</th>
                 <th className="r">{t(lang, "imgRefcount")}</th>
                 <th>{t(lang, "imgLog")}</th>

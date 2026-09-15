@@ -173,7 +173,6 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
       <div className="page-head">
         <div>
           <h1>{t(lang, "navSandboxes")}</h1>
-          <p className="sub">{t(lang, "listSub")}</p>
         </div>
         <div className="page-actions">
           <button

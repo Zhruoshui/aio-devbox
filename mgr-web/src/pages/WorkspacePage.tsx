@@ -155,17 +155,11 @@ interface Props {
   focus: string | null;
   /** Navigate to the sandbox list (empty-state affordance). */
   onManage: () => void;
-  /**
-   * Prototype redesign: toggle the sandbox-tree panel's hidden state
-   * (owned by App, persisted under mgr.panelHidden). The panel head's
-   * "collapse" button and the rail's "workspace" button both call this.
-   */
-  panelOnToggle?: () => void;
   /** Open the sandbox list's edit view for this sandbox (NodeMenu). */
   onEditSandbox?: (name: string) => void;
 }
 
-export function WorkspacePage({ lang, focus, onManage, panelOnToggle, onEditSandbox }: Props): JSX.Element {
+export function WorkspacePage({ lang, focus, onManage, onEditSandbox }: Props): JSX.Element {
   langRef.current = lang;
   const containerRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<GoldenLayout | null>(null);
@@ -664,7 +658,6 @@ export function WorkspacePage({ lang, focus, onManage, panelOnToggle, onEditSand
         paneCounts={paneCounts}
         collapsed={treeCollapsed}
         onCollapseToggle={() => setTreeCollapsed((c) => !c)}
-        panelOnToggle={panelOnToggle}
         onToggle={onToggle}
         onLaunch={launch}
         onStart={(name) => void act(name, "start")}
@@ -682,12 +675,8 @@ export function WorkspacePage({ lang, focus, onManage, panelOnToggle, onEditSand
               <Icon name="reset" />
               {t(lang, "wsResetLayout")}
             </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              style={{ marginLeft: "auto" }}
-              onClick={onManage}
-            >
-              {t(lang, "manageSandboxes")}
+            <button className="btn btn-ghost btn-sm" onClick={onManage}>
+              {t(lang, "manageSandboxesShort")}
               <Icon name="arrowr" />
             </button>
           </div>

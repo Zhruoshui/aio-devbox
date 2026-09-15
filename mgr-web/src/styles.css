@@ -104,10 +104,17 @@
   --term-selection: color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
+/* --color-scheme: UA native controls (checkbox/select/number spinner/
+ * scrollbar) follow the active theme. */
+:root {
+  color-scheme: light;
+}
+
 /* Kumo uses data-mode="dark". The data-theme selector keeps generated Open
  * Design artifacts compatible with the repository's standard theme hook. */
 [data-theme="dark"],
 [data-mode="dark"] {
+  color-scheme: dark;
   --bg: oklch(10% 0 0);
   --surface: oklch(17% 0 0);
   --surface-warm: oklch(15% 0 0);
@@ -160,6 +167,10 @@ body {
 }
 button {
   font: inherit;
+  /* Dark mode: UA "buttontext" is near-black on dark .card surfaces (e.g.
+   * the provider-name h3 inside the .pv button). Inherit the body color;
+   * component classes below still override with their own tokens. */
+  color: inherit;
   cursor: pointer;
 }
 input {
@@ -1549,18 +1560,21 @@ body {
   white-space: nowrap;
 }
 .ml-table td {
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-2);
   border-bottom: 1px solid var(--border-soft);
   vertical-align: middle;
+}
+/* R4: .ml-num's text-align:right loses to `.ml-table th` (higher
+ * specificity), leaving numeric headers left-aligned over right-aligned
+ * cells — re-assert it on th. */
+.ml-table th.ml-num {
+  text-align: right;
 }
 .ml-table tbody tr:last-child td {
   border-bottom: 0;
 }
 .ml-cell-mono {
   font-family: var(--font-mono);
-}
-.ml-cell-select {
-  min-width: 0 !important;
 }
 .ml-num {
   text-align: right;
@@ -1875,7 +1889,10 @@ body {
   overflow-x: auto;
 }
 /* usage detail table: independently scrollable with a sticky header; the
- * min-width keeps columns from crushing into wraps on narrow pages. */
+ * min-width keeps columns from crushing into wraps on narrow pages.
+ * R4: border-collapse:separate (vs .ml-table's collapse) so the sticky th
+ * keeps its border and column geometry while scrolled — collapsed borders
+ * scroll away and let header/body columns drift. */
 .ml-table-scroll {
   overflow: auto;
   max-height: 60vh;
@@ -1883,11 +1900,20 @@ body {
 }
 .ml-usage-table {
   min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 .ml-usage-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+/* R4: give th the same clip contract as the td.ml-cell-clip columns so
+ * header and body share column widths (long provider/model ids). */
+.ml-usage-table thead th {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* long model/provider ids: clip, never wrap or push the table wide */
 .ml-cell-clip {
