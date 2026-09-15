@@ -314,6 +314,9 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 /* 面板头折叠态（S5 树自身折叠成图标条时，panel-head 压缩为单按钮条） */
 .ws-tree.collapsed .panel-head { padding: 0 var(--space-1); }
 .ws-tree.collapsed .panel-title { display: none; }
+/* 09-15 follow-up: the reset/manage foot has no place on the collapsed icon
+ * rail (React already omits it; this is the belt-and-braces CSS guard). */
+.ws-tree.collapsed .panel-foot { display: none; }
 
 /* 状态栏位于 ws-main 底部（gl-root flex:1 之上） */
 .ws-main .statusbar { margin-top: 0; }

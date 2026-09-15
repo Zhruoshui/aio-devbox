@@ -113,7 +113,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcApi")}</label>
               <select
-                className="ml-cell-select"
+                className="input"
                 value={model.api ?? ""}
                 onChange={(e) =>
                   onPatchModel(idx, { api: e.target.value || undefined })
@@ -134,7 +134,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcContextWindow")}</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 value={model.contextWindow ?? ""}
                 onChange={(e) =>
@@ -149,7 +149,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcMaxTokens")}</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 value={model.maxTokens ?? ""}
                 onChange={(e) =>
@@ -181,7 +181,7 @@ export function ModelRow({
             <div className="field">
               <label>in</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 step="any"
                 value={model.cost?.input ?? ""}
@@ -191,7 +191,7 @@ export function ModelRow({
             <div className="field">
               <label>out</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 step="any"
                 value={model.cost?.output ?? ""}
@@ -201,7 +201,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcUsageColCacheR")}</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 step="any"
                 value={model.cost?.cacheRead ?? ""}
@@ -211,7 +211,7 @@ export function ModelRow({
             <div className="field">
               <label>{t(lang, "mcUsageColCacheW")}</label>
               <input
-                className="mono"
+                className="input mono"
                 type="number"
                 step="any"
                 value={model.cost?.cacheWrite ?? ""}

@@ -386,7 +386,9 @@ export function SandboxTree({
           );
         })}
       </div>
-      {footer}
+      {/* footer (reset layout / manage) only in the expanded tree — the
+       * collapsed 44px icon rail has no room for the wrapped buttons. */}
+      {!collapsed && footer}
     </aside>
   );
 }

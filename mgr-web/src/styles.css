@@ -104,10 +104,17 @@
   --term-selection: color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
+/* --color-scheme: UA native controls (checkbox/select/number spinner/
+ * scrollbar) follow the active theme. */
+:root {
+  color-scheme: light;
+}
+
 /* Kumo uses data-mode="dark". The data-theme selector keeps generated Open
  * Design artifacts compatible with the repository's standard theme hook. */
 [data-theme="dark"],
 [data-mode="dark"] {
+  color-scheme: dark;
   --bg: oklch(10% 0 0);
   --surface: oklch(17% 0 0);
   --surface-warm: oklch(15% 0 0);
@@ -160,6 +167,10 @@ body {
 }
 button {
   font: inherit;
+  /* Dark mode: UA "buttontext" is near-black on dark .card surfaces (e.g.
+   * the provider-name h3 inside the .pv button). Inherit the body color;
+   * component classes below still override with their own tokens. */
+  color: inherit;
   cursor: pointer;
 }
 input {
@@ -1564,9 +1575,6 @@ body {
 }
 .ml-cell-mono {
   font-family: var(--font-mono);
-}
-.ml-cell-select {
-  min-width: 0 !important;
 }
 .ml-num {
   text-align: right;
