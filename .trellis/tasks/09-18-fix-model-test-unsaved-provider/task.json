@@ -12,7 +12,7 @@
   "assignee": "taosi222",
   "createdAt": "2026-09-18",
   "completedAt": null,
-  "branch": null,
+  "branch": "fix/model-test-unsaved-provider",
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,
