@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "XtermPane 契约源头：Terminal 构造面、lineHeight 契约、WS 协议帧格式（0x01 resize）、重连上限、termWsUrl 路由。R1-R6 都改这个组件与协议，0x02 帧需同步回写该 spec"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "imperative-lib 生命周期模式（xterm 属此类），新增 addon 加载/回退逻辑须遵循"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端 spec 总索引，确认 addon 选型与依赖版本约定"}

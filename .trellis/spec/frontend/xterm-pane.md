@@ -12,9 +12,10 @@
 
 ```ts
 new Terminal({
-  fontFamily: "var(--font-mono)", // styles.css token, app mono stack
+  fontFamily: readTermFont(),     // concrete stack, NOT "var(--font-mono)" — see 渲染器与字体契约
   fontSize: 13,
   lineHeight: 1.25,               // MUST be explicit — see below
+  scrollback: 10000,              // R1: default 1000 too small for builds/logs
   cursorBlink: true,
   theme: readTermTheme(),         // --term-* tokens via getComputedStyle
 })
@@ -59,7 +60,7 @@ new Terminal({ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.25 })
 `paneUrl.ts::termWsUrl` 是唯一构造点:
 
 ```
-ws(s)://<mgr origin>/api/sbx/<sandbox>/api/term/ws?cmd=<encodeURIComponent(cmd)>
+ws(s)://<mgr origin>/api/sbx/<sandbox>/api/term/ws?cmd=<encodeURIComponent(cmd)>[&cwd=<encodeURIComponent(cwd)>]
 ```
 
 - **same-origin on mgr**: 浏览器不再跨子域直连 `sbx-<name>-piweb:8088`
@@ -68,7 +69,47 @@ ws(s)://<mgr origin>/api/sbx/<sandbox>/api/term/ws?cmd=<encodeURIComponent(cmd)>
   随 WS close 退出("close kills, reopen restarts");重开 = 全新会话。
 - **掉线重连上限 1**: WS 中途断开写一条 notice、至多重试一次、之后停
   (不 crash、不 retry-spam)。
-- 文本帧 = 按键;二进制 5 字节控制帧 = resize(`TIOCSWINSZ`)。
+- **帧协议(09-18-term-web-polish 后)**: Text 帧 = pty stdout(下行)/
+  按键(上行)。Binary 5 字节控制帧,**双向**:
+  - client→server `0x01` = resize(`[0x01, cols_le_u16, rows_le_u16]`,
+    `TIOCSWINSZ`);
+  - server→client `0x02` = exit code(`[0x02, exit_code_le_u32]`),pty
+    teardown 后、WS close 前发一次,正常退出(0)也发——该帧区分"进程
+    以 N 退出"与"中途掉线"(后者不发)。前端收到后写
+    `● 进程已退出 (code N)` notice,随后照常走 onclose 断线/重连逻辑,
+    生命周期契约不变。mgr proxy 对两个方向的 Binary 帧均透明中继。
+- **`?cwd=` 参数(R7)**: 可选,pty 初始工作目录。后端校验:存在且为目录
+  才生效,否则回退 `/root`(debug log)。services.toml agent 条目可选
+  `cwd` 字段(manifest 透传,仅 agent 类型序列化,缺省省略)。不带参数
+  = `/root` 不变。
+- **exit code 语义**: 客户端主动关 pane 时,后端 teardown kill 子进程,
+  portable-pty 将 signal-kill 映射为 code 1(非 137)——用户关 pane 后
+  的重连若收到 0x02 code 1 属预期,不是崩溃信号。
+
+## 渲染器与字体契约(09-18-term-web-polish R3)
+
+- **WebGL 渲染器优先**(`@xterm/addon-webgl`): constructor/loadAddon 抛
+  异常(无 WebGL 上下文、shader 失败、devtools 禁 GPU)与
+  `onContextLoss` → dispose 两条失败路径都自然回退 DOM 渲染器,pane
+  不会白屏。
+- **fontFamily 必须是具体字体串,不能是 `var(--font-mono)` 字面量**:
+  WebGL 经 canvas `ctx.font` 绘制,**不解析 CSS 变量**——传 var() 字面量
+  会静默回退浏览器默认字体(DOM 渲染器无所谓,所以这个坑只在 WebGL 激活
+  后显形)。`XtermPane.tsx::readTermFont()` 在 mount 时用
+  `getComputedStyle` 解析 `--font-mono`(与 `readTermTheme()` 同模式),
+  空值回退 `"monospace"`。
+- **主题色走 ThemeService,两种渲染器共用**: `readTermTheme()` 的
+  oklch/color-mix 值由 xterm 的 canvas fillStyle 往返解析
+  (`css.toColor`);解析失败(如带 alpha 的 `--term-selection`)静默回退
+  xterm 默认色——既有行为,与渲染器无关。主题热切换
+  (`term.options.theme = ...`)在两种渲染器下都触发重绘。
+
+## Addon 清单(09-18-term-web-polish)
+
+`XtermPane.tsx` 挂载的 addon:fit(既有)、webgl、clipboard(OSC52,
+权限被拒时 provider 包装为静默 no-op——默认 provider 会经
+`queueMicrotask` 重抛拒绝,必须捕获)、web-links(URL 可点击)、
+search(Ctrl+F 搜索条,React 状态渲染 + addon handle 走 ref 桥接)。
 
 ## Verification
 

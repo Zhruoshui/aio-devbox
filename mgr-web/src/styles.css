@@ -2533,6 +2533,61 @@ body {
   background: var(--term-bg);
 }
 
+/* In-pane terminal search bar (09-18-term-web-polish R5): a minimal
+ * input + prev/next overlay in the pane's top-right, rendered by XtermPane
+ * as a SIBLING of the terminal div (the xterm container's DOM belongs to
+ * term.open(), so the bar cannot live inside it). Being a sibling, it
+ * anchors to golden-layout's .lm_content (position: relative in
+ * goldenlayout-base.css) - whose box is identical to .pane-xterm's since
+ * .pane fills it 100%. Tokens only - dark/light via [data-mode]. */
+.term-searchbar {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  z-index: 5; /* above xterm's own decoration layers, below .drag-overlay (10) */
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--elev-raised), var(--elev-ring);
+}
+.term-searchbar-input {
+  width: 22ch;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+.term-searchbar-input::placeholder {
+  color: var(--muted);
+}
+.term-searchbar-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+.term-searchbar-btn {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+.term-searchbar-btn:hover {
+  color: var(--fg);
+  background: var(--surface-warm);
+}
+
 /* Non-iframe pane states (code-server on-demand start machine, D4): a
  * centered muted placeholder while probing/starting, with a spinning glyph
  * (same rot keyframes as the other spin sites) and an error variant with a

@@ -1,25 +1,37 @@
 // GET /api/term/ws - terminal pty WebSocket bridge (Phase E).
 //
 // Spawns a pty (login shell, or a command under a login shell when `?cmd=` is
-// given) and bridges it bidirectionally to the WebSocket:
+// given; working directory overridden by `?cwd=` when it names an existing
+// directory - pty.rs falls back to /root otherwise) and bridges it
+// bidirectionally to the WebSocket:
 //   client keystrokes (Text frames) -> pty stdin (writer)
 //   pty stdout/stderr (reader)      -> client (Text frames)
 //
-// The pty runs as root in /root because the app process is
+// The pty runs as root because the app process is
 // root and the child inherits it (design §4, implement.md risky
 // point). When the pty child exits (reader EOF) or the client closes, the
-// session is torn down: the child is killed+reaped and the WS is closed.
+// session is torn down: the child is killed+reaped and the WS is closed
+// (signal-killed teardowns surface as code 1 via the 0x02 frame below, see
+// the teardown comment).
 //
 // WS client contract (XtermPane.tsx):
 //   - Text frames  -> pty stdin (keystrokes as UTF-8 strings).
-//   - Binary frames -> control channel. The only control today is resize: a
-//     5-byte payload [0x01, cols_le_u16, rows_le_u16] calls TIOCSWINSZ on the
-//     pty so the shell/TUI (opencode) redraws at the xterm.js pane's size.
-//     Splitting keystrokes (Text) from control (Binary) removes any ambiguity,
-//     so a user typing JSON can never be misread as a control message.
-//   Server -> client: pty stdout/stderr as Text frames (`String::from_utf8_lossy`
-//   so XtermPane's `typeof ev.data === "string"` check always passes). On pty
-//   exit the WS is closed cleanly.
+//   - Binary frames, client -> server: control channel. Today's only control
+//     is resize: a 5-byte payload [0x01, cols_le_u16, rows_le_u16] calls
+//     TIOCSWINSZ on the pty so the shell/TUI (opencode) redraws at the
+//     xterm.js pane's size. Splitting keystrokes (Text) from control (Binary)
+//     removes any ambiguity, so a user typing JSON can never be misread as a
+//     control message.
+//   - Binary frames, server -> client: exit-code notice, sent ONCE after pty
+//     teardown and immediately before the WS closes: a 5-byte payload
+//     [0x02, exit_code_le_u32] (same type+LE-payload shape as the client's
+//     resize frame, mirrored in the other direction). Code 0 is sent too - the
+//     frame distinguishes "process exited with N" from a mid-session drop
+//     (which closes without one). Send failures are ignored: the client may
+//     already be gone, and the frame is best-effort by design.
+//   Server -> client (besides 0x02): pty stdout/stderr as Text frames
+//   (`String::from_utf8_lossy` so XtermPane's `typeof ev.data === "string"`
+//   check always passes).
 //
 // Routing: registered as an explicit `GET /api/term/ws` route in main.rs,
 // ranked higher than the `/api/*rest` 502 seam catch-all (static segments win
@@ -51,20 +63,23 @@ const PTY_CHANNEL_CAPACITY: usize = 128;
 
 /// Query params for `/api/term/ws`. `cmd` is optional: absent/empty = default
 /// login shell; non-empty = run that command under a login shell (e.g.
-/// `opencode`).
+/// `opencode`). `cwd` is optional: when it names an existing directory the pty
+/// starts there; anything else falls back to `/root` (pty.rs). Read side is
+/// plain ASCII; the frontend percent-encodes it (paneUrl.ts termWsUrl).
 #[derive(Deserialize)]
 pub struct TermQuery {
     pub cmd: Option<String>,
+    pub cwd: Option<String>,
 }
 
 /// WebSocket upgrade handler for `GET /api/term/ws`.
 pub async fn terminal_ws(ws: WebSocketUpgrade, Query(query): Query<TermQuery>) -> Response {
-    ws.on_upgrade(move |socket| run_pty_session(socket, query.cmd))
+    ws.on_upgrade(move |socket| run_pty_session(socket, query.cmd, query.cwd))
 }
 
 /// Run a pty session bridged to a WebSocket until either side closes.
-async fn run_pty_session(socket: WebSocket, cmd: Option<String>) {
-    let session = match spawn_pty(cmd) {
+async fn run_pty_session(socket: WebSocket, cmd: Option<String>, cwd: Option<String>) {
+    let session = match spawn_pty(cmd, cwd.as_deref()) {
         Ok(s) => s,
         Err(e) => {
             // Tell the client why the pty didn't start, then close. Best-effort:
@@ -183,12 +198,27 @@ async fn run_pty_session(socket: WebSocket, cmd: Option<String>) {
     }
 
     // Teardown: kill the child (if still alive) and reap it so we don't leak a
-    // process. `kill()` on an already-exited child is a no-op error (ignored).
-    // `wait()` is a brief blocking call - after SIGKILL the child exits
-    // immediately. Dropping `ws_sink`/`writer`/`pty_rx` on return closes the
-    // remaining fds; dropping `pty_rx` unblocks the reader thread if it was
-    // parked on `blocking_send`.
+    // process. `kill()` is portable-pty's ChildKiller: SIGHUP with a grace
+    // loop, then SIGKILL (its internal try_wait polling reaps an
+    // already-exited child early - harmless, std caches the status so the
+    // `wait()` below still returns it). `wait()` is a brief blocking call -
+    // after the kill sequence the child exits immediately. Dropping
+    // `ws_sink`/`writer`/`pty_rx` on return closes the remaining fds; dropping
+    // `pty_rx` unblocks the reader thread if it was parked on `blocking_send`.
     let _ = child.kill();
-    let _ = child.wait();
+    // Reap and surface the exit code: the client renders a `● 进程已退出
+    // (code N)` notice from the 0x02 frame below. portable-pty's ExitStatus
+    // maps a signal-terminated child (the kill path above) to code 1, and a
+    // wait error is treated as code 0 silently - the notice is best-effort
+    // and must never mask the close path.
+    let exit_code = child.wait().map(|status| status.exit_code()).unwrap_or(0);
+    // One Binary control frame right before close: [0x02, code_le_u32] (same
+    // type+LE-payload shape as the client's 0x01 resize frame, mirrored).
+    // Sent for normal exits too - the frame is the "process ended" signal, not
+    // an error signal. Best-effort: the client may already be gone.
+    let mut exit_frame = [0u8; 5];
+    exit_frame[0] = 0x02;
+    exit_frame[1..5].copy_from_slice(&exit_code.to_le_bytes());
+    let _ = ws_sink.send(Message::Binary(exit_frame.to_vec())).await;
     let _ = ws_sink.close().await;
 }

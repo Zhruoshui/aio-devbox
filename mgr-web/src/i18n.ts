@@ -63,6 +63,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     csStartFailed: "启动失败：",
     csNotReady: "启动后长时间未监听 8200 端口（可能仍在启动或已崩溃），可重试。",
     csRetry: "重试",
+    // xterm pane (09-18-term-web-polish): exit-code notice + Ctrl+F search bar
+    termExitNotice: "进程已退出 (code {n})",
+    termSearchPlaceholder: "搜索终端…",
+    termSearchPrev: "上一个匹配 (Shift+Enter)",
+    termSearchNext: "下一个匹配 (Enter)",
     popin: "返回工作区",
     dialogTitle: "注册自定义按钮",
     dialogConfirm: "确认",
@@ -490,6 +495,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     csStartFailed: "Failed to start: ",
     csNotReady: "Started but port 8200 never came up (still booting, or crashed) - retry?",
     csRetry: "Retry",
+    // xterm pane (09-18-term-web-polish): exit-code notice + Ctrl+F search bar
+    termExitNotice: "process exited (code {n})",
+    termSearchPlaceholder: "Search in terminal…",
+    termSearchPrev: "Previous match (Shift+Enter)",
+    termSearchNext: "Next match (Enter)",
     popin: "Dock back to workspace",
     dialogTitle: "Register a custom button",
     dialogConfirm: "Confirm",

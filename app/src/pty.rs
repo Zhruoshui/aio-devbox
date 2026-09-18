@@ -3,9 +3,14 @@
 //
 // The app process runs as root; the spawned shell inherits
 // that uid (design §4, implement.md Phase E risky point). We do NOT drop/gain
-// privileges - we just spawn. cwd = /root, HOME=/root, TERM=xterm-256color;
-// the rest of the environment (PATH, etc.) is inherited so /usr/local/bin
-// (where opencode lives) is on PATH for `?cmd=opencode`.
+// privileges - we just spawn. HOME=/root, TERM=xterm-256color; the rest of the
+// environment (PATH, etc.) is inherited so /usr/local/bin (where opencode
+// lives) is on PATH for `?cmd=opencode`. The working directory is `/root`
+// (the workspace volume root) unless the caller overrides it via the `cwd`
+// argument (term WS `?cwd=`, manifest agent `cwd` field); an override is only
+// honored when it names an existing directory - anything else (missing, not a
+// dir, empty) falls back to /root with a debug log so a bad config is
+// diagnosable without spamming the default path.
 //
 // Empty / absent cmd  -> `/bin/bash -l`  (interactive login shell; interactive
 //                                       because the pty is a tty).
@@ -47,8 +52,13 @@ pub struct PtySession {
 /// Spawn a pty running either a login shell (no cmd / empty cmd) or a command
 /// under a login shell (non-empty cmd).
 ///
+/// `cwd` overrides the pty's initial working directory. Only a path that
+/// exists AND is a directory is honored; None / empty / missing / not-a-dir
+/// all fall back to `/root` (invalid paths are debug-logged). HOME stays
+/// `/root` regardless - only the initial pwd changes, not the environment.
+///
 /// Returns `io::Result` so callers can treat spawn failures uniformly.
-pub fn spawn_pty(cmd: Option<String>) -> io::Result<PtySession> {
+pub fn spawn_pty(cmd: Option<String>, cwd: Option<&str>) -> io::Result<PtySession> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -73,7 +83,26 @@ pub fn spawn_pty(cmd: Option<String>) -> io::Result<PtySession> {
             builder.arg(c);
         }
     }
-    builder.cwd("/root");
+    // Working directory: honor the override only when it is an existing
+    // directory; anything else (missing, a file, empty after trim) falls back
+    // to /root (the workspace volume root). Invalid paths are debug-logged
+    // naming the rejected path so a bad services.toml/`?cwd=` value is
+    // diagnosable; the plain-None case stays silent - that is the default,
+    // not a misconfiguration.
+    match cwd.map(str::trim).filter(|p| !p.is_empty()) {
+        None => builder.cwd("/root"),
+        Some(p) => match std::fs::metadata(p) {
+            Ok(m) if m.is_dir() => builder.cwd(p),
+            Ok(_) => {
+                tracing::debug!("cwd {p:?} is not a directory; falling back to /root");
+                builder.cwd("/root")
+            }
+            Err(e) => {
+                tracing::debug!("cwd {p:?} unreachable ({e}); falling back to /root");
+                builder.cwd("/root")
+            }
+        },
+    }
     builder.env("HOME", "/root");
     builder.env("TERM", "xterm-256color");
     // The rest of the environment (PATH, etc.) is inherited from the app

@@ -77,8 +77,12 @@ export function urlFor(service: ServiceEntry, sandbox: string): string | undefin
   return `${sandboxGatewayOrigin(sandbox)}${url}`;
 }
 
-/** Build the proxied pty WebSocket URL for an agent-type service command. */
-export function termWsUrl(sandbox: string, cmd: string): string {
+/** Build the proxied pty WebSocket URL for an agent-type service command.
+ * `cwd` (optional, 09-18-term-web-polish R7) selects the pty's initial
+ * working directory; omitted/empty keeps the backend default (/root, the
+ * workspace volume root). */
+export function termWsUrl(sandbox: string, cmd: string, cwd?: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/api/sbx/${sandbox}/api/term/ws?cmd=${encodeURIComponent(cmd)}`;
+  const cwdQuery = cwd ? `&cwd=${encodeURIComponent(cwd)}` : "";
+  return `${proto}//${window.location.host}/api/sbx/${sandbox}/api/term/ws?cmd=${encodeURIComponent(cmd)}${cwdQuery}`;
 }

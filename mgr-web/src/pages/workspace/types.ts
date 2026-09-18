@@ -33,6 +33,9 @@ export interface ServiceEntry {
   url?: string;
   /** Command launched in the pty ("" = default shell). Present only for type === "agent". */
   cmd?: string;
+  /** Initial pty working directory (backend validates and falls back to
+   * /root when missing or not a directory). Present only for type === "agent". */
+  cwd?: string;
 }
 
 export interface Manifest {

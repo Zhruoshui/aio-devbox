@@ -778,7 +778,8 @@ function PaneForService({
     return <CodeServerPane service={service} sandbox={sandbox} lang={langRef.current} />;
   }
   if (service.type === "web") return <IframePane service={service} sandbox={sandbox} />;
-  if (service.type === "agent") return <XtermPane service={service} sandbox={sandbox} />;
+  if (service.type === "agent")
+    return <XtermPane service={service} sandbox={sandbox} lang={langRef.current} />;
   return <div className="ws-empty">{service.label}</div>;
 }
 
