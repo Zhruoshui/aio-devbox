@@ -1261,16 +1261,78 @@ const PROBE_PROMPT: &str = "Reply with OK only.";
 /// Truncation length for the response text snippet (pi-web §3: 300 chars).
 const RESPONSE_TEXT_MAX: usize = 300;
 
-/// POST /api/models/test body (app test.rs TestRequest; camelCase field
-/// names are the wire contract).
+/// POST /api/models/test body: either a provider id (resolve from the
+/// store) or literal endpoint fields (a provider being edited in the UI,
+/// not yet saved) — the same untagged split as [`DiscoverRequest`], plus
+/// the modelId/protocol probe fields shared by both branches. camelCase
+/// field names are the wire contract (app test.rs).
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
 #[allow(non_snake_case)]
-struct TestRequest {
-    providerId: String,
-    modelId: String,
-    /// Override the provider's stored protocol; defaults to provider.api.
-    #[serde(default)]
-    protocol: Option<String>,
+enum TestRequest {
+    /// Resolve everything from the canonical store by provider id.
+    ById {
+        providerId: String,
+        modelId: String,
+        /// Override the provider's stored protocol; defaults to provider.api.
+        #[serde(default)]
+        protocol: Option<String>,
+    },
+    /// Literal fields (transient provider being edited, or ad-hoc endpoint).
+    Literal {
+        baseUrl: String,
+        #[serde(default = "default_api")]
+        api: String,
+        apiKey: Option<String>,
+        modelId: String,
+        #[serde(default)]
+        protocol: Option<String>,
+    },
+}
+
+impl TestRequest {
+    fn model_id(&self) -> &str {
+        match self {
+            TestRequest::ById { modelId, .. } | TestRequest::Literal { modelId, .. } => modelId,
+        }
+    }
+
+    fn protocol_override(&self) -> Option<&str> {
+        match self {
+            TestRequest::ById { protocol, .. } | TestRequest::Literal { protocol, .. } => {
+                protocol.as_deref()
+            }
+        }
+    }
+
+    /// The provider half as a [`DiscoverRequest`], so test resolves the
+    /// endpoint exactly like discover (same 404 / blank-baseUrl contract).
+    fn provider_part(&self) -> DiscoverRequest {
+        match self {
+            TestRequest::ById { providerId, .. } => DiscoverRequest::ById {
+                providerId: providerId.clone(),
+            },
+            TestRequest::Literal {
+                baseUrl,
+                api,
+                apiKey,
+                ..
+            } => DiscoverRequest::Literal {
+                baseUrl: baseUrl.clone(),
+                api: api.clone(),
+                apiKey: apiKey.clone(),
+            },
+        }
+    }
+
+    /// What identifies the endpoint in user-facing errors (the no-key
+    /// message): the provider id on the ById branch, the URL otherwise.
+    fn label(&self) -> &str {
+        match self {
+            TestRequest::ById { providerId, .. } => providerId,
+            TestRequest::Literal { baseUrl, .. } => baseUrl,
+        }
+    }
 }
 
 /// POST /api/models/test response (app TestResponse, camelCase).
@@ -1290,51 +1352,60 @@ struct TestResponse {
 
 /// POST /api/models/test — minimal completion probe. Ported from app
 /// test.rs; the provider lookup reads the kv store instead of models.json.
+/// The untagged body mirrors discover: ById resolves the stored provider,
+/// Literal probes the fields being edited (pre-save) without touching the
+/// store's provider map.
 async fn test(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ProfileQuery>,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResponse>, ApiError> {
-    if req.providerId.trim().is_empty() || req.modelId.trim().is_empty() {
-        return Err(ApiError::bad("providerId and modelId are required"));
+    if let TestRequest::ById {
+        providerId,
+        modelId,
+        ..
+    } = &req
+    {
+        if providerId.trim().is_empty() || modelId.trim().is_empty() {
+            return Err(ApiError::bad("providerId and modelId are required"));
+        }
+    }
+    if req.model_id().trim().is_empty() {
+        return Err(ApiError::bad("modelId is required"));
     }
 
-    let (provider, protocol) = {
+    let (resolved, protocol) = {
         let conn = state.db.lock().unwrap();
         let config = read_stored(&conn)?
             .selected(q.profile.as_deref())?
             .config
             .clone();
-        let provider = config
-            .providers
-            .get(&req.providerId)
-            .cloned()
-            .ok_or_else(|| ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: format!("provider '{}' not found", req.providerId),
-            })?;
-        let protocol = req.protocol.clone().unwrap_or_else(|| provider.api.clone());
-        (provider, protocol)
+        let resolved = resolve_provider(&config, &req.provider_part())?;
+        let protocol = req
+            .protocol_override()
+            .map(str::to_owned)
+            .unwrap_or_else(|| resolved.api.clone());
+        (resolved, protocol)
     };
 
     // R1: the provider's baseUrl IS the endpoint for every protocol.
-    let base_url = provider.base_url.clone();
+    let base_url = resolved.base_url;
 
     // No key => error, but still HTTP 200 with ok:false (UI decides).
-    let key = provider.api_key.clone();
+    let key = resolved.api_key;
     if key.as_deref().is_none_or(|k| k.is_empty()) {
         return Ok(Json(TestResponse {
             ok: false,
             latency_ms: None,
             status: None,
-            error: Some(format!("No API key found for \"{}\"", req.providerId)),
+            error: Some(format!("No API key found for \"{}\"", req.label())),
             response_text: None,
         }));
     }
 
-    let headers = build_headers(&protocol, key.as_deref(), &provider.headers);
+    let headers = build_headers(&protocol, key.as_deref(), &resolved.headers);
     let endpoint = completion_url(&base_url, &protocol);
-    let body = completion_body(&req.modelId, &protocol);
+    let body = completion_body(req.model_id(), &protocol);
 
     let start = Instant::now();
     let mut req_builder = state
@@ -1985,8 +2056,12 @@ mod tests {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
             stored.version = 7;
-            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
-            stored.assignments.insert("beta".into(), assign("profile-second"));
+            stored
+                .assignments
+                .insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored
+                .assignments
+                .insert("beta".into(), assign("profile-second"));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             write_stored(&conn, &stored).unwrap();
@@ -2037,7 +2112,9 @@ mod tests {
         {
             let conn = state.db.lock().unwrap();
             let mut stored = two_profiles();
-            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored
+                .assignments
+                .insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta"); // registered but UNassigned
             write_stored(&conn, &stored).unwrap();
@@ -2521,9 +2598,10 @@ mod tests {
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             let mut stored = two_profiles();
-            stored
-                .assignments
-                .insert("alpha".into(), assign_agents(DEFAULT_PROFILE_ID, &["pi", "opencode"]));
+            stored.assignments.insert(
+                "alpha".into(),
+                assign_agents(DEFAULT_PROFILE_ID, &["pi", "opencode"]),
+            );
             stored
                 .assignments
                 .insert("beta".into(), assign_agents(DEFAULT_PROFILE_ID, &[]));
@@ -2549,7 +2627,11 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(err.status, StatusCode::NOT_FOUND, "Some([]) = keep-local 404");
+        assert_eq!(
+            err.status,
+            StatusCode::NOT_FOUND,
+            "Some([]) = keep-local 404"
+        );
     }
 
     #[test]
@@ -2587,8 +2669,12 @@ mod tests {
             register_sandbox(&conn, "alpha");
             register_sandbox(&conn, "beta");
             let mut stored = two_profiles();
-            stored.assignments.insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
-            stored.assignments.insert("beta".into(), assign("profile-second"));
+            stored
+                .assignments
+                .insert("alpha".into(), assign(DEFAULT_PROFILE_ID));
+            stored
+                .assignments
+                .insert("beta".into(), assign("profile-second"));
             write_stored(&conn, &stored).unwrap();
         }
         let bulk = {
@@ -2816,5 +2902,135 @@ mod tests {
         let t = truncate(&"a".repeat(600), 500);
         assert!(t.ends_with('…'));
         assert_eq!(t.chars().count(), 501);
+    }
+
+    // --- POST /api/models/test untagged body (Issue #23) ---
+
+    #[test]
+    fn test_request_untagged_deserialization() {
+        // The two wire shapes (mirroring DiscoverRequest): `{providerId,
+        // modelId}` resolves from the store; `{baseUrl, api?, apiKey?,
+        // modelId}` probes a provider being edited pre-save. `api` defaults
+        // to openai-completions; `protocol` is optional on both branches.
+        let by_id: TestRequest =
+            serde_json::from_str(r#"{"providerId":"sample","modelId":"m"}"#).unwrap();
+        assert!(
+            matches!(&by_id, TestRequest::ById { providerId, modelId, protocol }
+            if providerId == "sample" && modelId == "m" && protocol.is_none())
+        );
+
+        let literal: TestRequest = serde_json::from_str(
+            r#"{"baseUrl":"https://api.example.com/v1","apiKey":"sk-x","modelId":"m"}"#,
+        )
+        .unwrap();
+        match &literal {
+            TestRequest::Literal {
+                baseUrl,
+                api,
+                apiKey,
+                modelId,
+                protocol,
+            } => {
+                assert_eq!(baseUrl, "https://api.example.com/v1");
+                assert_eq!(api, "openai-completions", "api defaults when absent");
+                assert_eq!(apiKey.as_deref(), Some("sk-x"));
+                assert_eq!(modelId, "m");
+                assert!(protocol.is_none());
+            }
+            other => panic!("expected Literal, got {other:?}"),
+        }
+
+        let with_protocol: TestRequest = serde_json::from_str(
+            r#"{"baseUrl":"https://api.example.com/v1","api":"anthropic-messages","modelId":"m","protocol":"anthropic-messages"}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(&with_protocol, TestRequest::Literal { api, protocol, .. }
+                if api == "anthropic-messages" && protocol.as_deref() == Some("anthropic-messages")),
+            "explicit api + protocol override: {with_protocol:?}"
+        );
+
+        // providerId-present bodies still take the ById branch even when
+        // baseUrl-like extras ride along (variant order = precedence).
+        let mixed: TestRequest = serde_json::from_str(
+            r#"{"providerId":"sample","modelId":"m","baseUrl":"https://ignored"}"#,
+        )
+        .unwrap();
+        assert!(matches!(mixed, TestRequest::ById { .. }));
+
+        // Neither shape: untagged deserialization fails (axum 422).
+        assert!(serde_json::from_str::<TestRequest>(r#"{"modelId":"m"}"#).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handler_literal_branch_matches_by_id_contract() {
+        // Issue #23: the literal branch exists so an UNSAVED provider's test
+        // button still fires a real probe. Contract parity with ById: no key
+        // → HTTP 200 {ok:false}; blank baseUrl → 400; unknown id → 404.
+        let state = mgr_state();
+        {
+            let conn = state.db.lock().unwrap();
+            write_stored(&conn, &single("sk-stored")).unwrap();
+        }
+        let call = |body: TestRequest| {
+            test(
+                State(state.clone()),
+                Query(ProfileQuery::default()),
+                Json(body),
+            )
+        };
+
+        // Literal without a key: 200 + ok:false naming the baseUrl (the
+        // ById branch names the provider id). Network-free short-circuit.
+        let Json(resp) = call(TestRequest::Literal {
+            baseUrl: "https://api.example.com/v1".into(),
+            api: "openai-completions".into(),
+            apiKey: None,
+            modelId: "m".into(),
+            protocol: None,
+        })
+        .await
+        .unwrap();
+        assert!(!resp.ok);
+        assert!(
+            resp.error.as_deref().unwrap().contains("api.example.com"),
+            "error names the endpoint: {:?}",
+            resp.error
+        );
+
+        // Literal blank baseUrl: 400, same as discover's resolver.
+        let err = call(TestRequest::Literal {
+            baseUrl: "  ".into(),
+            api: "openai-completions".into(),
+            apiKey: Some("sk-x".into()),
+            modelId: "m".into(),
+            protocol: None,
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+
+        // Literal missing modelId: 400.
+        let err = call(TestRequest::Literal {
+            baseUrl: "https://api.example.com/v1".into(),
+            api: "openai-completions".into(),
+            apiKey: Some("sk-x".into()),
+            modelId: "".into(),
+            protocol: None,
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+
+        // ById regression: unknown provider still 404s with the same message.
+        let err = call(TestRequest::ById {
+            providerId: "ghost".into(),
+            modelId: "m".into(),
+            protocol: None,
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+        assert!(err.message.contains("ghost"), "{}", err.message);
     }
 }
