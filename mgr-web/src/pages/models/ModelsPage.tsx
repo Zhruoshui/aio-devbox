@@ -529,14 +529,40 @@ export function ModelsPage({
 
   // ── test + discover ─────────────────────────────────────────────
 
+  /** True when the apiKey field holds a freshly typed literal (not the mask). */
+  const apiKeyDirty = useCallback((provider: ProviderEntry): boolean => {
+    const k = provider.apiKey ?? "";
+    return k.length > 0 && !k.includes("****");
+  }, []);
+
   const handleTest = useCallback(
     async (providerId: string, modelId: string): Promise<void> => {
       if (!modelId) return;
       const key = `${providerId}:${modelId}`;
       setTestState((prev) => ({ ...prev, [key]: { status: "testing" } }));
       const t0 = performance.now();
+      // Probe-body split, same policy as handleFetchModels: when the page is
+      // dirty AND the provider's key field holds a fresh literal (not the
+      // mask), go literal — the backend resolves ById against the store only,
+      // so an unsaved provider (or a re-typed key) would 404 / probe a stale
+      // key. A masked key never leaves as-is: it rides the stored plaintext
+      // via ById.
+      const provider = config?.providers[providerId];
+      let body: Parameters<typeof testModel>[0];
+      if (provider && dirty) {
+        body = apiKeyDirty(provider)
+          ? {
+              baseUrl: provider.baseUrl,
+              api: provider.api,
+              apiKey: provider.apiKey ?? undefined,
+              modelId,
+            }
+          : { providerId, modelId };
+      } else {
+        body = { providerId, modelId };
+      }
       try {
-        const resp = await testModel(providerId, modelId, profileId);
+        const resp = await testModel(body, profileId);
         setTestState((prev) => ({
           ...prev,
           [key]: {
@@ -559,7 +585,7 @@ export function ModelsPage({
         }));
       }
     },
-    [profileId],
+    [profileId, config, dirty, apiKeyDirty],
   );
 
   const resetTest = useCallback((providerId: string, modelId: string): void => {
@@ -570,12 +596,6 @@ export function ModelsPage({
       delete next[key];
       return next;
     });
-  }, []);
-
-  /** True when the apiKey field holds a freshly typed literal (not the mask). */
-  const apiKeyDirty = useCallback((provider: ProviderEntry): boolean => {
-    const k = provider.apiKey ?? "";
-    return k.length > 0 && !k.includes("****");
   }, []);
 
   // Open the discover modal and fetch models for the selected provider.

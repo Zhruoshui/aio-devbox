@@ -176,15 +176,25 @@ export function discoverModels(
   );
 }
 
+/** Test body: `{providerId, modelId}` resolves the provider from the store;
+ * the literal form probes a provider being edited (with a freshly typed
+ * key) before saving — same split as {@link discoverModels}. */
 export function testModel(
-  providerId: string,
-  modelId: string,
+  body:
+    | { providerId: string; modelId: string; protocol?: string }
+    | {
+        baseUrl: string;
+        api: string;
+        apiKey?: string;
+        modelId: string;
+        protocol?: string;
+      },
   profile?: string,
 ): Promise<TestResponse> {
   return send(
     `/api/models/test${profile ? `?profile=${enc(profile)}` : ""}`,
     "POST",
-    { providerId, modelId },
+    body,
   );
 }
 

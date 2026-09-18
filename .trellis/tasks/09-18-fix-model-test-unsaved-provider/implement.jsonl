@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "test/discover 契约源头:Discover & test 段落定义探测行为(20s 超时、probe prompt、URL/header 派生);R1/R2 的 literal 分支须对齐 discover 既有语义,完成后该 spec 需回写"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "mgr 控制面 API 契约总览,确认 /api/models/* wire 兼容性约束(老形态必须原样可用)"}

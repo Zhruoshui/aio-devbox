@@ -82,10 +82,11 @@ The live channel is how the UI absorbs hand-edits made in the agent's NATIVE fil
 - **sync** (`POST .../sync`, body `{id?}`) imports native providers into the canonical library via the store's import adapters (`import_pi_providers` / `import_opencode_providers`, shared with `POST /api/models/import/pi`). Idempotent: ids already in canonical are reported in `skipped`, never overwritten. With `id`, the filter accepts **both the raw native key and the sanitized canonical id** — hand-written non-kebab keys (e.g. `My_Provider`) are visible in the live list under the raw key and must sync on click. opencode fragments lacking `options.baseURL` are un-importable and land in `skipped`; a single-id sync matching nothing is 404. Corrupt native file → 422, missing → 404.
 - **Uninstalled agents**: live read returns null without error; the UI shows a prewrite-mode hint (apply pre-writes configs so a later install picks them up).
 
-## Discover & test (`discover.rs`, `test.rs`)
+## Discover & test (`discover.rs`, `test.rs`; mgr 镜像 `mgr/src/models.rs`)
 
 - Discover: total 20s deadline across candidate URLs (primary derivation per `api`, then cc-switch fallbacks `/v1/models`, `/models`, anthropic-suffix-strip re-derive). First-candidate 401/403 short-circuits. Response parsing is multi-shape (bare array / `data|models|results|items` / object-of-objects), strips `models/` prefix, dedupes, natural sort. Errors: 502 with upstream body truncated 500 chars.
-- Test: real minimal completion ("Reply with OK only.", `max_tokens:16`, no retries, 20s timeout). openai-completions→`/chat/completions`, openai-responses→`/responses`, anthropic-messages→`/v1/messages` (+`x-api-key`/`anthropic-version`). Success = 2xx. Returns `{ok, latency_ms, status, error?, response_text?}`.
+- **Untagged two-shape body (discover 与 test 共用)**: `{providerId, …}` 从存储解析;literal 形态 `{baseUrl, api?, apiKey?, …}` 直接探测编辑中未保存的供应商 (Issue #23)。`api` 缺省 `openai-completions`;literal 的 baseUrl 空白 → 400;ById 的 unknown id → 404。mgr 的 `test` 通过 `resolve_provider`(与 discover 同一 resolver)统一两分支,headers 在 literal 分支为空。
+- Test: real minimal completion ("Reply with OK only.", `max_tokens:16`, no retries, 20s timeout). openai-completions→`/chat/completions`, openai-responses→`/responses`, anthropic-messages→`/v1/messages` (+`x-api-key`/`anthropic-version`). Success = 2xx. Returns `{ok, latency_ms, status, error?, response_text?}`. 请求体是上面的 untagged 两形态 + `modelId` + 可选 `protocol`(缺省用 provider 的 `api`)。**literal 形态仅 mgr 实现**——app 的 `test.rs` 仍是 providerId-only(mgr-web 只走 mgr 路由);前端 `handleTest` 与 `handleFetchModels` 同判:`dirty && apiKeyDirty`(key 为明文新输入)→ literal,掩码 key → ById(后端用存储明文)。
 
 ## Catalog (`catalog.rs`, 08-27-provider-form-piweb)
 
