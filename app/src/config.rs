@@ -84,6 +84,10 @@ pub struct Service {
     pub deletable: bool,
     /// Command launched in the pty; "" = default shell (type=agent only).
     pub cmd: Option<String>,
+    /// Initial working directory for the pty (type=agent only). Optional;
+    /// pty.rs validates it (existing directory, else /root fallback).
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -98,8 +102,8 @@ pub enum ServiceType {
 
 /// One entry in the JSON manifest returned by `GET /api/manifest`.
 ///
-/// `url` is present only for `type=web`; `cmd` only for `type=agent` (the
-/// inapplicable field is omitted, not null).
+/// `url` is present only for `type=web`; `cmd`/`cwd` only for `type=agent`
+/// (the inapplicable field is omitted, not null).
 #[derive(Debug, Serialize)]
 pub struct ManifestEntry {
     pub id: String,
@@ -112,6 +116,8 @@ pub struct ManifestEntry {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cmd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -338,6 +344,9 @@ pub fn load_buttons(path: &Path) -> Vec<Service> {
                 label: Some(b.label),
                 deletable: true,
                 cmd: None,
+                // User buttons keep their shape (no cwd field in buttons.toml
+                // / ButtonDef); the pty always starts in /root for them.
+                cwd: None,
             }),
             // A web button without a port cannot be probed or proxied - drop
             // it with a warning instead of rendering a dead pane (a bad hand
@@ -354,6 +363,7 @@ pub fn load_buttons(path: &Path) -> Vec<Service> {
                 label: Some(b.label),
                 deletable: true,
                 cmd: Some(b.cmd),
+                cwd: None,
             }),
         })
         .collect()
@@ -385,10 +395,12 @@ pub async fn build_manifest(services: &[Service], dirs: &[PathBuf]) -> Manifest 
             ServiceType::Agent => command_exists(svc.cmd.as_deref().unwrap_or(""), dirs),
             ServiceType::Page => true,
         };
-        let (url, cmd) = match svc.service_type {
-            ServiceType::Web => (svc.url.clone(), None),
-            ServiceType::Agent => (None, svc.cmd.clone()),
-            ServiceType::Page => (None, None),
+        // `cwd` mirrors `cmd`: only type=agent entries carry it; the others
+        // get None so the JSON key is omitted entirely (not null).
+        let (url, cmd, cwd) = match svc.service_type {
+            ServiceType::Web => (svc.url.clone(), None, None),
+            ServiceType::Agent => (None, svc.cmd.clone(), svc.cwd.clone()),
+            ServiceType::Page => (None, None, None),
         };
         entries.push(ManifestEntry {
             id: svc.id.clone(),
@@ -398,6 +410,7 @@ pub async fn build_manifest(services: &[Service], dirs: &[PathBuf]) -> Manifest 
             deletable: svc.deletable,
             url,
             cmd,
+            cwd,
         });
     }
     Manifest { services: entries }
@@ -595,6 +608,7 @@ cmd = "htop"
             label: None,
             deletable: false,
             cmd: Some(String::new()),
+            cwd: None,
         }];
         let user = vec![Service {
             id: "terminal".to_string(), // collides
@@ -604,10 +618,75 @@ cmd = "htop"
             label: Some("dup".to_string()),
             deletable: true,
             cmd: Some("echo".to_string()),
+            cwd: None,
         }];
         let merged = merge_services(&builtin, user);
         assert_eq!(merged.len(), 1);
         assert!(!merged[0].deletable); // built-in kept, user dropped
+    }
+
+    #[tokio::test]
+    async fn manifest_cwd_populated_only_for_agent() {
+        // `cwd` mirrors `cmd` in the manifest: carried by type=agent entries
+        // only, and omitted (not null) when unset so `{"cwd": null}` can't be
+        // mistaken for a configured value. The web entry's target probe fails
+        // fast (nothing resolves on the test host) - `enabled` isn't what this
+        // asserts.
+        let svcs = vec![
+            Service {
+                id: "opencode".to_string(),
+                service_type: ServiceType::Agent,
+                target: None,
+                url: None,
+                label: None,
+                deletable: false,
+                cmd: Some("opencode".to_string()),
+                cwd: Some("/root/workspace".to_string()),
+            },
+            Service {
+                id: "terminal".to_string(),
+                service_type: ServiceType::Agent,
+                target: None,
+                url: None,
+                label: None,
+                deletable: false,
+                cmd: Some(String::new()),
+                cwd: None,
+            },
+            Service {
+                id: "codeServer".to_string(),
+                service_type: ServiceType::Web,
+                target: Some("127.0.0.1:1".to_string()),
+                url: Some("/code-server/".to_string()),
+                label: None,
+                deletable: false,
+                cmd: None,
+                cwd: None,
+            },
+        ];
+        let manifest = build_manifest(&svcs, &[]).await;
+        let find = |id: &str| {
+            manifest
+                .services
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(
+            find("opencode").cwd.as_deref(),
+            Some("/root/workspace"),
+            "agent cwd passes through to the manifest"
+        );
+        assert_eq!(find("terminal").cwd, None);
+        assert_eq!(find("codeServer").cwd, None, "web entries never carry cwd");
+        // Omitted, not null, when unset.
+        let json = serde_json::to_value(find("terminal")).unwrap();
+        assert!(json.get("cwd").is_none());
+        assert_eq!(
+            serde_json::to_value(find("opencode")).unwrap().get("cwd"),
+            Some(&serde_json::json!("/root/workspace"))
+        );
     }
 
     #[test]

@@ -23,6 +23,10 @@
 #            `enabled` for type=agent = command_exists(cmd) on the login-shell
 #            PATH, so a button only shows when the tool is actually installed
 #            (replaces the old ENABLE_* env that produced dead panes).
+#   cwd    - initial working directory for the pty (type=agent only, optional).
+#            Validated at spawn: must be an existing directory, else the pty
+#            falls back to /root (debug-logged). Absent = /root (the workspace
+#            volume root). HOME stays /root regardless.
 
 [[service]]
 id = "codeServer"

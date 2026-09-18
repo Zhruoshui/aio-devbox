@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "验收基准：既有契约（lineHeight、close-kills、重连上限 1）不得被破坏；0x02 帧契约是否已回写 spec"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门槛（tsc/build/lint）对照"}
