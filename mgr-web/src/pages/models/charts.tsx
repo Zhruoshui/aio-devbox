@@ -1,26 +1,93 @@
-// Lightweight Kumo-styled charts for the usage page — ported verbatim from
-// web/src/panes/models/charts.tsx (Phase 4c).
+// Charts for the usage page — Recharts-based (09-20), replacing the earlier
+// hand-rolled div/SVG versions. Export surface is unchanged so UsagePage
+// needs no edits: TokenBars, SandboxBars, CostDonut, DayTrend, ChartItem,
+// SandboxBarItem, DayTrendItem, KUMO_CATEGORICAL.
 //
-// Deliberately dependency-free: horizontal bars are divs, the donut is an SVG
-// circle segment stack. Colors come from the Kumo categorical palette — never
-// a raw hex outside the palette. Both charts pair color with text labels so
-// meaning survives grayscale.
+// Style contract: colors come from the --chart-N tokens (a categorical
+// palette validated per light/dark surface in styles.css) — never a raw hex
+// outside them. Recharts animation durations follow the motion tokens where
+// practical; every chart pairs color with text labels (legend/axis/tooltip)
+// so meaning survives grayscale.
+//
+// Nominal bar lists (TokenBars, SandboxBars) deliberately stay div-based:
+// one series, slot-1 hue — a chart library adds nothing there but weight.
 
-import { fmtTokens } from "./types";
+import { useEffect, useState } from "react";
+import {
+  Area,
+  Bar,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { TooltipContentProps } from "recharts";
+import { fmtCost, fmtTokens } from "./types";
 
-/** Kumo categorical palette, ordered. Cycled by index only when unavoidable. */
+/** Kumo categorical palette, ordered. Cycled by index only when unavoidable.
+ * The values live in styles.css as --chart-N so dark mode can re-step slot
+ * lightness without touching this module; resolved by CSS at paint time. */
 export const KUMO_CATEGORICAL = [
-  "#4290F0",
-  "#F5B647",
-  "#E8649D",
-  "#8D58EE",
-  "#50C3B6",
-  "#D37536",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
 ];
 
 export interface ChartItem {
   label: string;
   value: number;
+}
+
+/** Shared tooltip chrome: surface card, value leads (strong) + label follows
+ * (secondary) per the interaction spec. Line keys, not boxes, in the trend
+ * tooltip rows. Labels are model/sandbox names from the API — rendered via
+ * React text interpolation only (no dangerouslySetInnerHTML). */
+function TooltipCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { label: string; value: string; key?: string }[];
+}): JSX.Element {
+  return (
+    <div className="ml-tip">
+      <div className="ml-tip-title">{title}</div>
+      {rows.map((r) => (
+        <div className="ml-tip-row" key={r.label}>
+          {r.key !== undefined && (
+            <span className="ml-tip-key" style={{ background: r.key }} />
+          )}
+          <span className="ml-tip-label">{r.label}</span>
+          <span className="ml-tip-val">{r.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Hook: CSS variables in SVG fills need a paint-cycle flip to re-resolve on
+ * theme change. Returns a key that changes whenever the active [data-mode]
+ * flips, forcing Recharts to re-render marks with fresh var() reads. */
+function useThemeFlip(): number {
+  const [flip, setFlip] = useState(0);
+  useEffect(() => {
+    const obs = new MutationObserver(() => setFlip((f) => f + 1));
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-mode", "data-theme"],
+    });
+    return () => obs.disconnect();
+  }, []);
+  return flip;
 }
 
 /**
@@ -51,96 +118,13 @@ export function TokenBars({
               style={{
                 width: `${max > 0 ? (it.value / max) * 100 : 0}%`,
                 background: KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length],
+                animationDelay: `${Math.min(i * 18, 180)}ms`,
               }}
             />
           </div>
           <span className="ml-bar-val">{formatValue(it.value)}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-const DONUT_RADIUS = 54;
-const DONUT_STROKE = 24;
-
-/**
- * SVG donut of cost share per label. Center shows the total; a legend beside
- * it pairs each segment's color with a label + value + percent (not color
- * alone). Caller hides this when there is no cost data.
- */
-export function CostDonut({
-  items,
-  total,
-  formatValue = (n: number) => `$${n.toFixed(2)}`,
-}: {
-  items: ChartItem[];
-  total: number;
-  formatValue?: (n: number) => string;
-}): JSX.Element {
-  const C = 2 * Math.PI * DONUT_RADIUS;
-  let offset = 0;
-  const segments = items.map((it, i) => {
-    const frac = total > 0 ? it.value / total : 0;
-    const len = frac * C;
-    const seg = (
-      <circle
-        key={it.label}
-        cx="80"
-        cy="80"
-        r={DONUT_RADIUS}
-        fill="none"
-        stroke={KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length]}
-        strokeWidth={DONUT_STROKE}
-        strokeDasharray={`${len} ${C - len}`}
-        strokeDashoffset={-offset}
-        transform="rotate(-90 80 80)"
-      />
-    );
-    offset += len;
-    return seg;
-  });
-
-  return (
-    <div className="ml-donut">
-      <div className="ml-donut-svg" role="img" aria-label="cost share donut">
-        <svg viewBox="0 0 160 160" width="160" height="160">
-          <circle
-            cx="80"
-            cy="80"
-            r={DONUT_RADIUS}
-            fill="none"
-            stroke="var(--border-soft)"
-            strokeWidth={DONUT_STROKE}
-          />
-          {segments}
-        </svg>
-        <div className="ml-donut-center">
-          <span className="ml-donut-total">{formatValue(total)}</span>
-          <span className="ml-donut-cap">total</span>
-        </div>
-      </div>
-      <div className="ml-donut-legend">
-        {items.map((it, i) => (
-          <div className="ml-donut-legend-row" key={it.label}>
-            <span
-              className="ml-donut-swatch"
-              style={{
-                background: KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length],
-              }}
-            />
-            <span className="ml-donut-legend-label" title={it.label}>
-              {it.label}
-            </span>
-            <span className="ml-donut-legend-val">
-              {formatValue(it.value)}
-            </span>
-            <span className="ml-donut-legend-pct">
-              {total > 0 ? `${((it.value / total) * 100).toFixed(0)}%` : ""}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -177,7 +161,7 @@ export function SandboxBars({
           type="button"
           key={it.label}
           className="ml-sbx-bar"
-          title={`${it.label} — ${ formatValue(it.value)}`}
+          title={`${it.label} — ${formatValue(it.value)}`}
           onClick={() => onSelect(it.label)}
         >
           <span className="ml-bar-label" title={it.label}>
@@ -191,12 +175,110 @@ export function SandboxBars({
                 background: it.hasCost
                   ? KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length]
                   : undefined,
+                animationDelay: `${Math.min(i * 18, 180)}ms`,
               }}
             />
           </div>
           <span className="ml-bar-val">{formatValue(it.value)}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+const DONUT_INNER = 58;
+const DONUT_OUTER = 78;
+const DONUT_GAP = 3;
+
+/**
+ * Donut of cost share per label (Recharts Pie + paddingAngle surface gaps).
+ * Center label shows the total; a legend beside it pairs each segment's
+ * color with label + value + percent (not color alone). Caller hides this
+ * when there is no cost data.
+ */
+export function CostDonut({
+  items,
+  total,
+  formatValue = fmtCost,
+}: {
+  items: ChartItem[];
+  total: number;
+  formatValue?: (n: number) => string;
+}): JSX.Element {
+  const flip = useThemeFlip();
+  const data = items.map((it) => ({ name: it.label, value: it.value }));
+
+  return (
+    <div className="ml-donut">
+      <div className="ml-donut-svg" role="img" aria-label="cost share donut">
+        {/* ResponsiveContainer needs a sized parent; .ml-donut-svg is 160px. */}
+        <ResponsiveContainer key={flip} width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={DONUT_INNER}
+              outerRadius={DONUT_OUTER}
+              paddingAngle={DONUT_GAP}
+              startAngle={90}
+              endAngle={-270}
+              stroke="var(--surface)"
+              strokeWidth={2}
+              animationDuration={600}
+              animationEasing="ease-out"
+            >
+              {items.map((it, i) => (
+                <Cell
+                  key={it.label}
+                  fill={KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length]}
+                />
+              ))}
+            </Pie>
+            <Tooltip
+              content={(props: TooltipContentProps) => {
+                const p = props.payload?.[0];
+                if (!p) return null;
+                return (
+                  <TooltipCard
+                    title={String(p.name ?? "")}
+                    rows={[
+                      {
+                        label: "cost",
+                        value: formatValue(Number(p.value ?? 0)),
+                        key: String(p.color ?? ""),
+                      },
+                    ]}
+                  />
+                );
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="ml-donut-center">
+          <span className="ml-donut-total">{formatValue(total)}</span>
+          <span className="ml-donut-cap">total</span>
+        </div>
+      </div>
+      <div className="ml-donut-legend">
+        {items.map((it, i) => (
+          <div className="ml-donut-legend-row" key={it.label}>
+            <span
+              className="ml-donut-swatch"
+              style={{
+                background: KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length],
+              }}
+            />
+            <span className="ml-donut-legend-label" title={it.label}>
+              {it.label}
+            </span>
+            <span className="ml-donut-legend-val">{formatValue(it.value)}</span>
+            <span className="ml-donut-legend-pct">
+              {total > 0 ? `${((it.value / total) * 100).toFixed(0)}%` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -209,20 +291,16 @@ export interface DayTrendItem {
   cost?: number;
 }
 
-const TREND_W = 520;
-const TREND_H = 150;
-const TREND_PAD_L = 52;
-const TREND_PAD_R = 8;
-const TREND_PAD_T = 12;
-const TREND_PAD_B = 24;
+const TREND_H = 170;
+const TREND_COST_KEY = "cost";
 
 /**
- * SVG trend of the last 14 days: two vertical bar series (token in/out) +
- * an overlaid cost line (only drawn when at least one day carries cost —
- * AC4 degrade for cost-less agents/sandboxes). X axis labels every-other
- * day to keep them readable. `items` should already be the 14-day series
- * sorted by date; missing calendar days are gap-filled to zero (the backend
- * returns only days that have data; the caller fills the rest).
+ * 14-day trend (Recharts ComposedChart): grouped in/out bars + an overlaid
+ * cost line, only drawn when at least one day carries cost (AC4 degrade for
+ * cost-less agents/sandboxes). `items` should already be the 14-day series
+ * sorted by date; missing calendar days are gap-filled to zero by the caller.
+ * Cost is plotted on its own hidden axis but SCALED to the token axis domain
+ * (one visual axis — the dataviz one-axis rule: never two y-scales).
  */
 export function DayTrend({
   items,
@@ -231,48 +309,19 @@ export function DayTrend({
   items: DayTrendItem[];
   formatValue?: (n: number) => string;
 }): JSX.Element | null {
-  // Title + legend (text labels pair color with meaning, grayscale-safe).
+  const flip = useThemeFlip();
   const hasCost = items.some((d) => (d.cost ?? 0) > 0);
+  // Cost scale: normalize to the token domain so both series share ONE axis.
   const maxTok = Math.max(1, ...items.map((d) => d.in + d.out));
   const maxCost = Math.max(0.000001, ...items.map((d) => d.cost ?? 0));
-
-  // Bar area: (x - PAD_L) / (W - PAD_L - PAD_R) spans the plot; each bar
-  // group is centred on its day's x.
-  const plotW = TREND_W - TREND_PAD_L - TREND_PAD_R;
-  const plotH = TREND_H - TREND_PAD_T - TREND_PAD_B;
-  const n = items.length;
-  const groupW = plotW / Math.max(1, n);
-  const barW = Math.max(3, groupW * 0.32);
-
-  const bars: JSX.Element[] = [];
-  let costPoints = "";
-  items.forEach((d, i) => {
-    const x = TREND_PAD_L + groupW * (i + 0.5);
-    const hIn = plotH * (d.in / maxTok);
-    const hOut = plotH * (d.out / maxTok);
-    bars.push(
-      <g key={d.date}>
-        <rect
-          x={x - barW - 1}
-          y={TREND_PAD_T + plotH - hIn}
-          width={barW}
-          height={hIn}
-          fill={KUMO_CATEGORICAL[0]}
-        />
-        <rect
-          x={x + 1}
-          y={TREND_PAD_T + plotH - hOut}
-          width={barW}
-          height={hOut}
-          fill={KUMO_CATEGORICAL[1]}
-        />
-      </g>,
-    );
-    // Cost line point (only meaningful when a cost exists — but always emit
-    // the path so hover tooltips line up; rendering is gated by hasCost).
-    const cy = TREND_PAD_T + plotH - plotH * ((d.cost ?? 0) / maxCost);
-    costPoints += `${x},${cy} `;
-  });
+  const data = items.map((d) => ({
+    date: d.date.slice(5),
+    in: d.in,
+    out: d.out,
+    [TREND_COST_KEY]: hasCost
+      ? ((d.cost ?? 0) / maxCost) * maxTok
+      : undefined,
+  }));
 
   return (
     <div className="ml-trend" role="img" aria-label="last 14 days usage trend">
@@ -293,77 +342,110 @@ export function DayTrend({
         </span>
         {hasCost && (
           <span className="ml-trend-legend-item">
-            <span className="ml-trend-line-swatch" />
+            <span
+              className="ml-trend-line-swatch"
+              style={{ borderTopColor: KUMO_CATEGORICAL[3] }}
+            />
             cost
           </span>
         )}
       </div>
-      <svg viewBox={`0 0 ${TREND_W} ${TREND_H}`} width="100%" height={TREND_H}>
-        {/* gridlines at 0/25/50/75/100% of max */}
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-          const y = TREND_PAD_T + plotH - plotH * f;
-          return (
-            <g key={f}>
-              <line
-                x1={TREND_PAD_L}
-                y1={y}
-                x2={TREND_W - TREND_PAD_R}
-                y2={y}
-                stroke="var(--border-soft)"
-                strokeDasharray="2 3"
-              />
-              <text x={TREND_PAD_L - 6} y={y + 3} textAnchor="end" className="ml-trend-tick">
-                {formatValue(maxTok * f)}
-              </text>
-            </g>
-          );
-        })}
-        {/* token bars: in (left) + out (right) per day, width-scaled to fit */}
-        {bars}
-        {/* X labels every other day */}
-        {items.map((d, i) =>
-          i % 2 === 0 ? (
-            <text
-              key={d.date}
-              x={TREND_PAD_L + groupW * (i + 0.5)}
-              y={TREND_H - 6}
-              textAnchor="middle"
-              className="ml-trend-tick"
-            >
-              {d.date.slice(5)}
-            </text>
-          ) : null,
-        )}
-        {/* cost line (AC4: only when some day has cost) */}
-        {hasCost && (
-          <polyline
-            points={costPoints.trim()}
-            fill="none"
-            stroke={KUMO_CATEGORICAL[3]}
-            strokeWidth={2}
-          />
-        )}
-        {/* hover tooltips: invisible hit rects + title */}
-        {items.map((d, i) => {
-          const x = TREND_PAD_L + groupW * (i + 0.5);
-          return (
-            <rect
-              key={d.date}
-              x={x - groupW / 2}
-              y={TREND_PAD_T}
-              width={groupW}
-              height={plotH}
-              fill="transparent"
-            >
-              <title>
-                {`${d.date} — in ${formatValue(d.in)}, out ${formatValue(d.out)}${
-                  d.cost !== undefined ? `, cost $${(d.cost ?? 0).toFixed(2)}` : ""
-                }`}
-              </title>
-            </rect>
-          );
-        })}
-      </svg>
+      <div className="ml-trend-plot">
+        <ResponsiveContainer key={flip} width="100%" height={TREND_H}>
+          <ComposedChart data={data} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
+            <CartesianGrid
+              stroke="var(--border-soft)"
+              strokeDasharray="0"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 10, fill: "var(--muted)" }}
+              tickLine={false}
+              axisLine={{ stroke: "var(--border-soft)" }}
+              interval="preserveStartEnd"
+              minTickGap={18}
+            />
+            <YAxis
+              width={46}
+              tick={{ fontSize: 10, fill: "var(--muted)" }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v: number) => formatValue(v)}
+            />
+            <Tooltip
+              cursor={{ fill: "var(--surface-warm)" }}
+              content={(props: TooltipContentProps) => {
+                if (!props.payload || props.payload.length === 0) return null;
+                // props.label is the x tick ("MM-DD"); resolve the raw day so
+                // the tooltip shows true cost dollars, not the token-scaled
+                // value the Line is plotted with.
+                const raw = items.find(
+                  (d) => d.date.slice(5) === String(props.label),
+                );
+                const row = props.payload[0]?.payload as
+                  | { date: string; in: number; out: number }
+                  | undefined;
+                const rows: { label: string; value: string; key?: string }[] = [
+                  {
+                    label: "in",
+                    value: formatValue(raw?.in ?? row?.in ?? 0),
+                    key: KUMO_CATEGORICAL[0],
+                  },
+                  {
+                    label: "out",
+                    value: formatValue(raw?.out ?? row?.out ?? 0),
+                    key: KUMO_CATEGORICAL[1],
+                  },
+                ];
+                if (raw?.cost !== undefined) {
+                  rows.push({
+                    label: "cost",
+                    value: fmtCost(raw.cost),
+                    key: KUMO_CATEGORICAL[3],
+                  });
+                }
+                return <TooltipCard title={raw?.date ?? String(props.label)} rows={rows} />;
+              }}
+            />
+            <Bar
+              dataKey="in"
+              fill={KUMO_CATEGORICAL[0]}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={14}
+              animationDuration={500}
+            />
+            <Bar
+              dataKey="out"
+              fill={KUMO_CATEGORICAL[1]}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={14}
+              animationDuration={500}
+            />
+            {hasCost && (
+              <>
+                <Line
+                  type="monotone"
+                  dataKey={TREND_COST_KEY}
+                  stroke={KUMO_CATEGORICAL[3]}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface)" }}
+                  animationDuration={700}
+                />
+                <Area
+                  type="monotone"
+                  dataKey={TREND_COST_KEY}
+                  stroke="none"
+                  fill={KUMO_CATEGORICAL[3]}
+                  fillOpacity={0.1}
+                  animationDuration={700}
+                />
+              </>
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
