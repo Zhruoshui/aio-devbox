@@ -1,59 +1,25 @@
-/* sandbox-mgr UI - Cloudflare Kumo design language.
+/* sandbox-mgr UI - multi-theme token layer (09-20-theme-schemes).
  *
- * Token layer + shared control styles are ported from web/src/styles.css
- * (official sources: kumo-ui.com + cloudflare/kumo @ 0c583257, MIT). Admin
- * pages + the golden-layout workspace (Phase 2) share this token layer;
- * golden-layout's own chrome is themed in gl-kumo.css. Choose tokens by
- * role, never by hue: light/dark stay synchronized through [data-mode]
- * overrides only - no manual dark variants below the token layer.
- */
+ * Token layer + shared control styles descended from the Cloudflare Kumo
+ * port (kumo-ui.com + cloudflare/kumo @ 0c583257, MIT). Since the 09-20
+ * revision the palette set is the 8 Omarchy themes (research/
+ * omarchy-palettes/*.toml is the single color-value source); Kumo's
+ * light/dark schemes are retired.
+ *
+ * Layering contract:
+ *   :root        — mode-independent primitives ONLY (fonts, type scale,
+ *                  spacing, radii, motion, shadow SHAPES). No color tokens.
+ *   [data-theme] — one COMPLETE color block per scheme (every token gets a
+ *                  final value; no color-mix derivations — design.md §5).
+ *                  Adding a theme = one block here + one themes.ts line +
+ *                  one i18n word (AC6).
+ * Control styles below consume tokens by role, never by hue. */
 
 @import "@fontsource/inter/400.css";
 @import "@fontsource/inter/500.css";
 @import "@fontsource/inter/600.css";
 
 :root {
-  /* Kumo canvas, component base, and recessed surface. */
-  --bg: oklch(98.75% 0 0);
-  --surface: #ffffff;
-  --surface-warm: oklch(96% 0 0);
-
-  /* Kumo default and subtle text. */
-  --fg: oklch(21% 0.006 285.885);
-  --fg-2: var(--fg);
-  --muted: oklch(55.6% 0 0);
-  --meta: var(--muted);
-
-  /* Kumo line and hairline roles. */
-  --border: oklch(14.5% 0 0 / 0.1);
-  --border-soft: oklch(93.5% 0 0);
-
-  /* Kumo brand background and its documented hover state. */
-  --accent: oklch(0.5772 0.2324 260);
-  --accent-on: #ffffff;
-  --accent-hover: oklch(48.8% 0.243 264.376);
-  --accent-active: var(--accent-hover);
-
-  /* Kumo solid semantic indicators. */
-  --success: oklch(59.6% 0.145 163.225);
-  --warn: oklch(73.9% 0.177 58.2);
-  --danger: oklch(63.7% 0.237 25.331);
-
-  /* Chart categorical palette (slots 1..6, fixed assignment order).
-   * Kumo-hued steps validated against the light surface (#fff) with the
-   * dataviz six checks: L-band, chroma floor, adjacent CVD Delta E >= 8,
-   * normal-vision floor >= 15, contrast. Slot 2 (2.66:1) ships with the
-   * relief channel the usage page already provides — text labels beside
-   * every mark plus the detail table. Charts/marks only, never text or
-   * status. Dark mode re-steps slots that fall outside its lightness band
-   * (see the [data-theme="dark"] block). */
-  --chart-1: #4290f0;
-  --chart-2: #d98f1f;
-  --chart-3: #e8649d;
-  --chart-4: #8d58ee;
-  --chart-5: #2aa394;
-  --chart-6: #d37536;
-
   /* Inter is used by Kumo's official documentation and Figma resources. */
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -97,64 +63,511 @@
   --radius-lg: 8px;
   --radius-pill: 9999px;
 
-  /* Ring-led elevation mirrors Kumo LayerCard composition. */
-  --elev-flat: none;
-  --elev-ring: 0 0 0 1px var(--border);
-  --elev-raised: 0 1px 2px 0 oklch(0% 0 0 / 0.08);
-  --focus-ring: 0 0 0 2px oklch(15% 0 0);
-
-  /* 150ms states/dialogs and the 250ms sidebar motion are upstream values. */
+  /* Motion: 150ms states/dialogs and the 250ms sidebar motion are upstream
+   * Kumo values. */
   --motion-fast: 150ms;
   --motion-base: 250ms;
   --ease-standard: cubic-bezier(0.77, 0, 0.175, 1);
-
-  /* Scrollbar thumb ramp — neutral overlay tuned per canvas. */
-  --scrollbar-thumb: oklch(14.5% 0 0 / 0.24);
-  --scrollbar-thumb-hover: oklch(14.5% 0 0 / 0.4);
-
-  /* Terminal surface + accent colors, consumed by xterm via getComputedStyle
-   * (XtermPane reads these so the pty view follows the active mode). */
-  --term-bg: color-mix(in oklch, var(--bg) 88%, black);
-  --term-fg: var(--fg);
-  --term-selection: color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
-/* --color-scheme: UA native controls (checkbox/select/number spinner/
- * scrollbar) follow the active theme. */
-:root {
-  color-scheme: light;
-}
+/* ─── theme blocks (09-20-theme-schemes, Omarchy final set) ────────────
+ * 8 schemes, all sourced from Omarchy official themes (basecamp/omarchy
+ * themes/<name>/colors.toml, archived in the task's research/
+ * omarchy-palettes/). Each block is COMPLETE: every color token gets a
+ * final value (no color-mix derivations — design.md §5; WebGL/xterm and
+ * oklch parsing hazards).
+ *
+ * Token mapping (Omarchy semantic name -> our token), per prd R1:
+ *   --bg=background  --surface=lighter_background  --surface-warm=
+ *     dark_background (dark) / dark_background or #fff-adjacent (light)
+ *   --fg=foreground  --fg-2=light_foreground  --muted=muted
+ *     (themes whose muted drops under 4.5:1 on the surface swap in a
+ *     darkened/lightened variant — noted per block)  --meta=dark_foreground
+ *     or a derived quiet step  --border/--border-soft=fg/bg-tinted hexes
+ *   --accent=accent  --success=green  --warn=yellow  --danger=red
+ *   --term-bg=background  --term-fg=foreground  --term-selection=selection
+ *   ANSI-16 = the Omarchy omarchy-theme-color mapping:
+ *     color0=background, color1-6=red/green/yellow/blue/magenta/cyan,
+ *     color7=foreground, color8=muted, color9-14=bright_*, color15=
+ *     bright_foreground (with the substitutions each block documents).
+ * --chart-1..6 pass the dataviz six checks on the theme's own surface;
+ * conclusions are recorded per block and archived in the task's
+ * research/palette-validation.md. themes.ts swatches mirror accent/fg/
+ * chart-1/chart-2/surface here. */
 
-/* Kumo uses data-mode="dark". The data-theme selector keeps generated Open
- * Design artifacts compatible with the repository's standard theme hook. */
-[data-theme="dark"],
-[data-mode="dark"] {
+/* Tokyo Night — Omarchy themes/tokyo-night/colors.toml. Dark. Surface
+ * #24283b (bg #1a1b26, lighter_background). */
+[data-theme="tokyo-night"] {
   color-scheme: dark;
-  --bg: oklch(10% 0 0);
-  --surface: oklch(17% 0 0);
-  --surface-warm: oklch(15% 0 0);
-  --fg: oklch(97% 0 0);
-  --fg-2: var(--fg);
-  --muted: oklch(70.8% 0 0);
-  --meta: var(--muted);
-  --border: oklch(32% 0 0);
-  --border-soft: oklch(26.9% 0 0);
-  --accent: color-mix(in oklch, oklch(0.5772 0.2324 260), black 10%);
+  --bg: #1a1b26;
+  --surface: #24283b;
+  --surface-warm: #13141c;
+  --fg: #c0caf5;
+  --fg-2: #b4bee6;
+  --muted: #8a93c9;
+  --meta: #565f89;
+  --border: rgb(169, 177, 214, 0.22);
+  --border-soft: #292e42;
+  --accent: #7aa2f7;
+  --accent-on: #1a1b26;
+  --accent-hover: #7da6ff;
+  --accent-active: #6183e2;
+  --success: #9ece6a;
+  --warn: #e0af68;
+  --danger: #f7768e;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px #7aa2f7;
+  --scrollbar-thumb: rgb(192, 202, 245, 0.22);
+  --scrollbar-thumb-hover: rgb(192, 202, 245, 0.38);
+  --term-bg: #1a1b26;
+  --term-fg: #a9b1d6;
+  --term-selection: #292e42;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #1a1b26 (bg, not
+   * the scheme's darker #15161e), color8=muted #414868, color15=
+   * bright_foreground #c0caf5. */
+  --term-ansi-black: #1a1b26;
+  --term-ansi-red: #f7768e;
+  --term-ansi-green: #9ece6a;
+  --term-ansi-yellow: #e0af68;
+  --term-ansi-blue: #7aa2f7;
+  --term-ansi-magenta: #ad8ee6;
+  --term-ansi-cyan: #449dab;
+  --term-ansi-white: #a9b1d6;
+  --term-ansi-bright-black: #414868;
+  --term-ansi-bright-red: #ff7a93;
+  --term-ansi-bright-green: #b9f27c;
+  --term-ansi-bright-yellow: #ff9e64;
+  --term-ansi-bright-blue: #7da6ff;
+  --term-ansi-bright-magenta: #bb9af7;
+  --term-ansi-bright-cyan: #0db9d7;
+  --term-ansi-bright-white: #c0caf5;
+  /* Chart palette — carried over validated (dark surface). */
+  --chart-1: #587dce;
+  --chart-2: #ca723b;
+  --chart-3: #2c93c7;
+  --chart-4: #75a33e;
+  --chart-5: #8764c0;
+  --chart-6: #cc4f6a;
+}
+
+/* Catppuccin (Mocha) — Omarchy themes/catppuccin/colors.toml. Dark.
+ * Surface #313244 (bg #1e1e2e, lighter_background). */
+[data-theme="catppuccin"] {
+  color-scheme: dark;
+  --bg: #1e1e2e;
+  --surface: #313244;
+  --surface-warm: #161622;
+  --fg: #cdd6f4;
+  --fg-2: #bac2de;
+  --muted: #9399b2;
+  --meta: #6c7086;
+  --border: rgb(186, 194, 222, 0.2);
+  --border-soft: #45475a;
+  --accent: #89b4fa;
+  --accent-on: #1e1e2e;
+  --accent-hover: #97bfff;
+  --accent-active: #6f99dd;
+  --success: #a6e3a1;
+  --warn: #f9e2af;
+  --danger: #f38ba8;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px #89b4fa;
+  --scrollbar-thumb: rgb(205, 214, 244, 0.22);
+  --scrollbar-thumb-hover: rgb(205, 214, 244, 0.38);
+  --term-bg: #1e1e2e;
+  --term-fg: #cdd6f4;
+  --term-selection: #45475a;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #1e1e2e (bg, not
+   * the Mocha "surface" the catppuccin port uses), color8=muted #585b70,
+   * color15=bright_foreground #cdd6f4. */
+  --term-ansi-black: #1e1e2e;
+  --term-ansi-red: #f38ba8;
+  --term-ansi-green: #a6e3a1;
+  --term-ansi-yellow: #f9e2af;
+  --term-ansi-blue: #89b4fa;
+  --term-ansi-magenta: #f5c2e7;
+  --term-ansi-cyan: #94e2d5;
+  --term-ansi-white: #cdd6f4;
+  --term-ansi-bright-black: #585b70;
+  --term-ansi-bright-red: #f38ba8;
+  --term-ansi-bright-green: #a6e3a1;
+  --term-ansi-bright-yellow: #f9e2af;
+  --term-ansi-bright-blue: #89b4fa;
+  --term-ansi-bright-magenta: #f5c2e7;
+  --term-ansi-bright-cyan: #94e2d5;
+  --term-ansi-bright-white: #cdd6f4;
+  /* Chart palette — carried over validated (mocha values). */
+  --chart-1: #507fcd;
+  --chart-2: #bb672a;
+  --chart-3: #009889;
+  --chart-4: #ad8c3d;
+  --chart-5: #b368a1;
+  --chart-6: #64a560;
+}
+
+/* Ethereal — Omarchy themes/ethereal/colors.toml. Dark. Surface #131a3a
+ * (bg #060B1E, lighter_background). --muted uses the palette's `muted`
+ * #6d7db6: 4.90:1 on bg / 4.25:1 on surface — the canvas ratio is over
+ * the 4.5:1 floor and its dark_foreground is the same hue anyway, kept
+ * (the port's muted and dark_foreground are literally both #6d7db6). */
+[data-theme="ethereal"] {
+  color-scheme: dark;
+  --bg: #060b1e;
+  --surface: #131a3a;
+  --surface-warm: #040816;
+  --fg: #ffcead;
+  --fg-2: #c9b8a6;
+  --muted: #6d7db6;
+  --meta: #59639b;
+  --border: rgb(255, 206, 173, 0.2);
+  --border-soft: #252e56;
+  --accent: #7d82d9;
+  --accent-on: #060b1e;
+  --accent-hover: #8f94ed;
+  --accent-active: #666abe;
+  --success: #92a593;
+  --warn: #e9bb4f;
+  --danger: #ed5b5a;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.55);
+  --focus-ring: 0 0 0 2px #7d82d9;
+  --scrollbar-thumb: rgb(255, 206, 173, 0.22);
+  --scrollbar-thumb-hover: rgb(255, 206, 173, 0.38);
+  --term-bg: #060b1e;
+  --term-fg: #ffcead;
+  --term-selection: #252e56;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #060B1E (bg, not
+   * the port's darker #030610), color8=muted #6d7db6, color15=
+   * bright_foreground #ffcead. */
+  --term-ansi-black: #060b1e;
+  --term-ansi-red: #ed5b5a;
+  --term-ansi-green: #92a593;
+  --term-ansi-yellow: #e9bb4f;
+  --term-ansi-blue: #7d82d9;
+  --term-ansi-magenta: #c89dc1;
+  --term-ansi-cyan: #a3bfd1;
+  --term-ansi-white: #ffcead;
+  --term-ansi-bright-black: #6d7db6;
+  --term-ansi-bright-red: #faaaa9;
+  --term-ansi-bright-green: #c4cfc4;
+  --term-ansi-bright-yellow: #f7dc9c;
+  --term-ansi-bright-blue: #c2c4f0;
+  --term-ansi-bright-magenta: #ead7e7;
+  --term-ansi-bright-cyan: #dfeaf0;
+  --term-ansi-bright-white: #ffcead;
+  /* Chart palette — validated (see palette-validation.md): blue, green,
+   * magenta, yellow, cyan, red — ALL CHECKS PASS. Slots 2/3/4/5 snapped
+   * same-hue (green L.63 C.12, magenta L.62 C.12, yellow L.63 C.14, cyan
+   * L.63 C.12); slot 1/6 are official. */
+  --chart-1: #7d82d9;
+  --chart-2: #539c5c;
+  --chart-3: #b069a6;
+  --chart-4: #ac8200;
+  --chart-5: #2d93c8;
+  --chart-6: #ed5b5a;
+}
+
+/* Nord — Omarchy themes/nord/colors.toml. Dark. Surface #3b4252 (bg
+ * #2e3440, lighter_background). */
+[data-theme="nord"] {
+  color-scheme: dark;
+  --bg: #2e3440;
+  --surface: #3b4252;
+  --surface-warm: #222730;
+  --fg: #eceff4;
+  --fg-2: #d8dee9;
+  --muted: #a7b1c2;
+  --meta: #667080;
+  --border: rgb(216, 222, 233, 0.2);
+  --border-soft: #434c5e;
+  --accent: #81a1c1;
+  --accent-on: #2e3440;
+  --accent-hover: #8fbcbb;
+  --accent-active: #6d92ad;
+  --success: #a3be8c;
+  --warn: #ebcb8b;
+  --danger: #bf616a;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.45);
+  --focus-ring: 0 0 0 2px #81a1c1;
+  --scrollbar-thumb: rgb(236, 239, 244, 0.22);
+  --scrollbar-thumb-hover: rgb(236, 239, 244, 0.38);
+  --term-bg: #2e3440;
+  --term-fg: #d8dee9;
+  --term-selection: #434c5e;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #2e3440 (bg, not
+   * the nord port's #3b4252), color8=muted #4c566a, color15=
+   * bright_foreground #d8dee9; color14 = bright_cyan #8fbcbb (the toml's
+   * one genuinely different bright value). */
+  --term-ansi-black: #2e3440;
+  --term-ansi-red: #bf616a;
+  --term-ansi-green: #a3be8c;
+  --term-ansi-yellow: #ebcb8b;
+  --term-ansi-blue: #81a1c1;
+  --term-ansi-magenta: #b48ead;
+  --term-ansi-cyan: #88c0d0;
+  --term-ansi-white: #d8dee9;
+  --term-ansi-bright-black: #4c566a;
+  --term-ansi-bright-red: #bf616a;
+  --term-ansi-bright-green: #a3be8c;
+  --term-ansi-bright-yellow: #ebcb8b;
+  --term-ansi-bright-blue: #81a1c1;
+  --term-ansi-bright-magenta: #b48ead;
+  --term-ansi-bright-cyan: #8fbcbb;
+  --term-ansi-bright-white: #d8dee9;
+  /* Chart palette — carried over validated (4 contrast WARNs, relief:
+   * usage page labels + table). */
+  --chart-1: #199cb8;
+  --chart-2: #bc6448;
+  --chart-3: #35659e;
+  --chart-4: #b48f42;
+  --chart-5: #9f6295;
+  --chart-6: #698d44;
+}
+
+/* Vantablack — Omarchy themes/vantablack/colors.toml. Dark. Surface
+ * #1a1a1a (bg #000000, lighter_background — the ONLY lighter step, which
+ * is why --border is an fg-tinted overlay rather than a darker solid: on
+ * pure black every solid darker than the surface is invisible). */
+[data-theme="vantablack"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #1a1a1a;
+  --surface-warm: #090909;
+  --fg: #ffffff;
+  --fg-2: #ececec;
+  --muted: #7a7a7a;
+  --meta: #666666;
+  --border: rgb(236, 236, 236, 0.16);
+  --border-soft: #1a1a1a;
+  --accent: #8d8d8d;
+  --accent-on: #000000;
+  --accent-hover: #989898;
+  --accent-active: #636363;
+  --success: #b6b6b6;
+  --warn: #cecece;
+  --danger: #a4a4a4;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.6);
+  --focus-ring: 0 0 0 2px #8d8d8d;
+  --scrollbar-thumb: rgb(236, 236, 236, 0.2);
+  --scrollbar-thumb-hover: rgb(236, 236, 236, 0.36);
+  --term-bg: #000000;
+  --term-fg: #ffffff;
+  --term-selection: #1a1a1a;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #000000 (bg),
+   * color8=muted #7a7a7a, color15=bright_foreground #ffffff; the red/
+   * green/yellow/... slots ARE the theme's grayscale values — that is the
+   * official Omarchy Vantablack terminal look. */
+  --term-ansi-black: #000000;
+  --term-ansi-red: #a4a4a4;
+  --term-ansi-green: #b6b6b6;
+  --term-ansi-yellow: #cecece;
+  --term-ansi-blue: #8d8d8d;
+  --term-ansi-magenta: #9b9b9b;
+  --term-ansi-cyan: #b0b0b0;
+  --term-ansi-white: #ffffff;
+  --term-ansi-bright-black: #7a7a7a;
+  --term-ansi-bright-red: #a4a4a4;
+  --term-ansi-bright-green: #b6b6b6;
+  --term-ansi-bright-yellow: #cecece;
+  --term-ansi-bright-blue: #8d8d8d;
+  --term-ansi-bright-magenta: #9b9b9b;
+  --term-ansi-bright-cyan: #b0b0b0;
+  --term-ansi-bright-white: #ffffff;
+  /* Chart palette — validated (see palette-validation.md): the official
+   * palette is pure grayscale (C=0, chroma-floor FAIL) so slots carry a
+   * restrained tint (C 0.10-0.135) on the gray lightness ramp, keeping the
+   * near-black-gray character — ALL CHECKS PASS. */
+  --chart-1: #457db4;
+  --chart-2: #547d3c;
+  --chart-3: #a4589e;
+  --chart-4: #ac8338;
+  --chart-5: #009393;
+  --chart-6: #c96152;
+}
+
+/* Catppuccin Latte — Omarchy themes/catppuccin-latte/colors.toml. Light.
+ * Surface #ffffff (bg #eff1f5; the toml's lighter_background #dce0e8 is
+ * DARKER than background in Latte, so --surface takes the brightest step
+ * white and --surface-warm sits between bg and white). --muted #666987 is
+ * an accent-tinted darkening of the toml's dark_foreground #6c7086: the
+ * palette's `muted` #acb0be is 2.17:1 on white and dark_foreground itself
+ * 4.37:1 on bg — both sub-floor; #666987 holds 4.7:1/5.3:1. */
+[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+  --bg: #eff1f5;
+  --surface: #ffffff;
+  --surface-warm: #e3e4e8;
+  --fg: #4c4f69;
+  --fg-2: #5c5f77;
+  --muted: #666987;
+  --meta: #9ca0b0;
+  --border: rgb(92, 95, 119, 0.2);
+  --border-soft: #dce0e8;
+  --accent: #1e66f5;
   --accent-on: #ffffff;
-  --accent-hover: oklch(48.8% 0.243 264.376);
-  --accent-active: var(--accent-hover);
-  --success: oklch(76.5% 0.177 163.223);
-  --warn: oklch(64.5% 0.168 50);
-  --danger: oklch(57.7% 0.245 27.325);
-  /* Chart palette re-stepped for the dark surface (oklch 17% ≈ #0f0f0f):
-   * slots 2/3 sat outside the dark L-band and were re-picked on their own
-   * hue, then the six checks re-run — all PASS on this surface. */
-  --chart-2: #c4831b;
-  --chart-3: #dc5d90;
-  --elev-raised: 0 1px 2px 0 oklch(0% 0 0 / 0.3);
-  --focus-ring: 0 0 0 2px oklch(93.5% 0 0);
-  --scrollbar-thumb: oklch(97% 0 0 / 0.22);
-  --scrollbar-thumb-hover: oklch(97% 0 0 / 0.38);
+  --accent-hover: #1b63f2;
+  --accent-active: #004cd8;
+  --success: #40a02b;
+  --warn: #df8e1d;
+  --danger: #d20f39;
+  --elev-raised: 0 1px 2px 0 rgb(92, 95, 119, 0.14);
+  --focus-ring: 0 0 0 2px #1e66f5;
+  --scrollbar-thumb: rgb(76, 79, 105, 0.24);
+  --scrollbar-thumb-hover: rgb(76, 79, 105, 0.4);
+  --term-bg: #eff1f5;
+  --term-fg: #4c4f69;
+  --term-selection: #ccd0da;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color7=foreground
+   * #4c4f69 (not the port's #acb0be), color8=muted #acb0be, color15=
+   * bright_foreground #4c4f69. */
+  --term-ansi-black: #eff1f5;
+  --term-ansi-red: #d20f39;
+  --term-ansi-green: #40a02b;
+  --term-ansi-yellow: #df8e1d;
+  --term-ansi-blue: #1e66f5;
+  --term-ansi-magenta: #ea76cb;
+  --term-ansi-cyan: #179299;
+  --term-ansi-white: #4c4f69;
+  --term-ansi-bright-black: #acb0be;
+  --term-ansi-bright-red: #d20f39;
+  --term-ansi-bright-green: #40a02b;
+  --term-ansi-bright-yellow: #df8e1d;
+  --term-ansi-bright-blue: #1e66f5;
+  --term-ansi-bright-magenta: #ea76cb;
+  --term-ansi-bright-cyan: #179299;
+  --term-ansi-bright-white: #4c4f69;
+  /* Chart palette — carried over validated. */
+  --chart-1: #1e66f5;
+  --chart-2: #d65b1f;
+  --chart-3: #0498a2;
+  --chart-4: #b97515;
+  --chart-5: #bb54a0;
+  --chart-6: #377e29;
+}
+
+/* White — Omarchy themes/white/colors.toml. Light. Surface #f5f5f5
+ * (bg #ffffff; dark_background is the step below white). Grayscale theme:
+ * --success/--warn/--danger are the toml's own gray ramps (green/yellow/
+ * red names, gray values — official look); --accent #6e6e6e is darkened
+ * one step from the toml accent #808080 so it clears the 4.5:1 text floor
+ * on white (5.10:1). */
+[data-theme="white"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f5f5f5;
+  --surface-warm: #f0f0f0;
+  --fg: #000000;
+  --fg-2: #1a1a1a;
+  --muted: #6e6e6e;
+  --meta: #9e9e9e;
+  --border: rgb(0, 0, 0, 0.18);
+  --border-soft: #e8e8e8;
+  --accent: #6e6e6e;
+  --accent-on: #ffffff;
+  --accent-hover: #696969;
+  --accent-active: #4d4d4d;
+  --success: #3a3a3a;
+  --warn: #4a4a4a;
+  --danger: #2a2a2a;
+  --elev-raised: 0 1px 2px 0 rgb(0, 0, 0, 0.1);
+  --focus-ring: 0 0 0 2px #6e6e6e;
+  --scrollbar-thumb: rgb(0, 0, 0, 0.24);
+  --scrollbar-thumb-hover: rgb(0, 0, 0, 0.4);
+  --term-bg: #ffffff;
+  --term-fg: #000000;
+  --term-selection: #c0c0c0;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #ffffff (bg),
+   * color8=muted #808080, color15=bright_foreground #000000; hue slots
+   * are the theme's grayscale values — official Omarchy White look. */
+  --term-ansi-black: #ffffff;
+  --term-ansi-red: #2a2a2a;
+  --term-ansi-green: #3a3a3a;
+  --term-ansi-yellow: #4a4a4a;
+  --term-ansi-blue: #1a1a1a;
+  --term-ansi-magenta: #2e2e2e;
+  --term-ansi-cyan: #3e3e3e;
+  --term-ansi-white: #000000;
+  --term-ansi-bright-black: #808080;
+  --term-ansi-bright-red: #2a2a2a;
+  --term-ansi-bright-green: #3a3a3a;
+  --term-ansi-bright-yellow: #4a4a4a;
+  --term-ansi-bright-blue: #1a1a1a;
+  --term-ansi-bright-magenta: #2e2e2e;
+  --term-ansi-bright-cyan: #3e3e3e;
+  --term-ansi-bright-white: #000000;
+  /* Chart palette — validated (see palette-validation.md): grayscale
+   * palette, same tinted-neutral remedy as Vantablack — slate, bronze,
+   * teal, clay, purple, moss; ALL CHECKS PASS on #ffffff. */
+  --chart-1: #2d6ca8;
+  --chart-2: #a4771c;
+  --chart-3: #009d9d;
+  --chart-4: #b35c4f;
+  --chart-5: #765ba4;
+  --chart-6: #457128;
+}
+
+/* Flexoki Light — Omarchy themes/flexoki-light/colors.toml. Light.
+ * Surface #FFFCF0 (bg near-white paper, dark_background #f2efe4 as the
+ * recessed step). --muted uses Flexoki's official gray step #6F6E69:
+ * the palette's `muted` #B7B5AC is 2.00:1 and dark_foreground #878580
+ * 3.59:1 on paper — both sub-4.5-floor; #6F6E69 holds 4.97:1 and --meta
+ * takes dark_foreground #878580 (3.59:1) for the quietest tier.
+ * --warn/--success/--danger darken one same-hue step from the toml
+ * yellows/greens/reds so text use clears 4.5:1 on paper (values noted). */
+[data-theme="flexoki-light"] {
+  color-scheme: light;
+  --bg: #fffcf0;
+  --surface: #fffcf0;
+  --surface-warm: #f2efe4;
+  --fg: #100f0f;
+  --fg-2: #403e3c;
+  --muted: #6f6e69;
+  --meta: #878580;
+  --border: rgb(16, 15, 15, 0.18);
+  --border-soft: #e6e4d9;
+  --accent: #205ea6;
+  --accent-on: #ffffff;
+  --accent-hover: #084c92;
+  --accent-active: #003974;
+  --success: #617200;
+  --warn: #7a5f0a;
+  --danger: #c03e33;
+  --elev-raised: 0 1px 2px 0 rgb(87, 82, 65, 0.16);
+  --focus-ring: 0 0 0 2px #205ea6;
+  --scrollbar-thumb: rgb(16, 15, 15, 0.24);
+  --scrollbar-thumb-hover: rgb(16, 15, 15, 0.4);
+  --term-bg: #fffcf0;
+  --term-fg: #100f0f;
+  --term-selection: #cecdc3;
+  /* ANSI-16: Omarchy omarchy-theme-color mapping. color0 #FFFCF0 (bg),
+   * color8=muted #B7B5AC, color15=bright_foreground #100F0F; color12 uses
+   * bright_blue #4385BE per the mapping (color4 = blue #205EA6). */
+  --term-ansi-black: #fffcf0;
+  --term-ansi-red: #d14d41;
+  --term-ansi-green: #879a39;
+  --term-ansi-yellow: #d0a215;
+  --term-ansi-blue: #205ea6;
+  --term-ansi-magenta: #ce5d97;
+  --term-ansi-cyan: #3aa99f;
+  --term-ansi-white: #100f0f;
+  --term-ansi-bright-black: #b7b5ac;
+  --term-ansi-bright-red: #d14d41;
+  --term-ansi-bright-green: #879a39;
+  --term-ansi-bright-yellow: #d0a215;
+  --term-ansi-bright-blue: #4385be;
+  --term-ansi-bright-magenta: #ce5d97;
+  --term-ansi-bright-cyan: #3aa99f;
+  --term-ansi-bright-white: #100f0f;
+  /* Chart palette — validated (see palette-validation.md): blue, red,
+   * teal, yellow, magenta, green — PASS with 2 contrast WARNs (teal
+   * 2.76:1, yellow 2.31:1; relief = usage page labels + table). Teal
+   * #00aca1 (cyan hue L.67 C.125) and green #778b15 (L.60 C.135) are
+   * same-hue lifts off the official cyan/green. */
+  --chart-1: #205ea6;
+  --chart-2: #d14d41;
+  --chart-3: #00aca1;
+  --chart-4: #d0a215;
+  --chart-5: #ce5d97;
+  --chart-6: #778b15;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2772,4 +3185,52 @@ body {
   border-radius: var(--radius-lg);
   padding: 3px;
 }
+
+/* ── rail theme picker menu (09-20-theme-schemes) ────────────────────
+ * Extends the shared .menu (components.css) with the scheme-picker rows:
+ * a 5-dot swatch preview + label + active check. Colors are literal
+ * per-theme hexes ONLY inside the inline swatch dots (rendered from
+ * themes.ts swatch values — they are previews OF the themes, so they
+ * cannot be tokens); every chrome color below walks tokens. */
+.theme-menu {
+  min-width: 200px;
+  padding: var(--space-2);
+  /* Scroll once the registry outgrows the viewport — every theme stays
+   * reachable no matter how many schemes ship (AC6). */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.theme-menu .theme-menu-item {
+  height: 34px;
+  justify-content: flex-start;
+}
+.theme-menu .theme-menu-item .icon {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--accent);
+}
+.theme-menu .theme-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 5 preview dots (accent / fg / chart-1 / chart-2 / surface). Fixed-size
+ * circles with a hairline ring so light dots stay visible on light menus. */
+.theme-swatch {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-right: var(--space-1);
+}
+.theme-swatch > span {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  margin-left: -2px;
+}
+.theme-swatch > span:first-child {
+  margin-left: 0;
+}
+
 

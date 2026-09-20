@@ -1,27 +1,43 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-mode="dark">
+<html lang="zh-CN" data-theme="tokyo-night" data-mode="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sandbox 管理器</title>
     <script>
-      // Pre-paint theme/lang restore (the Kumo default is dark; a stored
-      // "light"/"en" preference is applied before first paint so the app
-      // never flashes the wrong mode). App.tsx owns these values afterwards.
-      // Keys are mgr-prefixed: mgr.localhost and the sandbox workbench are
-      // different origins (localStorage is per-origin), but distinct keys
-      // keep the two apps debuggable side by side.
+      // Pre-paint theme/lang restore (default scheme is tokyo-night; a
+      // stored preference is applied before first paint so the app never
+      // flashes the wrong mode/scheme). App.tsx owns these values
+      // afterwards; the key->mode map below MUST mirror themes.ts
+      // THEMES[].mode (an inline pre-paint script cannot import the
+      // registry). Keys are mgr-prefixed: mgr.localhost and the sandbox
+      // workbench are different origins (localStorage is per-origin), but
+      // distinct keys keep the two apps debuggable side by side. Any
+      // unrecognized/legacy value ("light"/"dark"/"kumo-*"/
+      // "catppuccin-mocha") falls through to the static tokyo-night
+      // default, matching resolveThemeKey.
       try {
-        var mode = localStorage.getItem("mgr.theme");
-        if (mode === "light" || mode === "dark") {
-          document.documentElement.dataset.mode = mode;
+        var SCHEME_MODES = {
+          "tokyo-night": "dark",
+          "catppuccin": "dark",
+          "ethereal": "dark",
+          "nord": "dark",
+          "vantablack": "dark",
+          "catppuccin-latte": "light",
+          "white": "light",
+          "flexoki-light": "light"
+        };
+        var key = localStorage.getItem("mgr.theme");
+        if (key && SCHEME_MODES[key]) {
+          document.documentElement.dataset.theme = key;
+          document.documentElement.dataset.mode = SCHEME_MODES[key];
         }
         var lang = localStorage.getItem("mgr.lang");
         if (lang === "zh-CN" || lang === "en") {
           document.documentElement.lang = lang;
         }
       } catch (e) {
-        /* localStorage unavailable - keep dark default */
+        /* localStorage unavailable - keep the tokyo-night default */
       }
     </script>
   </head>

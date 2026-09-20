@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "xterm 面板契约:theme 读取、modeObserver 热切换链路,ANSI 扩展必须沿用该模式"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "组件层规范:主题选择器 UI 应复用现有 segmented/chip 弹层惯例"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门禁:build/typecheck 要求"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "themes.ts 注册表与 Theme 类型改造的 TS 规范"}

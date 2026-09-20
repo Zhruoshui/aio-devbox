@@ -115,8 +115,9 @@ export function XtermPane({
       // Default 1000 is too small for builds/logs (R1).
       scrollback: 10000,
       cursorBlink: true,
-      // Colors follow the Kumo tokens in styles.css (--term-*), read at mount
-      // and re-read when the app switches light/dark (observer below).
+      // Colors follow the --term-* tokens in styles.css (surface + ANSI-16
+      // per active theme), read at mount and re-read when the app switches
+      // theme scheme (observer below).
       theme: readTermTheme(),
     });
     termRef.current = term;
@@ -271,17 +272,21 @@ export function XtermPane({
     const resizeObserver = new ResizeObserver(() => safeFit(fitAddon));
     resizeObserver.observe(el);
 
-    // Live retint on theme switch: App flips <html data-mode=...>, the token
+    // Live retint on theme switch: App flips <html data-theme> (scheme key)
+    // and <html data-mode> (the scheme's static light/dark class), the token
     // values change, and the running terminal re-reads them - without
-    // reconnecting the pty (so the session survives a theme toggle). This
-    // keeps working under WebGL: setting term.options.theme re-renders the
-    // GPU renderer too (it rebuilds its palette on the option change).
+    // reconnecting the pty (so the session survives a theme toggle). Both
+    // attributes are watched: either flip alone must retint (App writes both
+    // on every switch, but a scheme whose mode is unchanged only changes
+    // data-theme meaningfully). This keeps working under WebGL: setting
+    // term.options.theme re-renders the GPU renderer too (it rebuilds its
+    // palette on the option change).
     const modeObserver = new MutationObserver(() => {
       term.options.theme = readTermTheme();
     });
     modeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-mode"],
+      attributeFilter: ["data-mode", "data-theme"],
     });
 
     return () => {
@@ -375,18 +380,44 @@ function safeFit(fitAddon: FitAddon): void {
 }
 
 /**
- * Resolve the Kumo --term-* tokens (styles.css) into an xterm theme. Values
- * stay CSS color strings (oklch / color-mix); xterm's DOM renderer applies
- * them as CSS colors, so they follow [data-mode] for free.
+ * Resolve the --term-* tokens (styles.css) of the ACTIVE theme into an
+ * xterm theme. The surface colors stay CSS color strings (oklch /
+ * color-mix; the DOM renderer applies them as CSS colors, and the WebGL
+ * renderer's css.toColor parses the shipped Kumo values — the scheme
+ * blocks since 09-20-theme-schemes use hex anyway). The ANSI-16 entries
+ * are read from --term-ansi-* tokens, which are hex for every theme
+ * (WebGL's color parser is unreliable beyond hex — design.md §3.2), and
+ * map to the camelCase ITheme fields (bright-black -> brightBlack).
  */
 function readTermTheme(): ITheme {
   const style = getComputedStyle(document.documentElement);
   const v = (name: string): string => style.getPropertyValue(name).trim();
+  // ANSI-16 from the --term-ansi-* tokens (styles.css defines every
+  // theme's 16 hex values; token suffix "bright-x" maps to ITheme's
+  // camelCase brightX). Written out field by field: ITheme's index
+  // signature admits `string[]` values (gradient colors), so a
+  // keyed loop would need a cast — an explicit literal needs none.
   return {
     background: v("--term-bg"),
     foreground: v("--term-fg"),
     cursor: v("--term-fg"),
     cursorAccent: v("--term-bg"),
     selectionBackground: v("--term-selection"),
+    black: v("--term-ansi-black"),
+    red: v("--term-ansi-red"),
+    green: v("--term-ansi-green"),
+    yellow: v("--term-ansi-yellow"),
+    blue: v("--term-ansi-blue"),
+    magenta: v("--term-ansi-magenta"),
+    cyan: v("--term-ansi-cyan"),
+    white: v("--term-ansi-white"),
+    brightBlack: v("--term-ansi-bright-black"),
+    brightRed: v("--term-ansi-bright-red"),
+    brightGreen: v("--term-ansi-bright-green"),
+    brightYellow: v("--term-ansi-bright-yellow"),
+    brightBlue: v("--term-ansi-bright-blue"),
+    brightMagenta: v("--term-ansi-bright-magenta"),
+    brightCyan: v("--term-ansi-bright-cyan"),
+    brightWhite: v("--term-ansi-bright-white"),
   };
 }

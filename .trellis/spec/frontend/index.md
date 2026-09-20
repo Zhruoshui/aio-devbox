@@ -62,3 +62,4 @@ child windows still render the lone workspace without the shell
 | [Type Safety](./type-safety.md) | filled |
 | [Quality Guidelines](./quality-guidelines.md) | filled |
 | [Xterm Pane](./xterm-pane.md) | filled |
+| [Theming](./theming.md) | filled |
