@@ -16,8 +16,16 @@ export type StringKey = keyof Strings;
 const STRINGS: Record<Lang, Record<string, string>> = {
   "zh-CN": {
     brand: "Sandbox 管理器",
-    toLight: "切换到浅色主题",
-    toDark: "切换到深色主题",
+    // 09-20-theme-schemes: rail theme picker (Omarchy official schemes)
+    themePick: "选择主题",
+    themeTokyoNight: "Tokyo Night",
+    themeCatppuccin: "Catppuccin",
+    themeEthereal: "Ethereal",
+    themeNord: "Nord",
+    themeVantablack: "Vantablack",
+    themeCatppuccinLatte: "Catppuccin Latte",
+    themeWhite: "White",
+    themeFlexokiLight: "Flexoki Light",
     switchLang: "Switch to English",
     // S5/R1: sidebar / tree collapse
     collapseSidebar: "折叠侧栏",
@@ -449,8 +457,16 @@ const STRINGS: Record<Lang, Record<string, string>> = {
   },
   en: {
     brand: "Sandbox manager",
-    toLight: "Switch to light theme",
-    toDark: "Switch to dark theme",
+    // 09-20-theme-schemes: rail theme picker (Omarchy official schemes)
+    themePick: "Pick a theme",
+    themeTokyoNight: "Tokyo Night",
+    themeCatppuccin: "Catppuccin",
+    themeEthereal: "Ethereal",
+    themeNord: "Nord",
+    themeVantablack: "Vantablack",
+    themeCatppuccinLatte: "Catppuccin Latte",
+    themeWhite: "White",
+    themeFlexokiLight: "Flexoki Light",
     switchLang: "切换到中文",
     // S5/R1: sidebar / tree collapse
     collapseSidebar: "Collapse sidebar",
