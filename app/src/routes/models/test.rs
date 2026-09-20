@@ -14,8 +14,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::state::AppState;
 use super::discover::build_headers;
+use crate::state::AppState;
 use aio_models::store::{read_config, StoreError};
 
 /// Timeout for the minimal completion request (design §5: 20s).
@@ -30,6 +30,9 @@ const RESPONSE_TEXT_MAX: usize = 300;
 // ── request / response types ──────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+// Wire fields are camelCase by API contract (mgr-web / older clients send
+// providerId / modelId verbatim); serde reads them as-is.
+#[allow(non_snake_case)]
 pub struct TestRequest {
     pub providerId: String,
     pub modelId: String,
@@ -89,10 +92,7 @@ pub async fn test(
         )
     })?;
 
-    let protocol = req
-        .protocol
-        .clone()
-        .unwrap_or_else(|| provider.api.clone());
+    let protocol = req.protocol.clone().unwrap_or_else(|| provider.api.clone());
 
     // R1: the provider's baseUrl IS the endpoint for every protocol —
     // protocol selection decides the request shape, so test against it
@@ -101,15 +101,12 @@ pub async fn test(
 
     // No key => error, but still HTTP 200 with ok:false (UI decides).
     let key = provider.api_key.clone();
-    if key.as_deref().map_or(true, |k| k.is_empty()) {
+    if key.as_deref().is_none_or(|k| k.is_empty()) {
         return Ok(Json(TestResponse {
             ok: false,
             latency_ms: None,
             status: None,
-            error: Some(format!(
-                "No API key found for \"{}\"",
-                req.providerId
-            )),
+            error: Some(format!("No API key found for \"{}\"", req.providerId)),
             response_text: None,
         }));
     }
@@ -347,10 +344,7 @@ mod tests {
         assert_eq!(b["model"], "gpt-4");
         assert_eq!(b["max_tokens"], 16);
         assert_eq!(b["stream"], false);
-        assert_eq!(
-            b["messages"][0]["content"],
-            "Reply with OK only."
-        );
+        assert_eq!(b["messages"][0]["content"], "Reply with OK only.");
     }
 
     #[test]
@@ -367,10 +361,7 @@ mod tests {
         let b = completion_body("claude-3", "anthropic-messages");
         assert_eq!(b["model"], "claude-3");
         assert_eq!(b["max_tokens"], 16);
-        assert_eq!(
-            b["messages"][0]["content"],
-            "Reply with OK only."
-        );
+        assert_eq!(b["messages"][0]["content"], "Reply with OK only.");
         // anthropic body has no stream field.
         assert!(b.get("stream").is_none());
     }
@@ -380,63 +371,42 @@ mod tests {
     #[test]
     fn extract_openai_chat_text() {
         let body = r#"{"choices":[{"message":{"content":"OK"}}]}"#;
-        assert_eq!(
-            extract_response_text(body, "openai-completions"),
-            "OK"
-        );
+        assert_eq!(extract_response_text(body, "openai-completions"), "OK");
     }
 
     #[test]
     fn extract_openai_responses_output_text() {
         let body = r#"{"output_text":"OK"}"#;
-        assert_eq!(
-            extract_response_text(body, "openai-responses"),
-            "OK"
-        );
+        assert_eq!(extract_response_text(body, "openai-responses"), "OK");
     }
 
     #[test]
     fn extract_openai_responses_nested_content() {
         let body = r#"{"output":[{"content":[{"type":"text","text":"OK"}]}]}"#;
-        assert_eq!(
-            extract_response_text(body, "openai-responses"),
-            "OK"
-        );
+        assert_eq!(extract_response_text(body, "openai-responses"), "OK");
     }
 
     #[test]
     fn extract_anthropic_text() {
         let body = r#"{"content":[{"type":"text","text":"OK"}]}"#;
-        assert_eq!(
-            extract_response_text(body, "anthropic-messages"),
-            "OK"
-        );
+        assert_eq!(extract_response_text(body, "anthropic-messages"), "OK");
     }
 
     #[test]
     fn extract_skips_non_text_content_blocks() {
         let body =
             r#"{"content":[{"type":"thinking","text":"hidden"},{"type":"text","text":"OK"}]}"#;
-        assert_eq!(
-            extract_response_text(body, "anthropic-messages"),
-            "OK"
-        );
+        assert_eq!(extract_response_text(body, "anthropic-messages"), "OK");
     }
 
     #[test]
     fn extract_invalid_json_returns_empty() {
-        assert_eq!(
-            extract_response_text("not json", "openai-completions"),
-            ""
-        );
+        assert_eq!(extract_response_text("not json", "openai-completions"), "");
     }
 
     #[test]
     fn extract_missing_choices_returns_empty() {
-        assert_eq!(
-            extract_response_text("{}", "openai-completions"),
-            ""
-        );
+        assert_eq!(extract_response_text("{}", "openai-completions"), "");
     }
 
     // --- truncate ---

@@ -1122,12 +1122,10 @@ async fn put_model_profile(
             body.agents.as_deref(),
         )?;
     }
-    Ok(Json(
-        json!({
-            "ok": true, "name": name, "model_profile": body.profile,
-            "model_agents": body.agents,
-        }),
-    ))
+    Ok(Json(json!({
+        "ok": true, "name": name, "model_profile": body.profile,
+        "model_agents": body.agents,
+    })))
 }
 
 async fn entry_url(
@@ -1187,7 +1185,10 @@ async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde
 /// /api/jobs/:id). Pre-check is synchronous: unknown row 404, referenced
 /// image 409 (refcount>0 — also covers a create/recreate in flight, whose
 /// sandbox already wrote env_hash by the time it holds the image).
-async fn delete_image(State(state): State<Arc<AppState>>, Path(h): Path<String>) -> ApiResult<Json<serde_json::Value>> {
+async fn delete_image(
+    State(state): State<Arc<AppState>>,
+    Path(h): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
     if !valid_env_hash(&h) {
         return Err(ApiError::bad("env_hash must be 64 hex chars"));
     }
@@ -1196,7 +1197,9 @@ async fn delete_image(State(state): State<Arc<AppState>>, Path(h): Path<String>)
         // row existence + refcount in one lock: check row first (404), then
         // the count (409). A missing row = already deleted = 404 (client
         // refreshes).
-        let exists: bool = db::list_images(&conn)?.iter().any(|(eh, _, _, _, _)| eh == &h);
+        let exists: bool = db::list_images(&conn)?
+            .iter()
+            .any(|(eh, _, _, _, _)| eh == &h);
         if !exists {
             return Err(ApiError::bad(format!("image {h} not found")));
         }

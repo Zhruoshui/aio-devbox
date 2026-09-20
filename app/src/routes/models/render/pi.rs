@@ -11,9 +11,7 @@ use serde_json::{json, Value};
 use crate::routes::models::render::common::{
     backup_write_verify_json, read_json_object, ApplyResult, ProviderPatch, ReadError,
 };
-use aio_models::store::{
-    AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry,
-};
+use aio_models::store::{AgentAssignment, CanonicalConfig, CostEntry, ModelEntry, ProviderEntry};
 
 /// Apply the pi assignment to ~/.pi/agent/. `home` is injectable so tests
 /// use temp dirs; routes pass `home_dir()`.
@@ -90,11 +88,7 @@ fn write_pi_models(
 
 /// ~/.pi/agent/settings.json: set only defaultProvider + defaultModel,
 /// preserve everything else. Backup first; atomic write 0600.
-fn write_pi_settings(
-    home: &Path,
-    assignment: &AgentAssignment,
-    result: &mut ApplyResult,
-) {
+fn write_pi_settings(home: &Path, assignment: &AgentAssignment, result: &mut ApplyResult) {
     let path = home.join(".pi/agent/settings.json");
 
     let mut root: Value = match read_json_object(&path) {
@@ -131,11 +125,7 @@ fn write_pi_settings(
 /// preserved. `patch.name` maps to pi's optional provider `name` (display
 /// name; schema `minLength: 1`): non-empty writes it, empty string removes
 /// the key (writing "" would fail pi's schema validation).
-pub fn edit_pi_provider(
-    home: &Path,
-    provider_id: &str,
-    patch: &ProviderPatch,
-) -> ApplyResult {
+pub fn edit_pi_provider(home: &Path, provider_id: &str, patch: &ProviderPatch) -> ApplyResult {
     let mut result = ApplyResult::new();
     let path = home.join(".pi/agent/models.json");
 
@@ -258,8 +248,7 @@ pub fn delete_pi_provider(home: &Path, provider_id: &str) -> ApplyResult {
     let settings_path = home.join(".pi/agent/settings.json");
     match read_json_object(&settings_path) {
         Ok(Some(mut s)) => {
-            let is_default = s.get("defaultProvider").and_then(|x| x.as_str())
-                == Some(provider_id);
+            let is_default = s.get("defaultProvider").and_then(|x| x.as_str()) == Some(provider_id);
             if is_default {
                 let obj = s
                     .as_object_mut()
@@ -553,8 +542,12 @@ mod tests {
         let v = render_pi_model(&m);
         assert_eq!(v["cost"]["input"], 0.14);
         assert_eq!(v["cost"]["cacheWrite"], 0);
-        let mut keys: Vec<&str> =
-            v["cost"].as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = v["cost"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
         assert_eq!(
             keys,
@@ -610,29 +603,30 @@ mod tests {
         assert!(r.errors.is_empty());
 
         // models.json: existing provider preserved verbatim; new provider added.
-        let after: Value =
-            serde_json::from_str(&std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap())
-                .unwrap();
+        let after: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(after["unknownKey"], 42, "unknown top-level key preserved");
         assert_eq!(
-            after["providers"]["existing-prov"]["apiKey"],
-            "sk-other-key-xxxx",
+            after["providers"]["existing-prov"]["apiKey"], "sk-other-key-xxxx",
             "existing provider untouched"
         );
         assert_eq!(
             after["providers"]["existing-prov"]["models"][0]["custom"],
             "keep-me"
         );
-        assert_eq!(after["providers"]["aruoshui"]["baseUrl"], "https://ai.aruoshui.com/v1");
         assert_eq!(
-            after["providers"]["aruoshui"]["apiKey"],
-            "sk-real-key-xxxx"
+            after["providers"]["aruoshui"]["baseUrl"],
+            "https://ai.aruoshui.com/v1"
         );
+        assert_eq!(after["providers"]["aruoshui"]["apiKey"], "sk-real-key-xxxx");
 
         // settings.json: only defaultProvider/defaultModel set; extra preserved.
-        let s: Value =
-            serde_json::from_str(&std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap())
-                .unwrap();
+        let s: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(s["defaultProvider"], "aruoshui");
         assert_eq!(s["defaultModel"], "deepseek-v4-pro");
         assert_eq!(s["extra"], "keep");
@@ -689,9 +683,10 @@ mod tests {
 
         // settings.json: still written.
         assert!(r.written.iter().any(|w| w.path.contains("settings.json")));
-        let s: Value =
-            serde_json::from_str(&std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap())
-                .unwrap();
+        let s: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(s["defaultProvider"], "aruoshui");
     }
 
@@ -712,11 +707,7 @@ mod tests {
             .find(|w| w.path.contains("models.json"))
             .unwrap();
         assert!(models_written.backup.is_some(), "backup should exist");
-        assert!(models_written
-            .backup
-            .as_ref()
-            .unwrap()
-            .contains("aio-bak-"));
+        assert!(models_written.backup.as_ref().unwrap().contains("aio-bak-"));
     }
 
     #[test]
@@ -794,10 +785,8 @@ mod tests {
     }
 
     fn read_models(home: &std::path::Path) -> Value {
-        serde_json::from_str(
-            &std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap(),
-        )
-        .unwrap()
+        serde_json::from_str(&std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap())
+            .unwrap()
     }
 
     fn read_settings(home: &std::path::Path) -> Value {
@@ -823,15 +812,24 @@ mod tests {
 
         let after = read_models(&home);
         // Patched keys changed.
-        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://new.example/v1");
+        assert_eq!(
+            after["providers"]["prov-a"]["baseUrl"],
+            "https://new.example/v1"
+        );
         assert_eq!(after["providers"]["prov-a"]["api"], "openai-responses");
         assert_eq!(after["providers"]["prov-a"]["apiKey"], "sk-new-key-xxxx");
         assert_eq!(after["providers"]["prov-a"]["name"], "Ignored For Pi");
         // Node's models (incl. cost) preserved verbatim.
         assert_eq!(after["providers"]["prov-a"]["models"][0]["id"], "model-a");
-        assert_eq!(after["providers"]["prov-a"]["models"][0]["cost"]["input"], 1.4e-7);
+        assert_eq!(
+            after["providers"]["prov-a"]["models"][0]["cost"]["input"],
+            1.4e-7
+        );
         // Sibling provider and unknown top-level key untouched.
-        assert_eq!(after["providers"]["prov-b"]["baseUrl"], "https://b.example/v1");
+        assert_eq!(
+            after["providers"]["prov-b"]["baseUrl"],
+            "https://b.example/v1"
+        );
         assert_eq!(after["unknownKey"], 42);
     }
 
@@ -849,7 +847,10 @@ mod tests {
         let after = read_models(&home);
         assert!(after["providers"]["prov-a"].get("name").is_none());
         // Other fields survive.
-        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://a.example/v1");
+        assert_eq!(
+            after["providers"]["prov-a"]["baseUrl"],
+            "https://a.example/v1"
+        );
     }
 
     #[test]
@@ -866,7 +867,10 @@ mod tests {
         let after = read_models(&home);
         assert!(after["providers"]["prov-a"].get("apiKey").is_none());
         // Other fields survive.
-        assert_eq!(after["providers"]["prov-a"]["baseUrl"], "https://a.example/v1");
+        assert_eq!(
+            after["providers"]["prov-a"]["baseUrl"],
+            "https://a.example/v1"
+        );
     }
 
     #[test]

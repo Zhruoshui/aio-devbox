@@ -48,8 +48,8 @@ use std::path::Path;
 use aio_models::store::{read_config, write_config, CanonicalConfig, StoreError};
 use serde::Deserialize;
 
-use crate::routes::models::{apply_selected_agents, parse_agent_subset};
 use crate::routes::models::render::{home_dir, Agent};
+use crate::routes::models::{apply_selected_agents, parse_agent_subset};
 use crate::state::AppState;
 
 /// Pull period (design §3.7: startup + every 60s).
@@ -78,7 +78,11 @@ struct SyncPayload {
 /// sandbox has no assigned profile" marker (404 — deliberately distinct
 /// from Err so the loop can log it at debug, not warn).
 enum Fetched {
-    Payload(SyncPayload),
+    // Boxed (clippy::large_enum_variant): SyncPayload carries a whole
+    // CanonicalConfig; the Unassigned marker (404 → 保持本地) is the common
+    // idle case for unassigned sandboxes, so the enum must not pay the
+    // payload's size on every cycle's local.
+    Payload(Box<SyncPayload>),
     Unassigned,
 }
 
@@ -106,7 +110,7 @@ pub fn spawn_mgr_sync(state: AppState) {
                     );
                 }
                 Ok(Fetched::Payload(payload)) => {
-                    if let Err(e) = apply(&state, payload, &mut last_agents).await {
+                    if let Err(e) = apply(&state, *payload, &mut last_agents).await {
                         tracing::warn!("mgr sync: {e}; keeping local cache");
                     }
                 }
@@ -230,7 +234,7 @@ async fn fetch(state: &AppState) -> Result<Fetched, String> {
     }
     resp.json::<SyncPayload>()
         .await
-        .map(|payload| Fetched::Payload(payload))
+        .map(|payload| Fetched::Payload(Box::new(payload)))
         .map_err(|e| format!("GET {url}: decode response: {e}"))
 }
 
@@ -350,10 +354,9 @@ mod tests {
 
         // Provider added/removed.
         let mut extra = sample_config("sk-key");
-        extra.providers.insert(
-            "prov-b".to_string(),
-            ProviderEntry::default(),
-        );
+        extra
+            .providers
+            .insert("prov-b".to_string(), ProviderEntry::default());
         assert!(config_differs(&a, &extra));
 
         // Empty local (fresh sandbox) differs from a non-empty mgr config.
@@ -408,7 +411,10 @@ mod tests {
         });
         let p: SyncPayload = serde_json::from_value(j).expect("mgr sync shape decodes");
         assert_eq!(p.version, 3);
-        assert_eq!(p.config.providers["prov-a"].api_key.as_deref(), Some("sk-real"));
+        assert_eq!(
+            p.config.providers["prov-a"].api_key.as_deref(),
+            Some("sk-real")
+        );
         assert_eq!(p.config.agents.pi.as_ref().unwrap().model, "model-a");
         assert_eq!(
             p.agents.as_deref(),
@@ -504,7 +510,10 @@ mod tests {
 
         // Store: BOTH assignments land (whole-document override).
         let back = read_config(&models_file).unwrap();
-        assert!(back.agents.opencode.is_some(), "store keeps the whole config");
+        assert!(
+            back.agents.opencode.is_some(),
+            "store keeps the whole config"
+        );
         // Render: pi in subset -> rendered; opencode out of subset -> untouched.
         assert!(home.join(".pi/agent/settings.json").exists());
         assert!(
@@ -576,11 +585,8 @@ mod tests {
     fn parse_agent_subset_drops_unknown_names() {
         // Unknown agent names are ignored (warn at runtime) — one bad entry
         // from an unknown mgr version never fails the pull.
-        let parsed = parse_agent_subset(&[
-            "pi".to_string(),
-            "bogus".to_string(),
-            "codex".to_string(),
-        ]);
+        let parsed =
+            parse_agent_subset(&["pi".to_string(), "bogus".to_string(), "codex".to_string()]);
         assert_eq!(parsed.len(), 2);
         assert!(parsed.contains(&Agent::Pi));
         assert!(parsed.contains(&Agent::Codex));

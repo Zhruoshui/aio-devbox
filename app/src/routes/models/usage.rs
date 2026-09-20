@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::state::AppState;
 use super::render::home_dir;
+use crate::state::AppState;
 use aio_models::store::{read_config, CanonicalConfig, CostEntry};
 
 /// Cache TTL (design §6: 30s).
@@ -187,15 +187,18 @@ pub async fn usage(
     let mut day_buckets: BTreeMap<(String, String, String), DayUsage> = BTreeMap::new();
     let mut merge_day = |d: DayUsage| {
         let key = (d.date.clone(), d.agent.clone(), d.model.clone());
-        day_buckets.entry(key).and_modify(|existing| {
-            existing.r#in += d.r#in;
-            existing.out += d.out;
-            existing.cache_read += d.cache_read;
-            existing.cache_write += d.cache_write;
-            if let Some(c) = d.cost {
-                existing.cost = Some(existing.cost.unwrap_or(0.0) + c);
-            }
-        }).or_insert(d);
+        day_buckets
+            .entry(key)
+            .and_modify(|existing| {
+                existing.r#in += d.r#in;
+                existing.out += d.out;
+                existing.cache_read += d.cache_read;
+                existing.cache_write += d.cache_write;
+                if let Some(c) = d.cost {
+                    existing.cost = Some(existing.cost.unwrap_or(0.0) + c);
+                }
+            })
+            .or_insert(d);
     };
 
     // Each scanner swallows its own errors and contributes nothing on failure.
@@ -283,20 +286,20 @@ fn build_14_day_series(
 }
 
 /// Merge a row into the bucket map (sums tokens/cost for matching identity).
-fn merge_row(
-    buckets: &mut BTreeMap<(String, Option<String>, String), UsageRow>,
-    row: UsageRow,
-) {
+fn merge_row(buckets: &mut BTreeMap<(String, Option<String>, String), UsageRow>, row: UsageRow) {
     let key = (row.agent.clone(), row.provider.clone(), row.model.clone());
-    buckets.entry(key).and_modify(|existing| {
-        existing.r#in += row.r#in;
-        existing.out += row.out;
-        existing.cache_read += row.cache_read;
-        existing.cache_write += row.cache_write;
-        if let Some(c) = row.cost {
-            existing.cost = Some(existing.cost.unwrap_or(0.0) + c);
-        }
-    }).or_insert(row);
+    buckets
+        .entry(key)
+        .and_modify(|existing| {
+            existing.r#in += row.r#in;
+            existing.out += row.out;
+            existing.cache_read += row.cache_read;
+            existing.cache_write += row.cache_write;
+            if let Some(c) = row.cost {
+                existing.cost = Some(existing.cost.unwrap_or(0.0) + c);
+            }
+        })
+        .or_insert(row);
 }
 
 /// Compute the cutoff epoch seconds for a window (pure, testable).
@@ -372,13 +375,19 @@ fn is_leap(y: i64) -> bool {
 pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> UsageScan {
     let sessions = home.join(".pi/agent/sessions");
     if !sessions.is_dir() {
-        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+        return UsageScan {
+            rows: Vec::new(),
+            by_day: Vec::new(),
+        };
     }
     let files = match collect_jsonl(&sessions) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::pi", "collect jsonl: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
 
@@ -421,16 +430,18 @@ pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Us
             // window-independent: the scanner must see every record regardless
             // of the window cutoff).
             let t = parse_timestamp_secs(&v).unwrap_or(mtime_secs);
-            let day_bucket = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
-                date: String::new(),
-                agent: "pi".into(),
-                model: model.clone(),
-                r#in: 0,
-                out: 0,
-                cache_read: 0,
-                cache_write: 0,
-                cost: None,
-            });
+            let day_bucket = day_buckets
+                .entry(((t / 86400) as i64, model.clone()))
+                .or_insert(DayUsage {
+                    date: String::new(),
+                    agent: "pi".into(),
+                    model: model.clone(),
+                    r#in: 0,
+                    out: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    cost: None,
+                });
             day_bucket.r#in += as_u64(usage.get("input"));
             day_bucket.out += as_u64(usage.get("output"));
             day_bucket.cache_read += as_u64(usage.get("cacheRead"));
@@ -504,7 +515,10 @@ fn find_provider_for_model(canonical: &CanonicalConfig, model_id: &str) -> Optio
 pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
     let db = home.join(".local/share/opencode/opencode.db");
     if !db.exists() {
-        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+        return UsageScan {
+            rows: Vec::new(),
+            by_day: Vec::new(),
+        };
     }
     let conn = match rusqlite::Connection::open_with_flags(
         &db,
@@ -513,7 +527,10 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
         Ok(c) => c,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "open db: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
 
@@ -521,7 +538,10 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
         Ok(s) => s,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "prepare: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
     let rows_iter = match stmt.query_map([], |row| {
@@ -532,7 +552,10 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
         Ok(it) => it,
         Err(e) => {
             tracing::debug!(target: "models::usage::opencode", "query: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
 
@@ -650,13 +673,19 @@ pub fn scan_opencode(home: &Path, cutoff_ms: u64) -> UsageScan {
 pub fn scan_claude(home: &Path, cutoff_secs: u64) -> UsageScan {
     let projects = home.join(".claude/projects");
     if !projects.is_dir() {
-        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+        return UsageScan {
+            rows: Vec::new(),
+            by_day: Vec::new(),
+        };
     }
     let files = match collect_jsonl(&projects) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::claude", "collect jsonl: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
 
@@ -692,16 +721,18 @@ pub fn scan_claude(home: &Path, cutoff_secs: u64) -> UsageScan {
             let t = parse_timestamp_secs(&v).unwrap_or(mtime_secs);
             // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
             // window-independent; claude logs no cost => cost stays None).
-            let day = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
-                date: String::new(),
-                agent: "claude".into(),
-                model: model.clone(),
-                r#in: 0,
-                out: 0,
-                cache_read: 0,
-                cache_write: 0,
-                cost: None,
-            });
+            let day = day_buckets
+                .entry(((t / 86400) as i64, model.clone()))
+                .or_insert(DayUsage {
+                    date: String::new(),
+                    agent: "claude".into(),
+                    model: model.clone(),
+                    r#in: 0,
+                    out: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    cost: None,
+                });
             day.r#in += as_u64(usage.get("input_tokens"));
             day.out += as_u64(usage.get("output_tokens"));
             day.cache_read += as_u64(usage.get("cache_read_input_tokens"));
@@ -749,13 +780,19 @@ pub fn scan_claude(home: &Path, cutoff_secs: u64) -> UsageScan {
 pub fn scan_codex(home: &Path, cutoff_secs: u64) -> UsageScan {
     let sessions = home.join(".codex/sessions");
     if !sessions.is_dir() {
-        return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+        return UsageScan {
+            rows: Vec::new(),
+            by_day: Vec::new(),
+        };
     }
     let files = match collect_jsonl(&sessions) {
         Ok(f) => f,
         Err(e) => {
             tracing::debug!(target: "models::usage::codex", "collect jsonl: {e}");
-            return UsageScan { rows: Vec::new(), by_day: Vec::new() };
+            return UsageScan {
+                rows: Vec::new(),
+                by_day: Vec::new(),
+            };
         }
     };
 
@@ -782,11 +819,11 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> UsageScan {
             if v.get("type").and_then(|x| x.as_str()) == Some("turn_context")
                 || v.get("TurnContext").is_some()
             {
-                if let Some(m) = v
-                    .get("model")
-                    .and_then(|x| x.as_str())
-                    .or_else(|| v.get("TurnContext").and_then(|t| t.get("model")).and_then(|m| m.as_str()))
-                {
+                if let Some(m) = v.get("model").and_then(|x| x.as_str()).or_else(|| {
+                    v.get("TurnContext")
+                        .and_then(|t| t.get("model"))
+                        .and_then(|m| m.as_str())
+                }) {
                     if !m.is_empty() {
                         last_model = Some(m.to_string());
                     }
@@ -814,16 +851,18 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> UsageScan {
             // S4: accumulate the per-day bucket FIRST (design §1.2 — byDay is
             // window-independent; codex logs no cost => cost stays None).
             let model = last_model.clone().unwrap_or_else(|| "unknown".to_string());
-            let day = day_buckets.entry(((t / 86400) as i64, model.clone())).or_insert(DayUsage {
-                date: String::new(),
-                agent: "codex".into(),
-                model: model.clone(),
-                r#in: 0,
-                out: 0,
-                cache_read: 0,
-                cache_write: 0,
-                cost: None,
-            });
+            let day = day_buckets
+                .entry(((t / 86400) as i64, model.clone()))
+                .or_insert(DayUsage {
+                    date: String::new(),
+                    agent: "codex".into(),
+                    model: model.clone(),
+                    r#in: 0,
+                    out: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    cost: None,
+                });
             day.r#in += as_u64(total.get("input_tokens"));
             day.out += as_u64(total.get("output_tokens"));
             day.cache_read += as_u64(total.get("cached_input_tokens"));
@@ -904,10 +943,7 @@ struct CostHit<'a> {
 }
 
 /// Find cost candidates whose canonical model id matches `model` exactly.
-fn exact_model_hits<'a>(
-    canonical: &'a CanonicalConfig,
-    model: &str,
-) -> Vec<CostHit<'a>> {
+fn exact_model_hits<'a>(canonical: &'a CanonicalConfig, model: &str) -> Vec<CostHit<'a>> {
     let mut out = Vec::new();
     for (id, provider) in &canonical.providers {
         if let Some(entry) = provider
@@ -948,10 +984,7 @@ fn is_version_suffix(s: &str) -> bool {
 /// (`claude-sonnet-4-20250514` vs `claude-sonnet-4`). Forward direction only —
 /// a shorter row id matching a longer canonical id ("gpt" vs "gpt-5") is too
 /// risky. Longest canonical id wins (most specific match).
-fn fuzzy_model_hits<'a>(
-    canonical: &'a CanonicalConfig,
-    model: &str,
-) -> Vec<CostHit<'a>> {
+fn fuzzy_model_hits<'a>(canonical: &'a CanonicalConfig, model: &str) -> Vec<CostHit<'a>> {
     let mut out: Vec<CostHit<'a>> = Vec::new();
     for (id, provider) in &canonical.providers {
         for m in &provider.models {
@@ -971,7 +1004,11 @@ fn fuzzy_model_hits<'a>(
         }
     }
     // Most specific (longest matched canonical id) first, then stable by id.
-    out.sort_by(|a, b| b.model_len.cmp(&a.model_len).then(a.provider.cmp(&b.provider)));
+    out.sort_by(|a, b| {
+        b.model_len
+            .cmp(&a.model_len)
+            .then(a.provider.cmp(&b.provider))
+    });
     out
 }
 
@@ -1033,7 +1070,6 @@ pub fn backfill_cost(rows: &mut [UsageRow], canonical: &CanonicalConfig) {
         // No hit: cost stays as-is (None, or the logged 0 for free models).
     }
 }
-
 
 /// Recursively collect all `.jsonl` files under `root`. Missing dir is an
 /// error (caller decides to skip).
@@ -1159,9 +1195,17 @@ fn as_u64(v: Option<&Value>) -> u64 {
     match v {
         Some(Value::Number(n)) => {
             if let Some(i) = n.as_i64() {
-                if i < 0 { 0 } else { i as u64 }
+                if i < 0 {
+                    0
+                } else {
+                    i as u64
+                }
             } else if let Some(f) = n.as_f64() {
-                if f.is_finite() && f > 0.0 { f as u64 } else { 0 }
+                if f.is_finite() && f > 0.0 {
+                    f as u64
+                } else {
+                    0
+                }
             } else {
                 0
             }
@@ -1275,7 +1319,7 @@ mod tests {
         let d1 = d0 + 86400;
         let ts0 = format_iso_utc(d0 as u64);
         let ts1 = format_iso_utc(d1 as u64);
-        let lines = vec![
+        let lines = [
             format!(
                 r#"{{"type":"assistant","timestamp":"{ts0}","message":{{"model":"m1","usage":{{"input":100,"output":10}}}}}}"#
             ),
@@ -1327,7 +1371,10 @@ mod tests {
 
     #[test]
     fn iso_z_suffix() {
-        assert_eq!(iso8601_to_epoch("2023-11-14T22:13:20Z"), Some(1_700_000_000));
+        assert_eq!(
+            iso8601_to_epoch("2023-11-14T22:13:20Z"),
+            Some(1_700_000_000)
+        );
     }
 
     #[test]
@@ -1378,7 +1425,7 @@ mod tests {
         // REAL pi jsonl shape: `model` and `usage` are nested under the
         // top-level `message` object; `timestamp` is at the record root.
         // Session header lines have no `message` and must be skipped.
-        let lines = vec![
+        let lines = [
             // session header line (no message -> skip)
             format!(
                 r#"{{"type":"summary","version":1,"id":"abc","timestamp":"{new_ts}","cwd":"/root/pi-cwd"}}"#
@@ -1409,12 +1456,9 @@ mod tests {
             ),
             // corrupt line (should be skipped)
             "{not json".to_string(),
-        ];
-        std::fs::write(
-            sessions.join("s1.jsonl"),
-            lines.join("\n"),
-        )
-        .unwrap();
+        ]
+        .to_vec();
+        std::fs::write(sessions.join("s1.jsonl"), lines.join("\n")).unwrap();
 
         let canonical = CanonicalConfig::default();
         // Cutoff = 0 (all): includes the pre-cutoff record too.
@@ -1546,9 +1590,13 @@ mod tests {
         let dir = temp_dir();
         let db_path = dir.join(".local/share/opencode/opencode.db");
         std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-        conn.execute("ATTACH DATABASE ?1 AS outdb", rusqlite::params![db_path.to_str().unwrap()])
+        conn.execute(
+            "ATTACH DATABASE ?1 AS outdb",
+            rusqlite::params![db_path.to_str().unwrap()],
+        )
+        .unwrap();
+        conn.execute("CREATE TABLE outdb.message AS SELECT * FROM message", [])
             .unwrap();
-        conn.execute("CREATE TABLE outdb.message AS SELECT * FROM message", []).unwrap();
         drop(conn);
 
         let rows = scan_opencode(&dir, 1_000_000).rows;
@@ -1584,14 +1632,15 @@ mod tests {
         let projects = dir.join(".claude/projects/proj");
         std::fs::create_dir_all(&projects).unwrap();
 
-        let lines = vec![
+        let lines = [
             // assistant record with usage + model
             r#"{"timestamp":"2099-01-01T00:00:00Z","message":{"model":"claude-3","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":5}}}"#,
             // user record (no usage, skip)
             r#"{"timestamp":"2099-01-01T00:00:00Z","message":{"role":"user"}}"#,
             // pre-cutoff (skip for non-zero cutoff)
             r#"{"timestamp":"2020-01-01T00:00:00Z","message":{"model":"claude-3","usage":{"input_tokens":999}}}"#,
-        ];
+        ]
+        .to_vec();
         std::fs::write(projects.join("s.jsonl"), lines.join("\n")).unwrap();
 
         let rows = scan_claude(&dir, 2_000_000_000).rows;
@@ -1620,7 +1669,7 @@ mod tests {
         let dir = temp_dir();
         let sessions = dir.join(".codex/sessions/2026/01/01");
         std::fs::create_dir_all(&sessions).unwrap();
-        let lines = vec![
+        let lines = [
             // turn context sets the model
             r#"{"type":"turn_context","model":"gpt-5"}"#,
             // token_count event uses last_model
@@ -1631,7 +1680,8 @@ mod tests {
             r#"{"type":"token_count","timestamp":"2099-01-01T00:00:00Z","info":{"total_token_usage":{"input_tokens":7,"output_tokens":8,"cached_input_tokens":1}}}"#,
             // pre-cutoff token_count (skip with non-zero cutoff)
             r#"{"type":"token_count","timestamp":"2020-01-01T00:00:00Z","info":{"total_token_usage":{"input_tokens":999}}}"#,
-        ];
+        ]
+        .to_vec();
         std::fs::write(sessions.join("rollout-x.jsonl"), lines.join("\n")).unwrap();
 
         let rows = scan_codex(&dir, 2_000_000_000).rows;
@@ -1807,6 +1857,7 @@ mod tests {
         (a - b).abs() < 1e-9
     }
 
+    #[allow(clippy::too_many_arguments)] // test fixture: mirrors UsageRow's 8 fields
     fn make_row(
         agent: &str,
         provider: Option<&str>,
@@ -1861,7 +1912,13 @@ mod tests {
             "prov-b".into(),
             ProviderEntry {
                 name: "B".into(),
-                models: vec![entry("m2", Some(CostEntry { input: Some(2.0), ..Default::default() }))],
+                models: vec![entry(
+                    "m2",
+                    Some(CostEntry {
+                        input: Some(2.0),
+                        ..Default::default()
+                    }),
+                )],
                 ..Default::default()
             },
         );
@@ -1869,7 +1926,13 @@ mod tests {
             "prov-c".into(),
             ProviderEntry {
                 name: "C".into(),
-                models: vec![entry("m1", Some(CostEntry { input: Some(9.9), ..Default::default() }))],
+                models: vec![entry(
+                    "m1",
+                    Some(CostEntry {
+                        input: Some(9.9),
+                        ..Default::default()
+                    }),
+                )],
                 ..Default::default()
             },
         );
@@ -1888,7 +1951,16 @@ mod tests {
     fn backfill_trusts_positive_logged_cost() {
         // A real logged cost is never touched (no double count).
         let canonical = cost_canonical();
-        let mut rows = vec![make_row("pi", Some("prov-a"), "m1", 1_000_000, 1_000_000, 0, 0, Some(0.5))];
+        let mut rows = vec![make_row(
+            "pi",
+            Some("prov-a"),
+            "m1",
+            1_000_000,
+            1_000_000,
+            0,
+            0,
+            Some(0.5),
+        )];
         backfill_cost(&mut rows, &canonical);
         assert_eq!(rows[0].cost, Some(0.5));
     }
@@ -1897,7 +1969,16 @@ mod tests {
     fn backfill_zero_logged_cost_computes_from_provider_model() {
         // pi/opencode always log 0 — that must fall through to backfill.
         let canonical = cost_canonical();
-        let mut rows = vec![make_row("pi", Some("prov-a"), "m1", 1_000_000, 1_000_000, 1_000_000, 1_000_000, Some(0.0))];
+        let mut rows = vec![make_row(
+            "pi",
+            Some("prov-a"),
+            "m1",
+            1_000_000,
+            1_000_000,
+            1_000_000,
+            1_000_000,
+            Some(0.0),
+        )];
         backfill_cost(&mut rows, &canonical);
         // Each bucket priced with its OWN rate: 0.14 + 0.28 + 0.0028 + 1.12.
         let expected = 0.14 + 0.28 + 0.0028 + 1.12;
@@ -1915,7 +1996,11 @@ mod tests {
         let mut rows = vec![make_row("claude", None, "m2", 500_000, 0, 0, 0, None)];
         backfill_cost(&mut rows, &canonical);
         // prov-b has input-only cost: 0.5M * 2.0 = 1.0; output/cache None -> 0.
-        assert!(rows[0].cost.map(|c| approx(c, 1.0)).unwrap_or(false), "cost = {:?}", rows[0].cost);
+        assert!(
+            rows[0].cost.map(|c| approx(c, 1.0)).unwrap_or(false),
+            "cost = {:?}",
+            rows[0].cost
+        );
         // Unambiguous match -> provider backfilled.
         assert_eq!(rows[0].provider.as_deref(), Some("prov-b"));
     }
@@ -1928,16 +2013,32 @@ mod tests {
         let mut rows = vec![make_row("claude", None, "m1", 1_000_000, 0, 0, 0, None)];
         backfill_cost(&mut rows, &canonical);
         assert!(rows[0].cost.is_some(), "cost must still be filled");
-        assert!(rows[0].provider.is_none(), "ambiguous match must not backfill provider");
+        assert!(
+            rows[0].provider.is_none(),
+            "ambiguous match must not backfill provider"
+        );
     }
 
     #[test]
     fn backfill_fuzzy_version_suffix_matches() {
         let canonical = cost_canonical();
         // Date-suffixed log id vs canonical id (the claude case).
-        let mut rows = vec![make_row("claude", None, "claude-sonnet-4-20250514", 1_000_000, 0, 0, 0, None)];
+        let mut rows = vec![make_row(
+            "claude",
+            None,
+            "claude-sonnet-4-20250514",
+            1_000_000,
+            0,
+            0,
+            0,
+            None,
+        )];
         backfill_cost(&mut rows, &canonical);
-        assert!(rows[0].cost.map(|c| approx(c, 0.14)).unwrap_or(false), "cost = {:?}", rows[0].cost);
+        assert!(
+            rows[0].cost.map(|c| approx(c, 0.14)).unwrap_or(false),
+            "cost = {:?}",
+            rows[0].cost
+        );
         assert_eq!(rows[0].provider.as_deref(), Some("prov-d"));
     }
 
@@ -1948,7 +2049,9 @@ mod tests {
         // deepseek-v4-flash-free wrongly priced at deepseek-v4-flash rates).
         let canonical = cost_canonical();
         for variant in ["claude-sonnet-4-free", "claude-sonnet-4-vision-exp"] {
-            let mut rows = vec![make_row("opencode", None, variant, 1_000_000, 0, 0, 0, None)];
+            let mut rows = vec![make_row(
+                "opencode", None, variant, 1_000_000, 0, 0, 0, None,
+            )];
             backfill_cost(&mut rows, &canonical);
             assert!(rows[0].cost.is_none(), "{variant} must not fuzzy-match");
         }
@@ -1967,7 +2070,16 @@ mod tests {
         }
         // Reverse direction (shorter row id) is rejected too: "gpt" must not
         // match a hypothetical "gpt-5".
-        let mut rows = vec![make_row("codex", None, "claude-sonnet", 1_000_000, 0, 0, 0, None)];
+        let mut rows = vec![make_row(
+            "codex",
+            None,
+            "claude-sonnet",
+            1_000_000,
+            0,
+            0,
+            0,
+            None,
+        )];
         backfill_cost(&mut rows, &canonical);
         assert!(rows[0].cost.is_none(), "reverse-prefix must not match");
     }
@@ -1975,7 +2087,16 @@ mod tests {
     #[test]
     fn backfill_no_match_leaves_cost_none() {
         let canonical = cost_canonical();
-        let mut rows = vec![make_row("codex", None, "totally-unknown", 100, 100, 0, 0, None)];
+        let mut rows = vec![make_row(
+            "codex",
+            None,
+            "totally-unknown",
+            100,
+            100,
+            0,
+            0,
+            None,
+        )];
         backfill_cost(&mut rows, &canonical);
         assert!(rows[0].cost.is_none(), "never invent a price");
         assert!(rows[0].provider.is_none());
@@ -1985,7 +2106,16 @@ mod tests {
     fn backfill_free_model_stays_zero() {
         // A logged 0 with no canonical hit stays 0 (real free tier), not None.
         let canonical = cost_canonical();
-        let mut rows = vec![make_row("opencode", Some("opencode"), "mimo-v2.5-free", 1_000, 500, 0, 0, Some(0.0))];
+        let mut rows = vec![make_row(
+            "opencode",
+            Some("opencode"),
+            "mimo-v2.5-free",
+            1_000,
+            500,
+            0,
+            0,
+            Some(0.0),
+        )];
         backfill_cost(&mut rows, &canonical);
         assert_eq!(rows[0].cost, Some(0.0));
     }
@@ -1994,7 +2124,16 @@ mod tests {
     fn zero_token_rows_dropped_in_handler_order() {
         // The handler's retain (design §3): all-zero rows are noise.
         let mut rows = vec![
-            make_row("opencode", Some("opencode"), "mimo-v2.5-free", 0, 0, 0, 0, Some(0.0)),
+            make_row(
+                "opencode",
+                Some("opencode"),
+                "mimo-v2.5-free",
+                0,
+                0,
+                0,
+                0,
+                Some(0.0),
+            ),
             make_row("pi", None, "m2", 7, 0, 0, 0, None),
         ];
         rows.retain(|r| r.r#in + r.out + r.cache_read + r.cache_write > 0);

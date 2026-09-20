@@ -35,7 +35,10 @@ impl SandboxEnv {
     /// scenario ids must NOT be always_on (implied, design §3.3 canonical),
     /// version ids must be versioned and their labels must be real versions.
     /// Returns the equivalent manifest for gen::assemble_for.
-    pub fn to_manifest_checked(&self, repo: &std::path::Path) -> Result<aio_config::manifest::Enabled> {
+    pub fn to_manifest_checked(
+        &self,
+        repo: &std::path::Path,
+    ) -> Result<aio_config::manifest::Enabled> {
         let known = aio_config::scenario::scan(&repo.join("scenarios"))?;
         let find = |id: &str| known.iter().find(|s| s.meta.id == id);
 
@@ -60,7 +63,12 @@ impl SandboxEnv {
             if !s.meta.versions.iter().any(|v| &v.label == label) {
                 bail!(
                     "version {label:?} not offered by scenario {id:?} (available: {})",
-                    s.meta.versions.iter().map(|v| v.label.as_str()).collect::<Vec<_>>().join(", ")
+                    s.meta
+                        .versions
+                        .iter()
+                        .map(|v| v.label.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
         }
@@ -178,7 +186,10 @@ mod tests {
     fn hash_is_sha256_hex() {
         // sha256("x") known constant - pins the hash choice (a future change
         // to the digest invalidates every stored env_hash, so lock it).
-        assert_eq!(env_hash("x"), "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
+        assert_eq!(
+            env_hash("x"),
+            "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+        );
     }
 
     #[test]
@@ -195,7 +206,10 @@ mod tests {
             scenarios: vec!["b".into(), "a".into()],
             versions: BTreeMap::new(),
         };
-        assert_eq!(env.canonical_json(), r#"{"scenarios":["a","b"],"versions":{}}"#);
+        assert_eq!(
+            env.canonical_json(),
+            r#"{"scenarios":["a","b"],"versions":{}}"#
+        );
     }
 
     #[test]
@@ -205,10 +219,19 @@ mod tests {
         // All-on: cs+vnc services with pi and pi-web as scenarios = `all`.
         let env = SandboxEnv {
             scenarios: vec!["node".into(), "python".into(), "pi".into(), "pi-web".into()],
-            versions: BTreeMap::from([("node".into(), "20".into()), ("python".into(), "3.12".into())]),
+            versions: BTreeMap::from([
+                ("node".into(), "20".into()),
+                ("python".into(), "3.12".into()),
+            ]),
         };
         assert_eq!(
-            describe_combo(&env, &Services { code_server: true, vnc: true }),
+            describe_combo(
+                &env,
+                &Services {
+                    code_server: true,
+                    vnc: true
+                }
+            ),
             "node+pi+pi-web+python node@20,python@3.12 [svc: all]"
         );
 
@@ -218,14 +241,26 @@ mod tests {
             versions: BTreeMap::new(),
         };
         assert_eq!(
-            describe_combo(&env2, &Services { code_server: true, vnc: true }),
+            describe_combo(
+                &env2,
+                &Services {
+                    code_server: true,
+                    vnc: true
+                }
+            ),
             "a+b [svc: cs,vnc]"
         );
 
         // Partial services: only on ones listed. pi/pi-web derived from
         // scenarios, NOT from Services.
         assert_eq!(
-            describe_combo(&env2, &Services { code_server: true, vnc: false }),
+            describe_combo(
+                &env2,
+                &Services {
+                    code_server: true,
+                    vnc: false
+                }
+            ),
             "a+b [svc: cs]"
         );
         let env3 = SandboxEnv {
@@ -235,7 +270,13 @@ mod tests {
         // pi/pi-web are SCENARIOS here (S1 normalization) — they surface in
         // the service list from the scenarios, not from Services.
         assert_eq!(
-            describe_combo(&env3, &Services { code_server: false, vnc: true }),
+            describe_combo(
+                &env3,
+                &Services {
+                    code_server: false,
+                    vnc: true
+                }
+            ),
             "pi+pi-web [svc: vnc,pi,piweb]"
         );
 
@@ -245,7 +286,13 @@ mod tests {
             versions: BTreeMap::new(),
         };
         assert_eq!(
-            describe_combo(&base, &Services { code_server: false, vnc: false }),
+            describe_combo(
+                &base,
+                &Services {
+                    code_server: false,
+                    vnc: false
+                }
+            ),
             "(base) [svc: none]"
         );
     }

@@ -75,10 +75,7 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// GET /api/usage — fan out to every running mgr-created sandbox.
-async fn usage(
-    State(state): State<Arc<AppState>>,
-    Query(q): Query<UsageQuery>,
-) -> Json<Value> {
+async fn usage(State(state): State<Arc<AppState>>, Query(q): Query<UsageQuery>) -> Json<Value> {
     // Same window normalization as the app route: unknown -> today (usage
     // is read-only and harmless; a 400 here would break the whole page for
     // a typo'd query param).
@@ -170,15 +167,20 @@ async fn fan_out(state: &Arc<AppState>, names: &[String], window: &str) -> Vec<V
     }
 
     if !to_fetch.is_empty() {
-        let fetches = to_fetch.iter().map(|(_, name)| fetch_one(state, name, window));
+        let fetches = to_fetch
+            .iter()
+            .map(|(_, name)| fetch_one(state, name, window));
         let outcomes = futures_util::future::join_all(fetches).await;
         let mut cache = state.usage_cache.lock().unwrap();
         for ((slot, name), outcome) in to_fetch.iter().zip(outcomes) {
             let entry = assemble_entry(name, outcome);
-            cache.insert(format!("{name}:{window}"), CachedUsage {
-                at: Instant::now(),
-                entry: entry.clone(),
-            });
+            cache.insert(
+                format!("{name}:{window}"),
+                CachedUsage {
+                    at: Instant::now(),
+                    entry: entry.clone(),
+                },
+            );
             results[*slot] = Some(entry);
         }
     }
@@ -204,7 +206,10 @@ async fn fetch_one(state: &Arc<AppState>, name: &str, window: &str) -> FetchOutc
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("HTTP {status}: {}", crate::models::truncate(&text, 200)));
+        return Err(format!(
+            "HTTP {status}: {}",
+            crate::models::truncate(&text, 200)
+        ));
     }
     serde_json::from_str(&text).map_err(|e| format!("invalid usage JSON: {e}"))
 }
@@ -313,14 +318,13 @@ mod tests {
             "error": null,
             "usage": { "rows": [], "generatedAt": "cached" },
         });
-        state
-            .usage_cache
-            .lock()
-            .unwrap()
-            .insert("alpha:today".into(), CachedUsage {
+        state.usage_cache.lock().unwrap().insert(
+            "alpha:today".into(),
+            CachedUsage {
                 at: Instant::now(),
                 entry: cached_entry.clone(),
-            });
+            },
+        );
 
         // "beta" is not cached: fan_out will try to reach it over HTTP,
         // fail fast (no such host in a test process), and record the error.
@@ -329,7 +333,10 @@ mod tests {
         assert_eq!(entries[0], cached_entry, "cache hit returned verbatim");
         assert_eq!(entries[1]["name"], "beta");
         assert!(
-            entries[1]["error"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+            entries[1]["error"]
+                .as_str()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false),
             "unreachable sandbox carries an error message"
         );
         assert!(entries[1]["usage"].is_null());
@@ -348,21 +355,23 @@ mod tests {
             "error": null,
             "usage": { "rows": [], "generatedAt": "stale" },
         });
-        state
-            .usage_cache
-            .lock()
-            .unwrap()
-            .insert("gamma:today".into(), CachedUsage {
+        state.usage_cache.lock().unwrap().insert(
+            "gamma:today".into(),
+            CachedUsage {
                 // checked_sub keeps the test robust if the clock is at the
                 // epoch; a panic here would mean the system clock is broken.
                 at: Instant::now()
                     .checked_sub(CACHE_TTL + CACHE_TTL)
                     .expect("test clock far past epoch"),
                 entry: stale,
-            });
+            },
+        );
         let entries = fan_out(&state, &["gamma".to_string()], "today").await;
         assert_eq!(entries.len(), 1);
-        assert_ne!(entries[0]["usage"]["generatedAt"], "stale", "expired entry refetched");
+        assert_ne!(
+            entries[0]["usage"]["generatedAt"], "stale",
+            "expired entry refetched"
+        );
     }
 
     #[tokio::test]

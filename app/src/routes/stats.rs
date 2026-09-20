@@ -111,7 +111,9 @@ fn effective_cpus() -> f64 {
             }
         }
     }
-    std::thread::available_parallelism().map(|n| n.get() as f64).unwrap_or(1.0)
+    std::thread::available_parallelism()
+        .map(|n| n.get() as f64)
+        .unwrap_or(1.0)
 }
 
 /// (used, total) from cgroup v2 memory files. total is None when unlimited.
@@ -125,7 +127,8 @@ fn read_mem() -> Option<(u64, Option<u64>)> {
         .ok()
         .and_then(|text| {
             text.lines().find_map(|l| {
-                l.strip_prefix("inactive_file ").and_then(|v| v.trim().parse::<u64>().ok())
+                l.strip_prefix("inactive_file ")
+                    .and_then(|v| v.trim().parse::<u64>().ok())
             })
         })
         .unwrap_or(0);

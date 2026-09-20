@@ -36,7 +36,7 @@ pub mod usage;
 // Canonical store (schema + read/write + mask/merge/validate) lives in the
 // aio-models crate (shared with the mgr control plane, sandbox-mgr Phase 0).
 use aio_models::store::{
-    ensure_preset_ids, merge_api_keys, mask_config, read_config, validate, write_config,
+    ensure_preset_ids, mask_config, merge_api_keys, read_config, validate, write_config,
     CanonicalConfig, ImportResponse, PutResponse, StoreError,
 };
 
@@ -50,7 +50,7 @@ use serde_json::{json, Value};
 
 use crate::config::{command_exists, resolve_path_dirs};
 use crate::state::AppState;
-use render::{home_dir, ApplyResult, Agent, ProviderPatch};
+use render::{home_dir, Agent, ApplyResult, ProviderPatch};
 
 /// GET /api/models/config — return the full canonical config with masked keys.
 pub async fn get_config(State(state): State<AppState>) -> Json<CanonicalConfig> {
@@ -128,8 +128,12 @@ pub async fn put_config(
     // Ensure version is always 1 on write.
     incoming.version = 1;
 
-    write_config(&state.models_file, &incoming)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write models.json: {e}")))?;
+    write_config(&state.models_file, &incoming).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("write models.json: {e}"),
+        )
+    })?;
 
     Ok(Json(PutResponse {
         ok: true,
@@ -163,9 +167,10 @@ pub async fn import_pi(
     };
 
     let result = aio_models::store::import_from_pi(&pi_path, &config).map_err(|e| match e {
-        StoreError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            (StatusCode::NOT_FOUND, "pi models.json not found".to_string())
-        }
+        StoreError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => (
+            StatusCode::NOT_FOUND,
+            "pi models.json not found".to_string(),
+        ),
         StoreError::Io(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("read pi models.json: {e}"),
@@ -180,8 +185,12 @@ pub async fn import_pi(
         config.providers.insert(id, provider);
     }
 
-    write_config(&state.models_file, &config)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write models.json: {e}")))?;
+    write_config(&state.models_file, &config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("write models.json: {e}"),
+        )
+    })?;
 
     Ok(Json(ImportResponse {
         ok: true,
@@ -266,12 +275,8 @@ pub async fn apply_agent(
     // defend against this, but returning 400 here gives a clean contract
     // to the frontend (the response body distinguishes "no assignment"
     // from "file write failed").
-    let agent_kind = Agent::from_str(&agent).ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("unknown agent '{agent}'"),
-        )
-    })?;
+    let agent_kind = Agent::from_str(&agent)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("unknown agent '{agent}'")))?;
     let has_assignment = match agent_kind {
         Agent::Pi => canonical.agents.pi.is_some(),
         Agent::Opencode => canonical.agents.opencode.is_some(),
@@ -336,7 +341,11 @@ pub(crate) fn apply_selected_agents(
 ) -> Vec<(&'static str, ApplyResult)> {
     let all: [(&'static str, Agent, bool); 4] = [
         ("pi", Agent::Pi, canonical.agents.pi.is_some()),
-        ("opencode", Agent::Opencode, canonical.agents.opencode.is_some()),
+        (
+            "opencode",
+            Agent::Opencode,
+            canonical.agents.opencode.is_some(),
+        ),
         ("claude", Agent::Claude, canonical.agents.claude.is_some()),
         ("codex", Agent::Codex, canonical.agents.codex.is_some()),
     ];
@@ -382,10 +391,7 @@ fn incremental_agent(agent: &str) -> Result<Agent, (StatusCode, String)> {
             StatusCode::BAD_REQUEST,
             format!("'{agent}' manages presets in the canonical config, not a live provider list"),
         )),
-        None => Err((
-            StatusCode::BAD_REQUEST,
-            format!("unknown agent '{agent}'"),
-        )),
+        None => Err((StatusCode::BAD_REQUEST, format!("unknown agent '{agent}'"))),
     }
 }
 
@@ -521,8 +527,12 @@ pub async fn sync_live_provider(
         config.providers.insert(id, provider);
     }
 
-    write_config(&state.models_file, &config)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write models.json: {e}")))?;
+    write_config(&state.models_file, &config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("write models.json: {e}"),
+        )
+    })?;
 
     Ok(Json(ImportResponse {
         ok: true,
@@ -928,8 +938,8 @@ mod tests {
 
     // ── sandbox-mgr managed mode (Phase 4b) ─────────────────────────
 
-    use aio_models::store::{AgentAssignment, ProviderEntry};
     use crate::state::AppState as TestAppState;
+    use aio_models::store::{AgentAssignment, ProviderEntry};
 
     fn test_state(mgr_url: Option<&str>) -> (TestAppState, std::path::PathBuf) {
         let dir = temp_home();
@@ -969,12 +979,9 @@ mod tests {
         assert_eq!(r, marker);
         let r = import_pi(State(state.clone())).await.unwrap_err();
         assert_eq!(r, marker);
-        let r = apply_agent(
-            State(state.clone()),
-            axum::extract::Path("pi".to_string()),
-        )
-        .await
-        .unwrap_err();
+        let r = apply_agent(State(state.clone()), axum::extract::Path("pi".to_string()))
+            .await
+            .unwrap_err();
         assert_eq!(r, marker);
         let r = edit_live_provider(
             State(state.clone()),
@@ -1063,7 +1070,11 @@ mod tests {
         let results = apply_all_agents(&canonical, &home);
         assert_eq!(results.len(), 1, "only assigned agents render");
         assert_eq!(results[0].0, "pi");
-        assert!(results[0].1.ok, "pi render must succeed: {:?}", results[0].1);
+        assert!(
+            results[0].1.ok,
+            "pi render must succeed: {:?}",
+            results[0].1
+        );
 
         let settings = std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap();
         assert!(settings.contains("prov-a"), "settings written: {settings}");
@@ -1130,7 +1141,11 @@ mod tests {
         let results = apply_selected_agents(&canonical, &home, Some(&[TestAgent::Pi]));
         assert_eq!(results.len(), 1, "only pi (in subset AND assigned)");
         assert_eq!(results[0].0, "pi");
-        assert!(results[0].1.ok, "pi render must succeed: {:?}", results[0].1);
+        assert!(
+            results[0].1.ok,
+            "pi render must succeed: {:?}",
+            results[0].1
+        );
         assert!(home.join(".pi/agent/settings.json").exists());
         assert!(
             !home.join(".config/opencode/opencode.jsonc").exists(),

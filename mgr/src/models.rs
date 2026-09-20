@@ -2436,7 +2436,7 @@ mod tests {
         register_sandbox(&state.db.lock().unwrap(), "alpha");
         {
             let conn = state.db.lock().unwrap();
-            let mut stored = two_profiles();
+            let stored = two_profiles();
             write_stored(&conn, &stored).unwrap();
         }
 
@@ -2559,7 +2559,7 @@ mod tests {
         register_sandbox(&conn, "alpha");
         {
             let conn = &conn;
-            let mut stored = two_profiles();
+            let stored = two_profiles();
             write_stored(conn, &stored).unwrap();
             let err = set_assignment(
                 conn,

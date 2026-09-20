@@ -94,18 +94,46 @@ function liveCls(live: string): string {
   }
 }
 
+/** Manifest id -> the installed_services flag that owns it (09-20-sandbox-
+ * service-buttons D2). The four built-in buttons render only when the
+ * sandbox was created WITH the service (mgr's list API carries
+ * installed_services per sandbox): a button for an uninstalled service can
+ * never work (no container / no binary), and the manifest's `enabled` alone
+ * is not enough - it cannot hide the on-demand codeServer entry (below), and
+ * pre-fix app images mis-report it (the `app` alias resolved cross-sandbox
+ * on the shared aio-mgr-net). Terminal and user-registered buttons are not
+ * in this map -> never gated. */
+const INSTALLED_GATE: Record<string, keyof Sandbox["installed_services"]> = {
+  codeServer: "code_server",
+  vnc: "vnc",
+  pi: "pi",
+  piWeb: "pi_web",
+};
+
 /** A sandbox's launchable buttons, in the workbench group order
- * (web -> tui -> custom) flattened into one list. Only ENABLED entries are
- * shown (the manifest's server-driven visibility: web buttons probe TCP,
- * agent buttons check command_exists) - with one deliberate exception:
- * ON_DEMAND services (D4: code-server) are shown even when disabled,
- * because "disabled" (nothing listening on app:8200) is exactly the state
- * the pane's start machine is FOR. type "page" entries (the sandbox's
- * modelsConfig pane) are deliberately EXCLUDED - mgr-web's own Models page
- * is that surface, and Phase 6 removes the entry from services.toml. */
-function buttonsOf(services: ServiceEntry[]): ServiceEntry[] {
+ * (web -> tui -> custom) flattened into one list. Two filters:
+ * 1. INSTALLED GATE (D2): a built-in button renders only when its service
+ *    was installed at create time (`installed` carries the mgr row's
+ *    installed_services; `undefined` = old backend without the field ->
+ *    no filtering, degrade gracefully). This gate runs FIRST, so an
+ *    uninstalled code-server never even reaches the ON_DEMAND exception -
+ *    "未安装即不渲染,不是置灰".
+ * 2. Server-driven visibility: only ENABLED entries are shown (web buttons
+ *    probe TCP, agent buttons check command_exists) - with one deliberate
+ *    exception: ON_DEMAND services (D4: code-server) are shown even when
+ *    disabled, because "disabled" (nothing listening on localhost:8200) is
+ *    exactly the state the pane's start machine is FOR. type "page" entries
+ *    are deliberately EXCLUDED - mgr-web's own Models page is that surface,
+ *    and Phase 6 removes the entry from services.toml. */
+function buttonsOf(
+  services: ServiceEntry[],
+  installed: Sandbox["installed_services"] | undefined,
+): ServiceEntry[] {
   const visible = services.filter(
-    (s) => (s.enabled || ON_DEMAND_SERVICE_IDS.has(s.id)) && s.type !== "page",
+    (s) =>
+      (installed === undefined || s.deletable || !INSTALLED_GATE[s.id] || installed[INSTALLED_GATE[s.id]]) &&
+      (s.enabled || ON_DEMAND_SERVICE_IDS.has(s.id)) &&
+      s.type !== "page",
   );
   return [
     ...visible.filter((s) => s.type === "web" && !s.deletable),
@@ -186,7 +214,8 @@ export function SandboxTree({
           if (collapsed) {
             const stopped = sb.live !== "running";
             const m = manifests[sb.name];
-            const buttons = m && m.services !== null ? buttonsOf(m.services) : null;
+            const buttons =
+              m && m.services !== null ? buttonsOf(m.services, sb.installed_services) : null;
             const fly = hoverSb === sb.name;
             return (
               <div
@@ -282,7 +311,8 @@ export function SandboxTree({
           const open = expanded.has(sb.name);
           const stopped = sb.live !== "running";
           const m = manifests[sb.name];
-          const buttons = m && m.services !== null ? buttonsOf(m.services) : null;
+          const buttons =
+            m && m.services !== null ? buttonsOf(m.services, sb.installed_services) : null;
           const openCount = paneCounts[sb.name] ?? 0;
           let hint: string | null = null;
           if (buttons === null) {

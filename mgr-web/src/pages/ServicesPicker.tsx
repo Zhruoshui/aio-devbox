@@ -45,16 +45,18 @@ export function ServicesPicker({ lang, services, onChange, readonly }: Props): J
   const set = (key: keyof ServicesInput, v: boolean) => {
     const next = { ...services, [key]: v };
     // pi-web dependency (mirror of routes.rs normalize_services): turning
-    // it on pulls pi + vnc; turning pi or vnc off while pi-web is on is
-    // refused (a broken pane > a silent toggle). The backend 400s the
-    // combination anyway - this is the client-side half of AC3.
+    // it on pulls pi + vnc; turning pi or vnc off while pi-web is on
+    // CASCADES pi-web off too (prd Req 1, user-confirmed: one flip lands the
+    // whole intent - the old silent "do nothing" left a toggle that seemed
+    // broken). The backend 400 line stays as the old-client defence; the
+    // cascade guarantees this client never sends the contradictory combo.
     if (key === "pi_web" && v) {
       next.pi = true;
       next.vnc = true;
     } else if (key === "pi" && !v && next.pi_web) {
-      return;
+      next.pi_web = false;
     } else if (key === "vnc" && !v && next.pi_web) {
-      return;
+      next.pi_web = false;
     }
     onChange(next);
   };
@@ -64,12 +66,19 @@ export function ServicesPicker({ lang, services, onChange, readonly }: Props): J
       {SERVICES.map(({ key, labelKey, descKey }) => {
         const on = services[key];
         const name = t(lang, labelKey);
+        // pi / VNC carry a "pi Web depends on this" tag while pi Web is on
+        // (Req 1): the cascade below will take them down together, so the
+        // dependency must be visible BEFORE the flip. Readonly (image
+        // detail) rows describe the past, not an editable state - no tag.
+        const dependedByPiWeb =
+          !readonly && services.pi_web && (key === "pi" || key === "vnc");
         return (
           <label key={key} className={`row${on ? "" : " off"}`}>
             <div className="main-col">
               <div className="name">
                 {name}
                 {key === "pi_web" && !readonly && <span className="lock">{t(lang, "svcPiWebDep")}</span>}
+                {dependedByPiWeb && <span className="lock">{t(lang, "svcDependedBy")}</span>}
               </div>
               <div className="desc">{t(lang, descKey)}</div>
             </div>

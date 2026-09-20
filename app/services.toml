@@ -14,6 +14,14 @@
 #          | "page" (native React pane provided by the app itself; always enabled)
 #   target - host:port to TCP-probe for liveness (type=web only). `enabled` in the
 #            manifest = whether this is currently reachable (reflects compose profiles).
+#            MUST be a localhost address: all sandboxes' app containers join the shared
+#            external network aio-mgr-net under the SAME compose service alias `app`,
+#            so `app:<port>` resolves cross-sandbox (another sandbox's code-server
+#            would report enabled here - observed 2026-09-20, task
+#            09-20-sandbox-service-buttons R1). code-server / vnc are
+#            `network_mode: service:app` sidecars sharing app's netns, and pi-web is
+#            self-started inside the app container (entrypoint.sh), so localhost
+#            probing reflects ONLY this sandbox. Never revert to the `app` alias.
 #   url    - iframe src (type=web only). Usually a gateway path (/code-server/);
 #            may be absolute with a `{host}` placeholder (IframePane substitutes
 #            window.location.hostname) for services that publish their own port
@@ -31,14 +39,17 @@
 [[service]]
 id = "codeServer"
 type = "web"
-target = "app:8200"
+# localhost: sidecar shares app's netns (see the target field note above -
+# the `app` alias is ambiguous on the shared aio-mgr-net).
+target = "localhost:8200"
 url = "/code-server/"
 label = "code-server"
 
 [[service]]
 id = "vnc"
 type = "web"
-target = "app:6080"
+# localhost: sidecar shares app's netns (see the target field note above).
+target = "localhost:6080"
 label = "Chromium"
 # `path=vnc/websockify` is REQUIRED: noVNC's ui.js builds the WS URL as
 # `ws://<host>:<port>/<path>` (absolute, it does NOT keep the /vnc/ subpath the
@@ -74,7 +85,8 @@ type = "web"
 # pi-web embedded in an iframe pane (was type=agent: a pty pane that merely
 # STARTED the server). The server is now autostarted at container boot by
 # app/entrypoint.sh (respawn loop, logs in ~/.aio/pi-web.log), and this entry
-# only points the pane at it - `enabled` TCP-probes app:30141, so the button
+# only points the pane at it - `enabled` TCP-probes localhost:30141 (inside
+# this app container), so the button
 # still auto-hides when the pi-web scenario isn't baked (nothing listens).
 #
 # Why a published-port URL (http://{host}:30141/) instead of a gateway path
@@ -99,10 +111,12 @@ type = "web"
 # the publish must equal PI_WEB_HOST_PORT (e.g. PI_WEB_HOST_PORT=30142 +
 # `sbx ports --publish 30142:30142`), so docker-compose passes
 # PI_WEB_HOST_PORT through (defaulting to 30141) - see the app service in
-# docker-compose.yml and issue #3. `target` stays app:30141: TCP liveness
-# probes the sandbox-net-internal port, which the host-side publish never
-# changes.
-target = "app:30141"
+# docker-compose.yml and issue #3. `target` is localhost:30141: TCP liveness
+# probes the port INSIDE the app container (pi-web is self-started there by
+# entrypoint.sh, so no publish is involved); probing the `app` alias would
+# resolve cross-sandbox on the shared aio-mgr-net (see the target field note
+# above - never revert). The host-side publish never changes this port.
+target = "localhost:30141"
 url = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/"
 label = "pi Web"
 

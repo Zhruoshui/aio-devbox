@@ -77,7 +77,10 @@ const CATEGORY_ORDER: &[&str] = &["os", "shell", "lang", "app", "service"];
 
 /// Sort key for a category. Lower = earlier in the TUI. Unknown -> usize::MAX.
 pub fn category_rank(category: &str) -> usize {
-    CATEGORY_ORDER.iter().position(|c| *c == category).unwrap_or(usize::MAX)
+    CATEGORY_ORDER
+        .iter()
+        .position(|c| *c == category)
+        .unwrap_or(usize::MAX)
 }
 
 /// Human-readable header for a category group in the TUI.
@@ -108,7 +111,9 @@ pub struct Scenario {
 /// fragment.Dockerfile is missing.
 pub fn scan(dir: &Path) -> Result<Vec<Scenario>> {
     let mut out = Vec::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("read scenarios dir {}", dir.display()))? {
+    for entry in
+        fs::read_dir(dir).with_context(|| format!("read scenarios dir {}", dir.display()))?
+    {
         let entry = entry?;
         let path = entry.path();
         if !path.is_dir() {
@@ -120,8 +125,8 @@ pub fn scan(dir: &Path) -> Result<Vec<Scenario>> {
         }
         let raw = fs::read_to_string(&toml_path)
             .with_context(|| format!("read {}", toml_path.display()))?;
-        let meta: ScenarioMeta = toml::from_str(&raw)
-            .with_context(|| format!("parse {}", toml_path.display()))?;
+        let meta: ScenarioMeta =
+            toml::from_str(&raw).with_context(|| format!("parse {}", toml_path.display()))?;
         let dir_name = entry.file_name().to_string_lossy().into_owned();
         if meta.id != dir_name {
             bail!(

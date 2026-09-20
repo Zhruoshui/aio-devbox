@@ -94,6 +94,10 @@ pub async fn spawn_create(
     Ok(job_id)
 }
 
+// The create/recreate job's full parameter list mirrors spawn_create's API
+// surface one-to-one; bundling into a struct would only reshuffle the same
+// eight values behind a new name.
+#[allow(clippy::too_many_arguments)]
 async fn run_create(
     state: Arc<AppState>,
     name: String,
@@ -181,7 +185,7 @@ async fn run_create(
     } else if services.code_server {
         append_log(&log, &format!("{cs_tag} exists, skip\n")).await;
     } else {
-        append_log(&log, &format!("code-server not installed, skip image\n")).await;
+        append_log(&log, "code-server not installed, skip image\n").await;
     }
     // vnc (see the build-switch comment above): global image, built only
     // when THIS sandbox has the vnc service and the shared tag is missing.
@@ -191,7 +195,7 @@ async fn run_create(
         append_log(&log, &out).await;
     }
     if !services.vnc {
-        append_log(&log, &format!("vnc not installed, skip vnc image\n")).await;
+        append_log(&log, "vnc not installed, skip vnc image\n").await;
     }
 
     {
@@ -359,10 +363,7 @@ pub async fn spawn_delete(state: Arc<AppState>, name: String, volumes: bool) -> 
 /// progress via GET /api/jobs/:id; a row is only removed after ALL group
 /// rmi succeed (R5: no half-removed row — a mid-group failure keeps the row
 /// so a future build upsert re-creates it).
-pub async fn spawn_image_delete(
-    state: Arc<AppState>,
-    env_hash: String,
-) -> Result<i64> {
+pub async fn spawn_image_delete(state: Arc<AppState>, env_hash: String) -> Result<i64> {
     let job_id = {
         let conn = state.db.lock().unwrap();
         db::insert_job(&conn, "image-delete", None)?
@@ -387,9 +388,8 @@ pub async fn spawn_image_delete(
         match result {
             Ok(reclaimed) => {
                 job.status = "ok".into();
-                job.log.push_str(&format!(
-                    "image-delete done: reclaimed {reclaimed} bytes\n"
-                ));
+                job.log
+                    .push_str(&format!("image-delete done: reclaimed {reclaimed} bytes\n"));
             }
             Err(e) => {
                 let msg = format!("{e:#}");
@@ -433,18 +433,12 @@ async fn run_image_delete(
         match docker::image_rmi(tag).await {
             Ok(out) => append_log(log, &format!("rmi {tag}: {out}")).await,
             Err(e) => {
-                anyhow::bail!(
-                    "rmi {tag} failed (row kept for rebuild): {e:#}"
-                );
+                anyhow::bail!("rmi {tag} failed (row kept for rebuild): {e:#}");
             }
         }
     }
     let deleted = db::delete_image_row(&st.db.lock().unwrap(), env_hash)?;
-    append_log(
-        log,
-        &format!("image row {env_hash} removed ({deleted})\n"),
-    )
-    .await;
+    append_log(log, &format!("image row {env_hash} removed ({deleted})\n")).await;
     Ok(reclaimed)
 }
 
@@ -489,10 +483,7 @@ pub async fn spawn_image_cleanup(state: Arc<AppState>) -> Result<i64> {
 /// Delete every refcount=0 image group + builder cache. Per-row failures are
 /// logged and continue (one bad row must not block the rest of the cleanup);
 /// the summary line reports images reclaimed (bytes) + cache reclaimed.
-async fn run_image_cleanup(
-    st: &Arc<AppState>,
-    log: &Arc<TokioMutex<JobShared>>,
-) -> Result<()> {
+async fn run_image_cleanup(st: &Arc<AppState>, log: &Arc<TokioMutex<JobShared>>) -> Result<()> {
     let rows = {
         let conn = st.db.lock().unwrap();
         db::list_images(&conn)?

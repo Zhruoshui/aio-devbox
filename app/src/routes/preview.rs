@@ -59,8 +59,14 @@ fn upstream_path(full_path: &str, port: u16) -> String {
 fn is_hop_by_hop(name: &header::HeaderName) -> bool {
     matches!(
         name.as_str(),
-        "connection" | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te"
-            | "trailer" | "transfer-encoding" | "upgrade"
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
     )
 }
 
@@ -84,7 +90,11 @@ pub async fn preview_proxy(
 ) -> Response {
     // Parse + validate the port. Non-numeric or forbidden ports fail fast with
     // 404 (an upstream that is not there), never a proxy attempt.
-    let Some(seg) = uri.path().strip_prefix("/preview/").and_then(|r| r.split('/').next()) else {
+    let Some(seg) = uri
+        .path()
+        .strip_prefix("/preview/")
+        .and_then(|r| r.split('/').next())
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let Ok(port) = seg.parse::<u16>() else {
@@ -142,7 +152,11 @@ async fn proxy_http(
         Err(e) => {
             // Connect refused / timeout: the dev server is not (yet) up.
             tracing::debug!("preview upstream {url} failed: {e}");
-            return (StatusCode::BAD_GATEWAY, format!("upstream {url} unreachable")).into_response();
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("upstream {url} unreachable"),
+            )
+                .into_response();
         }
     };
 
@@ -179,7 +193,9 @@ async fn proxy_ws(
         }
     };
     if let Some(proto) = headers.get(header::SEC_WEBSOCKET_PROTOCOL) {
-        request.headers_mut().insert(header::SEC_WEBSOCKET_PROTOCOL, proto.clone());
+        request
+            .headers_mut()
+            .insert(header::SEC_WEBSOCKET_PROTOCOL, proto.clone());
     }
 
     let upstream = match tokio::time::timeout(
@@ -226,16 +242,26 @@ async fn proxy_ws(
         let to_upstream = async move {
             while let Some(Ok(msg)) = cl_stream.next().await {
                 let msg = match msg {
-                    axum::extract::ws::Message::Text(t) => tokio_tungstenite::tungstenite::Message::Text(t),
-                    axum::extract::ws::Message::Binary(b) => tokio_tungstenite::tungstenite::Message::Binary(b.to_vec()),
-                    axum::extract::ws::Message::Ping(p) => tokio_tungstenite::tungstenite::Message::Ping(p.to_vec()),
-                    axum::extract::ws::Message::Pong(p) => tokio_tungstenite::tungstenite::Message::Pong(p.to_vec()),
-                    axum::extract::ws::Message::Close(c) => tokio_tungstenite::tungstenite::Message::Close(c.map(|f| {
-                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                            code: f.code.into(),
-                            reason: f.reason.into(),
-                        }
-                    })),
+                    axum::extract::ws::Message::Text(t) => {
+                        tokio_tungstenite::tungstenite::Message::Text(t)
+                    }
+                    axum::extract::ws::Message::Binary(b) => {
+                        tokio_tungstenite::tungstenite::Message::Binary(b.to_vec())
+                    }
+                    axum::extract::ws::Message::Ping(p) => {
+                        tokio_tungstenite::tungstenite::Message::Ping(p.to_vec())
+                    }
+                    axum::extract::ws::Message::Pong(p) => {
+                        tokio_tungstenite::tungstenite::Message::Pong(p.to_vec())
+                    }
+                    axum::extract::ws::Message::Close(c) => {
+                        tokio_tungstenite::tungstenite::Message::Close(c.map(|f| {
+                            tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                code: f.code.into(),
+                                reason: f.reason,
+                            }
+                        }))
+                    }
                 };
                 if up_sink.send(msg).await.is_err() {
                     break;
@@ -247,16 +273,26 @@ async fn proxy_ws(
         let to_client = async move {
             while let Some(Ok(msg)) = up_stream.next().await {
                 let msg = match msg {
-                    tokio_tungstenite::tungstenite::Message::Text(t) => axum::extract::ws::Message::Text(t),
-                    tokio_tungstenite::tungstenite::Message::Binary(b) => axum::extract::ws::Message::Binary(b),
-                    tokio_tungstenite::tungstenite::Message::Ping(p) => axum::extract::ws::Message::Ping(p),
-                    tokio_tungstenite::tungstenite::Message::Pong(p) => axum::extract::ws::Message::Pong(p),
-                    tokio_tungstenite::tungstenite::Message::Close(c) => axum::extract::ws::Message::Close(c.map(|f| {
-                        axum::extract::ws::CloseFrame {
-                            code: f.code.into(),
-                            reason: f.reason,
-                        }
-                    })),
+                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                        axum::extract::ws::Message::Text(t)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Binary(b) => {
+                        axum::extract::ws::Message::Binary(b)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Ping(p) => {
+                        axum::extract::ws::Message::Ping(p)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Pong(p) => {
+                        axum::extract::ws::Message::Pong(p)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Close(c) => {
+                        axum::extract::ws::Message::Close(c.map(|f| {
+                            axum::extract::ws::CloseFrame {
+                                code: f.code.into(),
+                                reason: f.reason,
+                            }
+                        }))
+                    }
                     // Raw frames carry extensions this proxy does not
                     // negotiate - drop them silently.
                     tokio_tungstenite::tungstenite::Message::Frame(_) => continue,
@@ -288,17 +324,35 @@ mod tests {
     fn upstream_path_strips_prefix() {
         assert_eq!(upstream_path("/preview/5173", 5173), "/");
         assert_eq!(upstream_path("/preview/5173/", 5173), "/");
-        assert_eq!(upstream_path("/preview/5173/src/main.tsx", 5173), "/src/main.tsx");
-        assert_eq!(upstream_path("/preview/5173/@vite/client", 5173), "/@vite/client");
+        assert_eq!(
+            upstream_path("/preview/5173/src/main.tsx", 5173),
+            "/src/main.tsx"
+        );
+        assert_eq!(
+            upstream_path("/preview/5173/@vite/client", 5173),
+            "/@vite/client"
+        );
         // A different port in the path must not be stripped (defensive - the
         // router only routes matching :port segments here).
-        assert_eq!(upstream_path("/preview/5173/preview/8088", 5173), "/preview/8088");
+        assert_eq!(
+            upstream_path("/preview/5173/preview/8088", 5173),
+            "/preview/8088"
+        );
     }
 
     #[test]
     fn hop_by_hop_filter_matches_rfc_7230() {
         let mk = |s: &str| header::HeaderName::from_bytes(s.as_bytes()).unwrap();
-        for h in ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"] {
+        for h in [
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+        ] {
             assert!(is_hop_by_hop(&mk(h)), "{h} must be stripped");
         }
         assert!(!is_hop_by_hop(&mk("content-type")));

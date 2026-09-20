@@ -68,7 +68,13 @@ pub fn apply_codex(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
         }
     };
 
-    if let Err(msg) = write_config_toml(&config_path, provider, assignment, &config_backup, &mut result) {
+    if let Err(msg) = write_config_toml(
+        &config_path,
+        provider,
+        assignment,
+        &config_backup,
+        &mut result,
+    ) {
         rollback_auth(&auth_path, auth_backup.as_deref(), &mut result);
         result.push_err(config_path.clone(), msg);
     }
@@ -141,9 +147,7 @@ fn write_config_toml(
                 return Err(format!("corrupt config.toml, not overwriting: {e}"));
             }
         },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            TomlValue::Table(Default::default())
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => TomlValue::Table(Default::default()),
         Err(e) => {
             return Err(format!("read config.toml: {e}"));
         }
@@ -154,10 +158,7 @@ fn write_config_toml(
         .expect("toml_root is a table at this point");
 
     // Top-level keys.
-    table.insert(
-        "model_provider".into(),
-        TomlValue::String("aio".into()),
-    );
+    table.insert("model_provider".into(), TomlValue::String("aio".into()));
     table.insert("model".into(), TomlValue::String(assignment.model.clone()));
     if let Some(effort) = &assignment.reasoning_effort {
         if !effort.is_empty() {
@@ -237,10 +238,7 @@ pub fn normalize_codex_base_url(base: &str) -> String {
         .split_once("://")
         .map(|(_, rest)| rest)
         .unwrap_or(trimmed);
-    let path = after_scheme
-        .split_once('/')
-        .map(|(_, p)| p)
-        .unwrap_or("");
+    let path = after_scheme.split_once('/').map(|(_, p)| p).unwrap_or("");
     if path.is_empty() && !trimmed.ends_with("/v1") {
         format!("{trimmed}/v1")
     } else {
@@ -387,10 +385,9 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         assert_eq!(r.written.len(), 2);
 
         // auth.json: OPENAI_API_KEY replaced, other key preserved.
-        let auth: Value = serde_json::from_str(
-            &std::fs::read_to_string(home.join(".codex/auth.json")).unwrap(),
-        )
-        .unwrap();
+        let auth: Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".codex/auth.json")).unwrap())
+                .unwrap();
         assert_eq!(auth["OPENAI_API_KEY"], "sk-real-key-xxxx");
         assert_eq!(auth["otherKey"], "keep");
 
@@ -399,7 +396,10 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         let toml_str = std::fs::read_to_string(home.join(".codex/config.toml")).unwrap();
         let parsed: TomlValue = toml_str.parse().unwrap();
         let tbl = parsed.as_table().unwrap();
-        assert_eq!(tbl.get("model_provider").and_then(|v| v.as_str()), Some("aio"));
+        assert_eq!(
+            tbl.get("model_provider").and_then(|v| v.as_str()),
+            Some("aio")
+        );
         assert_eq!(
             tbl.get("model").and_then(|v| v.as_str()),
             Some("deepseek-v4-pro")
@@ -434,7 +434,10 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
             aio.get("base_url").and_then(|v| v.as_str()),
             Some("https://ai.aruoshui.com/v1")
         );
-        assert_eq!(aio.get("wire_api").and_then(|v| v.as_str()), Some("responses"));
+        assert_eq!(
+            aio.get("wire_api").and_then(|v| v.as_str()),
+            Some("responses")
+        );
         assert_eq!(
             aio.get("requires_openai_auth").and_then(|v| v.as_bool()),
             Some(true)
@@ -495,10 +498,9 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         let mut cfg = sample_config();
         cfg.providers.get_mut("aruoshui").unwrap().api_key = Some(String::new());
         apply_codex(&home, &cfg);
-        let auth: Value = serde_json::from_str(
-            &std::fs::read_to_string(home.join(".codex/auth.json")).unwrap(),
-        )
-        .unwrap();
+        let auth: Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".codex/auth.json")).unwrap())
+                .unwrap();
         assert!(auth.get("OPENAI_API_KEY").is_none());
     }
 
@@ -553,7 +555,10 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         let r = apply_codex(&home, &sample_config());
 
         assert!(!r.ok);
-        assert!(r.errors.iter().any(|e| e.path.contains("auth.json") && e.message.contains("rolled back")));
+        assert!(r
+            .errors
+            .iter()
+            .any(|e| e.path.contains("auth.json") && e.message.contains("rolled back")));
         assert!(r.errors.iter().any(|e| e.path.contains("config.toml")));
         // auth.json restored to original.
         assert_eq!(

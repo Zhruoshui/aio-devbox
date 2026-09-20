@@ -56,10 +56,16 @@ pub async fn create_button(
 ) -> Result<(StatusCode, Json<ButtonOut>), (StatusCode, String)> {
     let label = input.label.trim();
     if label.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "label must be non-empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "label must be non-empty".to_string(),
+        ));
     }
     if label.len() > MAX_LEN {
-        return Err((StatusCode::BAD_REQUEST, format!("label must be <= {MAX_LEN} chars")));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("label must be <= {MAX_LEN} chars"),
+        ));
     }
 
     let (button_type, cmd, port) = validate_shape(&input)?;
@@ -74,8 +80,12 @@ pub async fn create_button(
         port,
     };
     defs.push(def.clone());
-    write_buttons_atomic(&state.buttons_file, &defs)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write buttons.toml: {e}")))?;
+    write_buttons_atomic(&state.buttons_file, &defs).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("write buttons.toml: {e}"),
+        )
+    })?;
 
     Ok((
         StatusCode::CREATED,
@@ -96,8 +106,14 @@ pub async fn create_button(
 /// Port 8088 is axum itself - proxying it would recurse
 /// (`/preview/8088/preview/...`), so it is rejected here and again at the
 /// proxy layer.
-fn validate_shape(input: &ButtonInput) -> Result<(String, String, Option<u16>), (StatusCode, String)> {
-    let button_type = if input.button_type.is_empty() { "agent" } else { input.button_type.as_str() };
+fn validate_shape(
+    input: &ButtonInput,
+) -> Result<(String, String, Option<u16>), (StatusCode, String)> {
+    let button_type = if input.button_type.is_empty() {
+        "agent"
+    } else {
+        input.button_type.as_str()
+    };
     match button_type {
         "agent" => {
             let cmd = input.cmd.trim();
@@ -105,7 +121,10 @@ fn validate_shape(input: &ButtonInput) -> Result<(String, String, Option<u16>), 
                 return Err((StatusCode::BAD_REQUEST, "cmd must be non-empty".to_string()));
             }
             if cmd.len() > MAX_LEN {
-                return Err((StatusCode::BAD_REQUEST, format!("cmd must be <= {MAX_LEN} chars")));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("cmd must be <= {MAX_LEN} chars"),
+                ));
             }
             Ok(("agent".to_string(), cmd.to_string(), None))
         }
@@ -117,7 +136,10 @@ fn validate_shape(input: &ButtonInput) -> Result<(String, String, Option<u16>), 
             // Web buttons store an empty cmd: the pty field is meaningless
             // here, and keeping the key makes hand-edits / round-trips stable.
             Some(p) => Ok(("web".to_string(), String::new(), Some(p))),
-            None => Err((StatusCode::BAD_REQUEST, "web buttons require a port".to_string())),
+            None => Err((
+                StatusCode::BAD_REQUEST,
+                "web buttons require a port".to_string(),
+            )),
         },
         other => Err((
             StatusCode::BAD_REQUEST,
@@ -148,7 +170,10 @@ pub async fn probe_port(
     Query(q): Query<ProbeQuery>,
 ) -> Result<Json<ProbeOut>, (StatusCode, String)> {
     let Ok(p) = q.port.parse::<u16>() else {
-        return Err((StatusCode::BAD_REQUEST, format!("port {:?} is not a number", q.port)));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("port {:?} is not a number", q.port),
+        ));
     };
     if p == 0 || p == 8088 {
         return Err((
@@ -176,7 +201,8 @@ pub async fn delete_button(
     if defs.len() == before {
         return Err(StatusCode::NOT_FOUND);
     }
-    write_buttons_atomic(&state.buttons_file, &defs).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    write_buttons_atomic(&state.buttons_file, &defs)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -187,7 +213,13 @@ fn slugify(label: &str) -> String {
     let s: String = label
         .trim()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     let s = s.trim_matches('-');
     if s.is_empty() {
@@ -257,8 +289,20 @@ mod tests {
         }];
         assert_eq!(unique_id("htop".into(), &defs), "htop-2");
         let defs2 = vec![
-            ButtonDef { id: "htop".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into(), port: None },
-            ButtonDef { id: "htop-2".into(), label: "x".into(), button_type: "agent".into(), cmd: "x".into(), port: None },
+            ButtonDef {
+                id: "htop".into(),
+                label: "x".into(),
+                button_type: "agent".into(),
+                cmd: "x".into(),
+                port: None,
+            },
+            ButtonDef {
+                id: "htop-2".into(),
+                label: "x".into(),
+                button_type: "agent".into(),
+                cmd: "x".into(),
+                port: None,
+            },
         ];
         assert_eq!(unique_id("htop".into(), &defs2), "htop-3");
     }
@@ -317,9 +361,11 @@ mod tests {
         // Bind an ephemeral listener so the test has a guaranteed-open port.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let out = probe_port(Query(ProbeQuery { port: port.to_string() }))
-            .await
-            .unwrap();
+        let out = probe_port(Query(ProbeQuery {
+            port: port.to_string(),
+        }))
+        .await
+        .unwrap();
         assert!(out.listening);
     }
 
@@ -327,9 +373,11 @@ mod tests {
     async fn probe_dead_port_not_listening() {
         // 65535: the only u16 port nothing may listen on by construction here
         // (port 0 is a probe-parameter error, not an address to dial).
-        let out = probe_port(Query(ProbeQuery { port: "65535".into() }))
-            .await
-            .unwrap();
+        let out = probe_port(Query(ProbeQuery {
+            port: "65535".into(),
+        }))
+        .await
+        .unwrap();
         assert!(!out.listening);
     }
 

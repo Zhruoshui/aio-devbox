@@ -250,8 +250,7 @@ pub fn backup_write_verify_json(
     bytes: &[u8],
     mode: u32,
 ) -> Result<Option<String>, String> {
-    let backup =
-        backup_and_atomic_write(path, bytes, mode).map_err(|e| format!("write: {e}"))?;
+    let backup = backup_and_atomic_write(path, bytes, mode).map_err(|e| format!("write: {e}"))?;
     if let Err(msg) = read_back_verify_json(path) {
         restore_backup_or_remove(path, backup.as_deref());
         return Err(format!("verify failed, restored: {msg}"));
@@ -444,11 +443,7 @@ mod tests {
         let count = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with(prefix)
-            })
+            .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
             .count();
         assert_eq!(count, 3, "should keep newest 3 backups");
     }
@@ -518,7 +513,10 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("bad.json");
         std::fs::write(&path, "{{not json").unwrap();
-        assert!(matches!(read_json_object(&path), Err(ReadError::Corrupt(_))));
+        assert!(matches!(
+            read_json_object(&path),
+            Err(ReadError::Corrupt(_))
+        ));
     }
 
     #[test]
@@ -526,7 +524,10 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("arr.json");
         std::fs::write(&path, "[1,2,3]").unwrap();
-        assert!(matches!(read_json_object(&path), Err(ReadError::Corrupt(_))));
+        assert!(matches!(
+            read_json_object(&path),
+            Err(ReadError::Corrupt(_))
+        ));
     }
 
     // --- ApplyResult ---
