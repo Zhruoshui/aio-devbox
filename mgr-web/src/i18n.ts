@@ -153,7 +153,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzVersion: "版本",
     wzServices: "服务",
     wzServicesHint: "创建时决定，之后不可更改。",
-    svcPiWebDep: "依赖 pi + VNC",
+    // 09-20 grouped services (09-20-sandbox-service-buttons): base vs combo
+    // group headings + live dependency status line under pi Web.
+    svcGroupBase: "基础服务",
+    svcGroupCombo: "组合服务",
+    svcDepends: "依赖",
+    svcCascadeHint: "关闭任一依赖将一并关闭 pi Web",
     svcDependedBy: "pi Web 依赖此服务",
     svcCsDesc: "浏览器里的 VS Code。容器不随沙箱启动，打开编辑器窗格时按需拉起，沙箱停止时一并停止。",
     svcVncDesc: "Xvnc + Chromium 侧车，为图形程序与 pi Web 的浏览器代理提供桌面。",
@@ -586,7 +591,11 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     wzVersion: "Version",
     wzServices: "Services",
     wzServicesHint: "Chosen at create time; cannot be changed later.",
-    svcPiWebDep: "needs pi + VNC",
+    // 09-20 grouped services (09-20-sandbox-service-buttons)
+    svcGroupBase: "Base services",
+    svcGroupCombo: "Combined services",
+    svcDepends: "depends",
+    svcCascadeHint: "Turning off either dependency also turns pi Web off",
     svcDependedBy: "required by pi Web",
     svcCsDesc: "VS Code in the browser. The container does not start with the sandbox; it is pulled up on demand when an editor pane opens and stops with the sandbox.",
     svcVncDesc: "Xvnc + Chromium sidecar, providing a desktop for graphical programs and pi Web's browser proxy.",
