@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/xterm-pane.md", "reason": "校验 ANSI 16 色接入是否守住 xterm 契约(热切换不重连、theme 字段完整性)"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build/typecheck/残留硬编码色检查标准"}
