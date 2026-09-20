@@ -39,6 +39,21 @@
   --warn: oklch(73.9% 0.177 58.2);
   --danger: oklch(63.7% 0.237 25.331);
 
+  /* Chart categorical palette (slots 1..6, fixed assignment order).
+   * Kumo-hued steps validated against the light surface (#fff) with the
+   * dataviz six checks: L-band, chroma floor, adjacent CVD Delta E >= 8,
+   * normal-vision floor >= 15, contrast. Slot 2 (2.66:1) ships with the
+   * relief channel the usage page already provides — text labels beside
+   * every mark plus the detail table. Charts/marks only, never text or
+   * status. Dark mode re-steps slots that fall outside its lightness band
+   * (see the [data-theme="dark"] block). */
+  --chart-1: #4290f0;
+  --chart-2: #d98f1f;
+  --chart-3: #e8649d;
+  --chart-4: #8d58ee;
+  --chart-5: #2aa394;
+  --chart-6: #d37536;
+
   /* Inter is used by Kumo's official documentation and Figma resources. */
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -131,6 +146,11 @@
   --success: oklch(76.5% 0.177 163.223);
   --warn: oklch(64.5% 0.168 50);
   --danger: oklch(57.7% 0.245 27.325);
+  /* Chart palette re-stepped for the dark surface (oklch 17% ≈ #0f0f0f):
+   * slots 2/3 sat outside the dark L-band and were re-picked on their own
+   * hue, then the six checks re-run — all PASS on this surface. */
+  --chart-2: #c4831b;
+  --chart-3: #dc5d90;
   --elev-raised: 0 1px 2px 0 oklch(0% 0 0 / 0.3);
   --focus-ring: 0 0 0 2px oklch(93.5% 0 0);
   --scrollbar-thumb: oklch(97% 0 0 / 0.22);
@@ -1854,10 +1874,8 @@ body {
   margin-bottom: var(--space-2);
 }
 .ml-stat-value {
-  font-family: var(--font-mono);
   font-size: var(--text-2xl);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   line-height: var(--leading-tight);
 }
@@ -1948,13 +1966,29 @@ body {
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
+/* Mark spec: 4px rounded data-end (right), square at the baseline (left).
+ * Mount animation grows the bar out of its baseline; the per-index
+ * animationDelay set inline staggers rows. Both ride the motion tokens, so
+ * prefers-reduced-motion collapses them to 0ms. */
 .ml-bar-fill {
   height: 100%;
-  border-radius: var(--radius-pill);
+  border-radius: 0 4px 4px 0;
   transition: width var(--motion-base) var(--ease-standard);
+  transform-origin: left center;
+  animation: ml-bar-in var(--motion-base) var(--ease-standard) backwards;
+}
+@keyframes ml-bar-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+/* hovered row lifts its fill (lighten) and emphasises the value */
+.ml-bar-row:hover .ml-bar-fill,
+.ml-sbx-bar:hover .ml-bar-fill {
+  filter: brightness(1.12);
 }
 .ml-bar-val {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
   color: var(--muted);
@@ -1969,6 +2003,9 @@ body {
 .ml-donut-svg {
   position: relative;
   flex-shrink: 0;
+  /* Recharts ResponsiveContainer needs a sized parent */
+  width: 160px;
+  height: 160px;
 }
 .ml-donut-center {
   position: absolute;
@@ -1978,6 +2015,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 2px;
+  /* never steal pointer events from the segments underneath */
+  pointer-events: none;
 }
 .ml-donut-total {
   font-size: var(--text-lg);
@@ -2072,6 +2111,49 @@ body {
 .ml-trend {
   width: 100%;
 }
+/* Recharts ComposedChart mount point: ResponsiveContainer manages height */
+.ml-trend-plot {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Recharts tooltip chrome (Kumo surface card) ─────────────────── */
+.ml-tip {
+  min-width: 140px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-ring), 0 4px 16px 0 oklch(0% 0 0 / 0.12);
+  font-size: var(--text-xs);
+}
+.ml-tip-title {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+.ml-tip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  line-height: var(--leading-tight);
+  padding: 1px 0;
+}
+/* line key (short stroke), not a filled box — a box is data-weight ink */
+.ml-tip-key {
+  width: 8px;
+  height: 3px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.ml-tip-label {
+  color: var(--muted);
+}
+/* value leads (strong), label follows — the legend hierarchy inverted */
+.ml-tip-val {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .ml-trend-legend {
   display: flex;
   align-items: center;
@@ -2093,12 +2175,13 @@ body {
   height: 8px;
   border-radius: 2px;
 }
-/* the cost line swatch is a line, not a fill */
+/* the cost line swatch is a line, not a fill (color set inline to match the
+ * series slot so it can never drift from the painted line) */
 .ml-trend-line-swatch {
   display: inline-block;
   width: 14px;
   height: 0;
-  border-top: 2px solid var(--text);
+  border-top: 2px solid var(--chart-4);
 }
 .ml-trend-tick {
   font-size: 10px;

@@ -690,7 +690,13 @@ export function fmtTokens(n: number): string {
 
 /** Format a USD cost: 4 decimals, plain otherwise. */
 export function fmtCost(n: number): string {
-  return `$${n.toFixed(4)}`;
+  // Adaptive precision: agent-level daily costs are routinely fractions of a
+  // cent ($0.0002/day is real), so a fixed 2-decimal format renders them all
+  // as "$0.00". >= $1 shows cents; >= $0.0001 keeps 4 decimals; smaller
+  // values extend to 6 so a real cost never displays as all-zeros.
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n >= 0.0001) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(6)}`;
 }
 
 /** Format a 0..1 ratio as a percentage with one decimal (0.724 -> "72.4%"). */
