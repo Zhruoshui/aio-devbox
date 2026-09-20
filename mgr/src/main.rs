@@ -100,8 +100,7 @@ async fn main() -> Result<()> {
     // /api/sbx/<name>/) off the SPA, and a fallback_service here would
     // override it back to serving HTML. ServeDir's own index.html fallback
     // keeps the hard-load robustness: any non-file path still serves the SPA.
-    let serve_dir =
-        ServeDir::new(&web_dir).fallback(ServeFile::new(web_dir.join("index.html")));
+    let serve_dir = ServeDir::new(&web_dir).fallback(ServeFile::new(web_dir.join("index.html")));
 
     let app = routes::router()
         .route("/", axum::routing::any_service(serve_dir.clone()))

@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "mgr compose/Caddyfile 生成的硬契约来源;D4 的唯一别名与路由裁剪须对齐既有契约形态,完成后该 spec 需回写共享网络别名唯一性契约"}
+{"file": "mgr/src/composegen.rs", "reason": "D4 修改目标:render_compose/render_caddyfile/generate 签名与既有单测风格(compose_omits_services_when_disabled)"}
+{"file": "app/services.toml", "reason": "D3 修改目标:三个 web target 改 localhost;头注释与行注释同步"}
+{"file": "mgr-web/src/pages/workspace/SandboxTree.tsx", "reason": "D2 修改目标:buttonsOf() 安装门控;ON_DEMAND_SERVICE_IDS 特例在此消费"}
+{"file": "mgr-web/src/pages/ServicesPicker.tsx", "reason": "D1 修改目标:set() 级联关闭 + 依赖标签;normalize_services 的客户端镜像"}
+{"file": "mgr-web/src/pages/workspace/types.ts", "reason": "ON_DEMAND_SERVICE_IDS 定义与 manifest 契约注释;D2 过滤需与其协同"}
+{"file": "mgr-web/src/types.ts", "reason": "Sandbox.installed_services 类型(owner);D2 消费"}
+{"file": "mgr/src/routes.rs", "reason": "installed_services_of/normalize_services 契约源头;D1 级联后不得改动其后端语义"}

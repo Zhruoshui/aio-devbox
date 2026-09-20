@@ -419,3 +419,49 @@ mgr-api 代理而非浏览器跨子域直连——理由: adopted 旧栈 app 镜
 该沙箱 manifest;终端 pane 经代理打字/resize 可用;未知沙箱 404 JSON;
 `curl http://mgr.localhost/api/sbx/<name>/preview/<port>/` 用户 web 按钮
 经代理可达。
+
+---
+
+## 契约 11: 共享网络服务别名唯一性——localhost 探测 + sbx-\<name\>-app 反代(09-20)
+
+**Trigger**: 任何给 `app/services.toml` 加/改 `target`、在 composegen 里
+写反代上游、或在 mgr-web 侧按 manifest `enabled` 过滤按钮的人。
+
+**事故形态**(2026-09-20 实测,任务 09-20-sandbox-service-buttons):
+每个沙箱的 app 容器都加入**共享外部网络** `aio-mgr-net`,compose 服务
+名 `app` 在该网络上**跨沙箱同名**——于是:
+
+- `app/services.toml` 的 web 探测 `app:8200/6080/30141` 从本沙箱 app
+  发起,DNS 却解析到**别的沙箱**的 app → 未安装的服务误报
+  `enabled: true`(最小沙箱 min1 的 codeServer/vnc/piWeb 全误报,来源
+  是 dev1)。
+- mgr 生成 Caddyfile 的 `reverse_proxy app:<port>` 同样歧义 → min1 的
+  `/code-server/`、`/vnc/` 返回 **200,实际代理 dev1 的编辑器/桌面**
+  (跨沙箱数据泄漏,读写双路径)。
+
+**规则**(修复后形态,勿回退):
+
+1. **services.toml 的 `target` 必须 localhost**(sidecar 共享 app netns,
+   pi-web 容器内自起):`localhost:8200` / `localhost:6080` /
+   `localhost:30141`。localhost 探测只反映本沙箱。
+2. **composegen 反代上游必须唯一别名**:app 在 sandbox-net 上带
+   `sbx-<name>-app` 别名,生成 Caddyfile 所有 `reverse_proxy`(含
+   catch-all `:8088`)拨 `sbx-<name>-app:<port>`。sandbox-net 是
+   project-scoped,别名天然唯一。
+3. **未安装即无路由**:Caddyfile 的 `/code-server/*`、`/vnc/*` 块按
+   `db::Services` 裁剪——未安装的服务不生成路由(落到 catch-all 返回
+   app 兜底页),不是留一条 502 死路由。
+4. **按钮双保险**:mgr-web `SandboxTree.buttonsOf` 的 `INSTALLED_GATE`
+   按 mgr 列表 API 的 `installed_services` 过滤四个内置按钮
+   (codeServer/vnc/pi/piWeb);`undefined`(老后端)与 `deletable`
+   (用户注册)不过滤,Terminal 恒显示。manifest `enabled` 单独不可靠
+   (探不倒 ON_DEMAND 特例,老镜像误报)。
+5. **services.toml 改动需换 app 镜像**:它是 `include_str!` 进二进制的,
+   env-hash 不变时 mgr 会复用旧镜像——须手动 `docker build` 同 tag
+   覆盖再 force-recreate app。
+
+**验证点**: 最小沙箱(四服务全关)`GET sbx-<name>.mgr.localhost/api/manifest`
+中 codeServer/vnc/piWeb `enabled:false`;其网关 `/code-server/` 返回
+app 兜底页而非另一沙箱的 VS Code;全开沙箱 code-server 按需启动后
+enabled 翻 true。composegen 单测:caddyfile 无 `reverse_proxy app:`、
+路由随安装集裁剪、compose 含 `sbx-{name}-app` 别名。

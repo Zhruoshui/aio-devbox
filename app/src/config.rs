@@ -281,7 +281,9 @@ pub(crate) fn mgr_url() -> Option<String> {
 /// same way, so the local cache stays authoritative either way. Read once
 /// at startup like MGR_URL.
 pub(crate) fn mgr_sandbox_name() -> Option<String> {
-    std::env::var("MGR_SANDBOX_NAME").ok().filter(|v| !v.is_empty())
+    std::env::var("MGR_SANDBOX_NAME")
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 /// Expand a single `{...}` candidate: `{env:VAR:default}` on match, otherwise
@@ -665,14 +667,7 @@ cmd = "htop"
             },
         ];
         let manifest = build_manifest(&svcs, &[]).await;
-        let find = |id: &str| {
-            manifest
-                .services
-                .iter()
-                .find(|s| s.id == id)
-                .unwrap()
-                .clone()
-        };
+        let find = |id: &str| manifest.services.iter().find(|s| s.id == id).unwrap();
         assert_eq!(
             find("opencode").cwd.as_deref(),
             Some("/root/workspace"),

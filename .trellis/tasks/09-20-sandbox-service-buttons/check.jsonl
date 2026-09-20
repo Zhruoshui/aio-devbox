@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "验收基准:D4 别名/路由契约是否对齐该 spec 的硬约束"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门槛(cargo fmt/clippy/test)对照"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量门槛(npm run build = tsc + vite)对照"}
+{"file": ".trellis/tasks/09-20-sandbox-service-buttons/prd.md", "reason": "AC1–AC6 逐条验收清单"}

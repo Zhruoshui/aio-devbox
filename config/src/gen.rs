@@ -58,10 +58,8 @@ pub fn run(repo: &Path) -> Result<()> {
 /// Returns (dockerfile content, per-scenario display list "id" / "id@ver").
 pub fn assemble_for(repo: &Path, enabled: &manifest::Enabled) -> Result<(String, Vec<String>)> {
     let known = scenario::scan(&repo.join("scenarios"))?;
-    let by_id: HashMap<&str, &scenario::Scenario> = known
-        .iter()
-        .map(|s| (s.meta.id.as_str(), s))
-        .collect();
+    let by_id: HashMap<&str, &scenario::Scenario> =
+        known.iter().map(|s| (s.meta.id.as_str(), s)).collect();
 
     // Resolve a "["*"]" wildcard in the manifest to the concrete ids of every
     // discovered non-always_on scenario (design §2.2). A manifest with explicit
@@ -287,10 +285,7 @@ mod tests {
         ];
         sort_by_layer(&mut pairs);
         let ids: Vec<&str> = pairs.iter().map(|(id, _)| id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec!["shell-utils", "python-dev", "rust", "aichat"]
-        );
+        assert_eq!(ids, vec!["shell-utils", "python-dev", "rust", "aichat"]);
     }
 
     #[test]

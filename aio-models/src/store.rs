@@ -287,9 +287,8 @@ fn assign_missing_ids<T>(
 ) -> Option<String> {
     let existing: HashSet<String> = presets
         .iter()
-        .map(|p| id_of(p))
-        .filter(|s| !s.is_empty())
-        .map(String::from)
+        .filter(|p| !id_of(p).is_empty())
+        .map(|p| id_of(p).to_string())
         .collect();
     let mut taken = existing;
     let mut first_assigned: Option<String> = None;
@@ -495,6 +494,7 @@ pub fn mask_config(config: &mut CanonicalConfig) {
 /// - Some("") => clear (set to None)
 /// - Some(mask) => keep stored key (masked echo)
 /// - Some(other) => store new value
+///
 /// After merge, empty-string keys are normalized to None for new providers.
 pub fn merge_api_keys(stored: &CanonicalConfig, incoming: &mut CanonicalConfig) {
     for (id, incoming_provider) in &mut incoming.providers {
@@ -527,10 +527,7 @@ pub fn validate(config: &CanonicalConfig) -> Result<(), Vec<String>> {
 
     for (id, provider) in &config.providers {
         if !is_valid_provider_id(id) {
-            errors.push(format!(
-                "invalid provider id '{}': must be [a-z0-9-]+",
-                id
-            ));
+            errors.push(format!("invalid provider id '{}': must be [a-z0-9-]+", id));
         }
         for model in &provider.models {
             if model.id.is_empty() {
@@ -543,13 +540,31 @@ pub fn validate(config: &CanonicalConfig) -> Result<(), Vec<String>> {
         validate_assignment("pi", &a.provider, &a.model, &config.providers, &mut errors);
     }
     if let Some(a) = &config.agents.opencode {
-        validate_assignment("opencode", &a.provider, &a.model, &config.providers, &mut errors);
+        validate_assignment(
+            "opencode",
+            &a.provider,
+            &a.model,
+            &config.providers,
+            &mut errors,
+        );
     }
     if let Some(presets) = &config.agents.claude {
-        validate_presets("claude", &presets.presets, &presets.current, &config.providers, &mut errors);
+        validate_presets(
+            "claude",
+            &presets.presets,
+            &presets.current,
+            &config.providers,
+            &mut errors,
+        );
     }
     if let Some(presets) = &config.agents.codex {
-        validate_presets("codex", &presets.presets, &presets.current, &config.providers, &mut errors);
+        validate_presets(
+            "codex",
+            &presets.presets,
+            &presets.current,
+            &config.providers,
+            &mut errors,
+        );
     }
 
     if errors.is_empty() {
@@ -578,11 +593,7 @@ fn validate_assignment(
             "agent '{}' references unknown provider '{}'",
             agent, provider
         ));
-    } else if !providers[provider]
-        .models
-        .iter()
-        .any(|m| m.id == model)
-    {
+    } else if !providers[provider].models.iter().any(|m| m.id == model) {
         errors.push(format!(
             "agent '{}' model '{}' not found in provider '{}'",
             agent, model, provider
@@ -719,6 +730,7 @@ fn map_imported_provider(key: &str, mut provider: ProviderEntry) -> (String, Pro
 /// - api/baseUrl/apiKey/headers/compat/models carried over
 /// - R1: no separate anthropic block — protocol selection alone decides
 ///   the endpoint, so an anthropic-messages provider carries no override.
+///
 /// Providers whose id already exists in `current` are skipped.
 pub fn import_from_pi(
     pi_path: &Path,
@@ -745,8 +757,8 @@ fn import_pi_providers(
     only: Option<&str>,
 ) -> Result<ImportResult, StoreError> {
     let text = std::fs::read_to_string(pi_path).map_err(StoreError::Io)?;
-    let pi_config: CanonicalConfig = serde_json::from_str(&text)
-        .map_err(|e| StoreError::Corrupt(e.to_string()))?;
+    let pi_config: CanonicalConfig =
+        serde_json::from_str(&text).map_err(|e| StoreError::Corrupt(e.to_string()))?;
 
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
@@ -788,6 +800,7 @@ fn import_pi_providers(
 /// - `options.apiKey`/`options.headers` carried over; fragment.name → name
 ///   (backfilled from the key when absent)
 /// - `models{<id>:{name?}}` → models[] (id + optional display name)
+///
 /// Same idempotency contract as import_from_pi: ids already in `current`
 /// land in `skipped`.
 pub fn import_from_opencode(
@@ -893,7 +906,10 @@ fn map_opencode_fragment(fragment: &Value) -> Option<ProviderEntry> {
         .map(String::from);
 
     let mut headers = BTreeMap::new();
-    if let Some(h) = fragment.pointer("/options/headers").and_then(|h| h.as_object()) {
+    if let Some(h) = fragment
+        .pointer("/options/headers")
+        .and_then(|h| h.as_object())
+    {
         for (k, v) in h {
             if let Some(s) = v.as_str() {
                 headers.insert(k.clone(), s.to_string());
@@ -1103,8 +1119,7 @@ mod tests {
 
         let stored = read_config(&path).unwrap();
         let mut incoming = stored.clone();
-        incoming.providers.get_mut("prov").unwrap().api_key =
-            Some("sk-brand-new-key".into());
+        incoming.providers.get_mut("prov").unwrap().api_key = Some("sk-brand-new-key".into());
         merge_api_keys(&stored, &mut incoming);
         assert_eq!(
             incoming.providers["prov"].api_key.as_deref(),
@@ -1511,7 +1526,8 @@ mod tests {
         .unwrap();
 
         // Frontend sends the raw fragment key from the live list.
-        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "Weird Key").unwrap();
+        let r =
+            import_opencode_provider(&oc_path, &CanonicalConfig::default(), "Weird Key").unwrap();
         assert_eq!(r.imported, vec!["weird-key"]);
 
         // And the sanitized id form.
@@ -1522,7 +1538,8 @@ mod tests {
             }}"#,
         )
         .unwrap();
-        let r = import_opencode_provider(&oc_path, &CanonicalConfig::default(), "weird-key").unwrap();
+        let r =
+            import_opencode_provider(&oc_path, &CanonicalConfig::default(), "weird-key").unwrap();
         assert_eq!(r.imported, vec!["weird-key"]);
     }
 
@@ -1668,10 +1685,7 @@ mod tests {
         // Round-trip: serialize keeps only the new shape (old fields gone).
         let text = serde_json::to_string(&cfg).unwrap();
         let back: CanonicalConfig = serde_json::from_str(&text).unwrap();
-        assert_eq!(
-            back.agents.claude.as_ref().unwrap().presets.len(),
-            2
-        );
+        assert_eq!(back.agents.claude.as_ref().unwrap().presets.len(), 2);
         assert!(!text.contains("\"provider\":\"p1\",\"model\":\"m1\"") || text.contains("presets"));
     }
 
@@ -1696,9 +1710,7 @@ mod tests {
         let id = gen_preset_id();
         assert!(id.starts_with("preset-"), "got {id}");
         assert_eq!(id.len(), "preset-".len() + 5);
-        assert!(id["preset-".len()..]
-            .chars()
-            .all(|c| c.is_ascii_hexdigit()));
+        assert!(id["preset-".len()..].chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]

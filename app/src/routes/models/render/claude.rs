@@ -187,11 +187,20 @@ mod tests {
         .unwrap();
 
         // Env keys set correctly.
-        assert_eq!(after["env"]["ANTHROPIC_BASE_URL"], "https://ai.aruoshui.com/v1");
+        assert_eq!(
+            after["env"]["ANTHROPIC_BASE_URL"],
+            "https://ai.aruoshui.com/v1"
+        );
         assert_eq!(after["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-real-key-xxxx");
         assert_eq!(after["env"]["ANTHROPIC_MODEL"], "claude-sonnet-4");
-        assert_eq!(after["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "claude-haiku-4");
-        assert_eq!(after["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-4");
+        assert_eq!(
+            after["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            "claude-haiku-4"
+        );
+        assert_eq!(
+            after["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+            "claude-opus-4"
+        );
         // sonnetModel is None -> key absent.
         assert!(after["env"].get("ANTHROPIC_DEFAULT_SONNET_MODEL").is_none());
 
@@ -220,10 +229,7 @@ mod tests {
     fn empty_api_key_omits_auth_field() {
         let home = temp_home();
         let mut cfg = sample_config();
-        cfg.providers
-            .get_mut("aruoshui")
-            .unwrap()
-            .api_key = Some(String::new());
+        cfg.providers.get_mut("aruoshui").unwrap().api_key = Some(String::new());
         apply_claude(&home, &cfg);
         let after: Value = serde_json::from_str(
             &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),

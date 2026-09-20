@@ -28,6 +28,9 @@ const TOTAL_BUDGET: Duration = Duration::from_secs(20);
 // ── request / response types ──────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+// Wire fields are camelCase by API contract (mgr-web sends providerId /
+// baseUrl / apiKey verbatim); serde reads them as-is.
+#[allow(non_snake_case)]
 #[serde(untagged)]
 pub enum DiscoverRequest {
     /// Resolve everything from the canonical store by provider id.
@@ -71,7 +74,11 @@ pub async fn discover(
     let candidates = candidate_urls(&resolved.base_url, &resolved.api);
 
     // Build headers once (identical across candidates for the same protocol).
-    let headers = build_headers(&resolved.api, resolved.api_key.as_deref(), &resolved.headers);
+    let headers = build_headers(
+        &resolved.api,
+        resolved.api_key.as_deref(),
+        &resolved.headers,
+    );
 
     // Total deadline across all candidates so a slow first host can't blow the
     // whole budget on retries that should go to the next candidate.
@@ -91,7 +98,10 @@ pub async fn discover(
         let per = remaining.min(PER_CANDIDATE_TIMEOUT);
         tried.push(url.clone());
 
-        let mut req_builder = state.http.get(url.as_str()).header("Accept", "application/json");
+        let mut req_builder = state
+            .http
+            .get(url.as_str())
+            .header("Accept", "application/json");
         for (k, v) in &headers {
             req_builder = req_builder.header(k, v);
         }
@@ -130,12 +140,7 @@ pub async fn discover(
                 // endpoint at a different path.
                 if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
                     let body = r.text().await.unwrap_or_default();
-                    let err = format!(
-                        "{} {} :: {}",
-                        status.as_u16(),
-                        url,
-                        truncate(&body, 500)
-                    );
+                    let err = format!("{} {} :: {}", status.as_u16(), url, truncate(&body, 500));
                     if idx == 0 {
                         return Err((status, err));
                     }
@@ -231,8 +236,8 @@ async fn resolve_provider(
 /// original string when the base does not end with the suffix.
 fn strip_trailing<'a>(base: &'a str, suffixes: &[&str]) -> &'a str {
     for s in suffixes {
-        if base.ends_with(s) {
-            return &base[..base.len() - s.len()];
+        if let Some(stripped) = base.strip_suffix(s) {
+            return stripped;
         }
     }
     base
@@ -263,14 +268,8 @@ fn primary_models_url(base: &str, api: &str) -> String {
             // unconditionally; pi-web inserts it only when the path is empty.
             // We follow pi-web: if there's no path (or just a trailing slash
             // already trimmed), add /v1.
-            let after_scheme = base
-                .split_once("://")
-                .map(|(_, rest)| rest)
-                .unwrap_or(base);
-            let path = after_scheme
-                .split_once('/')
-                .map(|(_, p)| p)
-                .unwrap_or("");
+            let after_scheme = base.split_once("://").map(|(_, rest)| rest).unwrap_or(base);
+            let path = after_scheme.split_once('/').map(|(_, p)| p).unwrap_or("");
             if path.is_empty() {
                 format!("{base}/v1/models?limit=1000")
             } else {
@@ -573,18 +572,12 @@ mod tests {
     #[test]
     fn anthropic_base_no_path_inserts_v1() {
         let urls = candidate_urls("https://api.anthropic.com", "anthropic-messages");
-        assert_eq!(
-            urls[0],
-            "https://api.anthropic.com/v1/models?limit=1000"
-        );
+        assert_eq!(urls[0], "https://api.anthropic.com/v1/models?limit=1000");
     }
 
     #[test]
     fn anthropic_base_with_path_keeps_path() {
-        let urls = candidate_urls(
-            "https://ai.aruoshui.com/anthropic",
-            "anthropic-messages",
-        );
+        let urls = candidate_urls("https://ai.aruoshui.com/anthropic", "anthropic-messages");
         // primary derives from the full base (no /v1 insertion since path exists).
         assert_eq!(
             urls[0],
@@ -598,10 +591,7 @@ mod tests {
 
     #[test]
     fn anthropic_suffix_stripped_in_fallbacks() {
-        let urls = candidate_urls(
-            "https://ai.aruoshui.com/v1/anthropic",
-            "openai-completions",
-        );
+        let urls = candidate_urls("https://ai.aruoshui.com/v1/anthropic", "openai-completions");
         // primary
         assert!(urls
             .iter()
@@ -625,26 +615,22 @@ mod tests {
 
     #[test]
     fn openai_bearer_header() {
-        let h = build_headers(
-            "openai-completions",
-            Some("sk-test1234"),
-            &BTreeMap::new(),
-        );
-        let auth = h.iter().find(|(n, _)| n.eq_ignore_ascii_case("authorization"));
+        let h = build_headers("openai-completions", Some("sk-test1234"), &BTreeMap::new());
+        let auth = h
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("authorization"));
         assert_eq!(auth.map(|(_, v)| v.as_str()), Some("Bearer sk-test1234"));
         assert!(h.iter().any(|(n, _)| n.eq_ignore_ascii_case("accept")));
     }
 
     #[test]
     fn anthropic_headers() {
-        let h = build_headers(
-            "anthropic-messages",
-            Some("sk-ant-xx"),
-            &BTreeMap::new(),
-        );
+        let h = build_headers("anthropic-messages", Some("sk-ant-xx"), &BTreeMap::new());
         let key = h.iter().find(|(n, _)| n.eq_ignore_ascii_case("x-api-key"));
         assert_eq!(key.map(|(_, v)| v.as_str()), Some("sk-ant-xx"));
-        let ver = h.iter().find(|(n, _)| n.eq_ignore_ascii_case("anthropic-version"));
+        let ver = h
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("anthropic-version"));
         assert_eq!(ver.map(|(_, v)| v.as_str()), Some("2023-06-01"));
         // No bearer for anthropic.
         assert!(h
@@ -663,11 +649,7 @@ mod tests {
 
     #[test]
     fn empty_key_omits_auth_header() {
-        let h = build_headers(
-            "openai-completions",
-            Some(""),
-            &BTreeMap::new(),
-        );
+        let h = build_headers("openai-completions", Some(""), &BTreeMap::new());
         assert!(h
             .iter()
             .all(|(n, _)| !n.eq_ignore_ascii_case("authorization")));
@@ -721,7 +703,14 @@ mod tests {
         let ids: Vec<_> = m.iter().map(|x| x.id.as_str()).collect();
         assert!(ids.contains(&"model-a"));
         assert!(ids.contains(&"model-b"));
-        assert_eq!(m.iter().find(|x| x.id == "model-a").unwrap().name.as_deref(), Some("A"));
+        assert_eq!(
+            m.iter()
+                .find(|x| x.id == "model-a")
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("A")
+        );
     }
 
     #[test]

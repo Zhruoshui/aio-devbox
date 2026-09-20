@@ -22,8 +22,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
@@ -90,7 +92,9 @@ pub fn run(repo: &Path) -> Result<()> {
     for &i in &order {
         let cat = scenarios[i].meta.category.clone();
         if last_cat.as_deref() != Some(cat.as_str()) {
-            rows.push(Row::Header { category: cat.clone() });
+            rows.push(Row::Header {
+                category: cat.clone(),
+            });
             last_cat = Some(cat);
         }
         rows.push(Row::Item { scenario_idx: i });
@@ -156,11 +160,9 @@ pub fn run(repo: &Path) -> Result<()> {
                 })
                 .collect();
             let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("AIO 开发场景 · 分层  (空格=切换  ←->=改版本  s=保存退出  q=不存退出  ↑↓=移动)"),
-                )
+                .block(Block::default().borders(Borders::ALL).title(
+                    "AIO 开发场景 · 分层  (空格=切换  ←->=改版本  s=保存退出  q=不存退出  ↑↓=移动)",
+                ))
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
             f.render_stateful_widget(list, chunks[0], &mut state);
             let selectable = scenarios.iter().filter(|s| !s.meta.always_on).count();
@@ -213,20 +215,12 @@ pub fn run(repo: &Path) -> Result<()> {
                         }
                     }
                 }
-                KeyCode::Left => cycle_version(
-                    &scenarios,
-                    &mut version_sel,
-                    &rows,
-                    state.selected(),
-                    -1,
-                ),
-                KeyCode::Right => cycle_version(
-                    &scenarios,
-                    &mut version_sel,
-                    &rows,
-                    state.selected(),
-                    1,
-                ),
+                KeyCode::Left => {
+                    cycle_version(&scenarios, &mut version_sel, &rows, state.selected(), -1)
+                }
+                KeyCode::Right => {
+                    cycle_version(&scenarios, &mut version_sel, &rows, state.selected(), 1)
+                }
                 _ => {}
             }
         }
@@ -286,7 +280,9 @@ fn cycle_version(
     dir: i32,
 ) {
     let Some(i) = selected else { return };
-    let Row::Item { scenario_idx } = rows[i] else { return };
+    let Row::Item { scenario_idx } = rows[i] else {
+        return;
+    };
     let s = &scenarios[scenario_idx];
     if s.meta.versions.len() < 2 {
         return;

@@ -96,7 +96,11 @@ ports.
 Add a `handle_path /<prefix>/*` block **before** the catch-all `handle` (caddy
 evaluates `handle`/`handle_path` in source order - a later catch-all would
 shadow an earlier route). The block strips the prefix and proxies to the
-container on app's shared netns (reached as `app:<port>`):
+container on app's shared netns (reached as `app:<port>`; the bare alias is
+fine in the REPO stack, but mgr-generated per-sandbox Caddyfiles must dial
+the unique `sbx-<name>-app:<port>` instead — on the shared aio-mgr-net every
+sandbox's app carries the same `app` alias, see contract 11 in
+.trellis/spec/backend/sandbox-mgr-ops.md):
 
 ```caddyfile
 :8080 {
@@ -124,13 +128,21 @@ Add the `[[service]]` so the manifest surfaces a button:
 [[service]]
 id = "my-service"
 type = "web"
-target = "app:<port>"
+target = "localhost:<port>"
 url = "/my-service/"
 label = "My Service"
 ```
 
 `target` drives the TCP liveness probe (button hides when the container is
 down, e.g. its profile isn't enabled). `url` is what the iframe opens.
+
+**`target` MUST be `localhost:<port>`, never the compose alias `app:<port>`**
+(contract 11 in .trellis/spec/backend/sandbox-mgr-ops.md): every sandbox's
+app joins the SHARED aio-mgr-net network under the same `app` alias, so
+`app:<port>` resolves cross-sandbox and the probe reports another sandbox's
+service as enabled. A service composed with `network_mode: service:app`
+(shares app's netns) or self-started inside the app container is reachable
+at `localhost` from the app, which reflects ONLY this sandbox.
 
 Then **rebuild the app image** (services.toml is compiled in):
 `make up` (which does `compose up -d --build`) or `docker compose build app`.

@@ -89,10 +89,13 @@ export interface RegisterButtonInput {
  * code-server only). Its container is profile-gated and NOT started with
  * the sandbox (mgr's compose up carries only the vnc profile - mgr/src/
  * docker.rs UP_PROFILES), so the manifest's `enabled` (a TCP probe of
- * app:8200) is false exactly when clicking the button is supposed to start
- * it. Mirrors the backend whitelist (mgr/src/routes.rs ON_DEMAND_SERVICES,
- * compose service "code-server") and the manifest id (app/services.toml
- * "codeServer") - keep the three in sync. Consumers: SandboxTree shows
- * these entries regardless of `enabled`; WorkspacePage routes them to
- * CodeServerPane (the probe -> start -> poll machine). */
+ * localhost:8200) is false exactly when clicking the button is supposed to
+ * start it. Mirrors the backend whitelist (mgr/src/routes.rs
+ * ON_DEMAND_SERVICES, compose service "code-server") and the manifest id
+ * (app/services.toml "codeServer") - keep the three in sync. Consumers:
+ * SandboxTree shows these entries regardless of `enabled` (09-20-sandbox-
+ * service-buttons D2: but still behind the INSTALLED_GATE - an uninstalled
+ * code-server has no service block, no image, no pane, so the button is
+ * not rendered at all); WorkspacePage routes them to CodeServerPane (the
+ * probe -> start -> poll machine). */
 export const ON_DEMAND_SERVICE_IDS: ReadonlySet<string> = new Set(["codeServer"]);

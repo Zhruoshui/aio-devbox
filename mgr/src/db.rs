@@ -274,11 +274,16 @@ pub fn upsert_image(
     Ok(())
 }
 
-pub fn list_images(conn: &Connection) -> Result<Vec<(String, String, i64, String, Option<String>)>> {
+/// One images-table row: (env_hash, tag, built_at, build_log, combo).
+pub type ImageRow = (String, String, i64, String, Option<String>);
+
+pub fn list_images(conn: &Connection) -> Result<Vec<ImageRow>> {
     let mut stmt = conn.prepare(
         "SELECT env_hash, tag, built_at, build_log, combo FROM images ORDER BY built_at DESC",
     )?;
-    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+    })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -456,7 +461,14 @@ mod tests {
         // built); the original build's built_at + log must survive, or the
         // images page loses its build log the first time a config is reused.
         let conn = mem_db();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "original log", Some("a+b (cs,vnc)")).unwrap();
+        upsert_image(
+            &conn,
+            "h1",
+            "sandbox-base-h1",
+            "original log",
+            Some("a+b (cs,vnc)"),
+        )
+        .unwrap();
         upsert_image(&conn, "h1", "sandbox-base-h1", "", None).unwrap();
         let (built_at, build_log, combo) = conn
             .query_row(

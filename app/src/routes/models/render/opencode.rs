@@ -70,11 +70,7 @@ pub fn apply_opencode(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
 
     let mut models = serde_json::Map::new();
     for m in &provider.models {
-        let name = m
-            .name
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&m.id);
+        let name = m.name.as_deref().filter(|s| !s.is_empty()).unwrap_or(&m.id);
         models.insert(m.id.clone(), json!({ "name": name }));
     }
 
@@ -85,9 +81,7 @@ pub fn apply_opencode(home: &Path, canonical: &CanonicalConfig) -> ApplyResult {
         "models": Value::Object(models),
     });
 
-    let providers = obj
-        .entry("provider")
-        .or_insert_with(|| json!({}));
+    let providers = obj.entry("provider").or_insert_with(|| json!({}));
     if !providers.is_object() {
         *providers = json!({});
     }
@@ -290,9 +284,7 @@ fn read_live_root(path: &Path, result: &mut ApplyResult) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aio_models::store::{
-        AgentAssignment, CanonicalConfig, ModelEntry, ProviderEntry,
-    };
+    use aio_models::store::{AgentAssignment, CanonicalConfig, ModelEntry, ProviderEntry};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn temp_home() -> std::path::PathBuf {
@@ -393,7 +385,10 @@ mod tests {
             "DeepSeek V4 Pro"
         );
         // Model without display name falls back to id.
-        assert_eq!(after["provider"]["aruoshui"]["models"]["qwen-max"]["name"], "qwen-max");
+        assert_eq!(
+            after["provider"]["aruoshui"]["models"]["qwen-max"]["name"],
+            "qwen-max"
+        );
 
         // Top-level model = "<providerId>/<modelId>".
         assert_eq!(after["model"], "aruoshui/deepseek-v4-pro");
@@ -434,17 +429,16 @@ mod tests {
     fn apply_opencode_omits_empty_api_key() {
         let home = temp_home();
         let mut cfg = sample_config();
-        cfg.providers
-            .get_mut("aruoshui")
-            .unwrap()
-            .api_key = Some(String::new());
+        cfg.providers.get_mut("aruoshui").unwrap().api_key = Some(String::new());
         let r = apply_opencode(&home, &cfg);
         assert!(r.ok);
         let after: Value = serde_json::from_str(
             &std::fs::read_to_string(home.join(".config/opencode/opencode.jsonc")).unwrap(),
         )
         .unwrap();
-        assert!(after["provider"]["aruoshui"]["options"].get("apiKey").is_none());
+        assert!(after["provider"]["aruoshui"]["options"]
+            .get("apiKey")
+            .is_none());
     }
 
     #[test]
@@ -558,12 +552,24 @@ mod tests {
         // Patched fields applied (api patch flips the npm package).
         assert_eq!(after["provider"]["prov-a"]["name"], "Renamed A");
         assert_eq!(after["provider"]["prov-a"]["npm"], "@ai-sdk/anthropic");
-        assert_eq!(after["provider"]["prov-a"]["options"]["baseURL"], "https://new.example/v1");
-        assert_eq!(after["provider"]["prov-a"]["options"]["apiKey"], "sk-new-key-xxxx");
+        assert_eq!(
+            after["provider"]["prov-a"]["options"]["baseURL"],
+            "https://new.example/v1"
+        );
+        assert_eq!(
+            after["provider"]["prov-a"]["options"]["apiKey"],
+            "sk-new-key-xxxx"
+        );
         // Fragment's models preserved verbatim.
-        assert_eq!(after["provider"]["prov-a"]["models"]["model-a"]["name"], "Model A");
+        assert_eq!(
+            after["provider"]["prov-a"]["models"]["model-a"]["name"],
+            "Model A"
+        );
         // Sibling provider + unrelated keys preserved; top-level model kept.
-        assert_eq!(after["provider"]["prov-b"]["options"]["baseURL"], "https://b.example/v1");
+        assert_eq!(
+            after["provider"]["prov-b"]["options"]["baseURL"],
+            "https://b.example/v1"
+        );
         assert_eq!(after["$schema"], "https://opencode.ai/schema.json");
         assert_eq!(after["theme"], "dark");
         assert_eq!(after["model"], "prov-a/model-a");
@@ -581,9 +587,14 @@ mod tests {
         let r = edit_opencode_provider(&home, "prov-a", &patch);
         assert!(r.ok);
         let after = read_jsonc(&home);
-        assert!(after["provider"]["prov-a"]["options"].get("apiKey").is_none());
+        assert!(after["provider"]["prov-a"]["options"]
+            .get("apiKey")
+            .is_none());
         // baseURL survives the clear.
-        assert_eq!(after["provider"]["prov-a"]["options"]["baseURL"], "https://a.example/v1");
+        assert_eq!(
+            after["provider"]["prov-a"]["options"]["baseURL"],
+            "https://a.example/v1"
+        );
     }
 
     #[test]

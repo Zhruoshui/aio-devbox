@@ -21,8 +21,8 @@ use axum::Json;
 use serde::Serialize;
 use serde_json::Value;
 
-use aio_models::store::CostEntry;
 use crate::state::AppState;
+use aio_models::store::CostEntry;
 
 const CATALOG_URL: &str = "https://models.dev/api.json";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -100,7 +100,12 @@ pub async fn get_catalog(
         .timeout(FETCH_TIMEOUT)
         .send()
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("catalog fetch failed: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("catalog fetch failed: {e}"),
+            )
+        })?;
 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
@@ -184,12 +189,15 @@ fn normalize_model(model_id: &str, mv: &Value) -> CatalogModel {
         .get("limit")
         .and_then(|l| l.get("output"))
         .and_then(Value::as_u64);
-    let cost = mv.get("cost").and_then(Value::as_object).map(|c| CostEntry {
-        input: c.get("input").and_then(Value::as_f64),
-        output: c.get("output").and_then(Value::as_f64),
-        cache_read: c.get("cache_read").and_then(Value::as_f64),
-        cache_write: c.get("cache_write").and_then(Value::as_f64),
-    });
+    let cost = mv
+        .get("cost")
+        .and_then(Value::as_object)
+        .map(|c| CostEntry {
+            input: c.get("input").and_then(Value::as_f64),
+            output: c.get("output").and_then(Value::as_f64),
+            cache_read: c.get("cache_read").and_then(Value::as_f64),
+            cache_write: c.get("cache_write").and_then(Value::as_f64),
+        });
     CatalogModel {
         id: model_id.to_string(),
         name,
@@ -247,7 +255,10 @@ mod tests {
         assert_eq!(m.id, "gpt-5.6-sol");
         assert_eq!(m.name.as_deref(), Some("GPT-5.6 Sol"));
         assert_eq!(m.reasoning, Some(true));
-        assert_eq!(m.input.as_deref(), Some(&["text".to_string(), "image".to_string()][..]));
+        assert_eq!(
+            m.input.as_deref(),
+            Some(&["text".to_string(), "image".to_string()][..])
+        );
         assert_eq!(m.context_window, Some(200000));
         assert_eq!(m.max_tokens, Some(8192));
         let c = m.cost.as_ref().unwrap();
