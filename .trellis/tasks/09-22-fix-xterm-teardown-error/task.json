@@ -3,7 +3,7 @@
   "name": "fix-xterm-teardown-error",
   "title": "修复 mgr-web 离开工作区页时 xterm addon 拆除抛未捕获 TypeError",
   "description": "切换页面离开工作区时抛 uncaught TypeError(_isDisposed),栈指向 xterm addon dispose 链;XtermPane 卸载只调 term.dispose()、未显式拆除 addon",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

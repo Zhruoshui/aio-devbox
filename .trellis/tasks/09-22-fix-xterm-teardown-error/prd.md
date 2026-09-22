@@ -93,14 +93,65 @@ return () => {
 
 ## Acceptance Criteria
 
-- [ ] **AC1** 切页零错误：puppeteer 从工作区切到镜像/用量/沙箱列表/模型配置
+### R1 定位结论（实测，非推测）
+
+用**不压缩构建**（`vite build --minify false`）热部署进运行中的 mgr 后抓到
+可读栈，抛错点为 xterm 的 **WebGL renderer** 构造函数里注册的清理项：
+
+```js
+this._register(O$2(() => {
+  if (this._terminal._core._store._isDisposed) return;   // ← 抛在此行
+  ...
+}));
+```
+
+`term.dispose()` 拆除终端 core 之后，这个清理项仍会执行，而
+`this._terminal._core` 已是 `undefined` —— 那句**本意是防御的判断**反而成了
+抛错点。
+
+**推翻了 PRD 草稿里的一个假设**：草稿怀疑「headless 拿不到 WebGL 上下文，
+所以错误不该来自 WebGL」。实测 headless chromium 有 SwiftShader，
+`webgl2` **可用**（`getContext('webgl2')` 非空、`.xterm-screen` 下有真实
+只 WebGL canvas），WebGL addon 正常加载——所以错误确实来自它。
+
+### 实现
+
+两处加防护（`mgr-web/src/pages/workspace/panes/XtermPane.tsx`）：
+
+1. **unmount 路径**：把 WebGL addon 提升为 effect 作用域局部量，在
+   `term.dispose()` **之前**显式 `webgl?.dispose()`，让那些 disposable 在
+   core 尚存活时跑完；再 `term.dispose()` 时它已被 xterm 的
+   `_wrappedAddonDispose` 摘出 `_addons`，不会重复拆。
+2. **context-loss 路径**：`onContextLoss` 回调里的 `webgl.dispose()` 用
+   try/catch 包住。
+
+**第 2 处是 R4 实测才暴露的**：只修 unmount 后，用
+`WEBGL_lose_context.loseContext()` 真造一次上下文丢失，**同一条错误照样抛**
+（`丢上下文后错误数: 1`），且发生在丢失时刻而非卸载时刻。原 PRD 只把它当
+「重复 dispose」的幂等问题，实际是**第二条独立触发路径**。
+另：`.xterm-screen` 下第一个 canvas 是 `xterm-link-layer`（2d），
+WebGL canvas 是第二个 —— 取错 canvas 会得到「拿不到 context」的假阴性。
+
+## Acceptance Criteria
+
+- [x] **AC1** 切页零错误：puppeteer 从工作区切到镜像/用量/沙箱列表/模型配置
       四个页面，`console` error 与 `pageerror` 计数**全为 0**
-- [ ] **AC2** 反向也零错误：从各页面切**回**工作区，同样零错误
-- [ ] **AC3** 终端功能回归：切页回来后新建终端可用（能回显、能 resize），
-      Ctrl+F 搜索栏可用
-- [ ] **AC4** WebGL 不可用路径不回归：在拿不到 WebGL 上下文的情形下
-      （headless 默认即是），终端仍以 DOM renderer 工作、无新增错误
-- [ ] **AC5** `npm run build`（`tsc --noEmit && vite build`）EXIT=0
+      —— 四页 `加载后=0 切换后=0 新增=0`（修复前每页各 +2）
+- [x] **AC2** 反向也零错误：从各页面切**回**工作区，同样零错误
+      —— 四页各自往返一轮（共 8 次切换）后错误数 0
+- [x] **AC3** 终端功能回归：切页回来后新建终端可用（能回显、能 resize），
+      Ctrl+F 搜索栏可用 —— canvas 1099×828 正常渲染；Ctrl+F 打开搜索栏、
+      可输入、Escape 关闭；视口变化后重新 fit（828→684）
+- [x] **AC4** WebGL 不可用路径不回归：`--disable-3d-apis` 下
+      `webgl2=webgl=false`，终端自动回退 DOM renderer（`.xterm-rows` 出现、
+      无 canvas），仍可用且切页零错误
+- [x] **AC5** `npm run build`（`tsc --noEmit && vite build`）EXIT=0
+      —— 另单跑 `npm run typecheck` 亦 EXIT=0
+- [x] **AC6（R4 派生）** 真造 WebGL 上下文丢失后：丢失时刻零错误、终端健康、
+      此后离开页面也零错误、回工作区终端可重建
+
+全部断言在**镜像内的正式构建**（`aio-mgr` 重建 + 容器 force-recreate）上
+复跑通过，非仅热部署版本。
 
 ## Out of Scope
 

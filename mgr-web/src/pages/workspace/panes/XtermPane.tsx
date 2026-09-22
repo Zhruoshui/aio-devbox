@@ -136,12 +136,31 @@ export function XtermPane({
     //     handler disposes the addon.
     // The theme hot-switch (modeObserver below) only sets term.options.theme,
     // which re-renders under BOTH renderers - no WebGL-specific handling.
+    //
+    // Held in an effect-scoped local so the cleanup can dispose it FIRST —
+    // see the cleanup comment; clearing it here is what keeps a context-loss
+    // dispose from racing the unmount dispose.
+    let webgl: WebglAddon | null = null;
     try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      webgl = new WebglAddon();
+      // Disposing on context loss throws the SAME internal `_isDisposed`
+      // error as the unmount path below (observed 2026-09-22 by forcing a
+      // real loss via WEBGL_lose_context): by the time the loss handler
+      // runs, xterm's renderer has already torn down its disposable guards,
+      // and they read `term._core._store` unguarded. The addon is dead at
+      // this point and the DOM renderer takes over, so swallow it - an
+      // uncaught error here would fire on every real GPU context loss.
+      webgl.onContextLoss(() => {
+        try {
+          webgl?.dispose();
+        } catch {
+          /* already torn down; DOM renderer continues */
+        }
+      });
       term.loadAddon(webgl);
     } catch {
       // DOM renderer stays; the pane remains usable.
+      webgl = null;
     }
     // R2: OSC52 - programs write escape sequences to push the selection /
     // system clipboard to the host (agent "copy" actions reach the host).
@@ -297,6 +316,27 @@ export function XtermPane({
       // Reset the bar state before tearing the term down (decoration cleanup
       // is covered by term.dispose; the React state must not survive).
       setSearchVisible(false);
+      // Dispose the WebGL addon BEFORE term.dispose(), deliberately.
+      //
+      // term.dispose() also disposes every loaded addon, but it does so while
+      // the terminal's core is already torn down - and the WebGL renderer's
+      // internal disposables guard themselves by reading
+      // `term._core._store._isDisposed`, so that read throws
+      // "Cannot read properties of undefined (reading '_isDisposed')" on
+      // every unmount (observed 2026-09-22: one uncaught error per page
+      // navigation away from the workspace).
+      //
+      // Disposing it here runs those same disposables while the core is still
+      // alive. Calling the addon's dispose is safe to repeat: loadAddon
+      // swaps it for xterm's _wrappedAddonDispose, which no-ops when already
+      // disposed AND splices the addon out of term._addons - so the
+      // term.dispose() below won't touch it a second time. That also makes
+      // the onContextLoss handler above (same wrapped dispose) non-racing.
+      try {
+        webgl?.dispose();
+      } catch {
+        // Already disposed (context loss) or the addon never loaded.
+      }
       term.dispose();
       termRef.current = null;
       searchAddonRef.current = null;
