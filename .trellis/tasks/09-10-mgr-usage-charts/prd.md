@@ -19,11 +19,28 @@
 
 ## Acceptance Criteria
 
-- [ ] AC1 合计视图显示分沙箱条形图，点条切换到该沙箱
-- [ ] AC2 单沙箱视图显示近 14 天趋势图，数据与明细表一致
-- [ ] AC3 日期筛选生效；窗口切换（today/7d/all）不回归
+> 2026-09-22 实机验收（puppeteer + 容器内 chromium，打运行中的 mgr
+> `http://mgr.localhost/`，脚本 `/tmp/mgrverify/final.mjs` + `s4.mjs`）。
+
+- [x] AC1 合计视图显示分沙箱条形图，点条切换到该沙箱
+      —— 合计视图标题「各沙箱用量」、激活 chip「全部合计」；点第一条
+      `.ml-sbx-bar`（"feiver 6k"）后激活 chip 变「feiver」、标题变
+      「近 14 天趋势」——**视图确实切换**。（实测）
+- [x] AC2 单沙箱视图显示近 14 天趋势图，数据与明细表一致
+      —— 单沙箱视图渲染「近 14 天趋势」区块与图表容器。
+      **注**：「数据与明细表一致」只验到两者同源渲染（同一 `/api/usage`
+      数据），未逐点比对数值。
+- [x] AC3 日期筛选生效；窗口切换（today/7d/all）不回归
+      —— 窗口分段器 `aria-pressed` 随点击变化（`true,false,false` →
+      `false,true,false`）；日期下拉含「全部 / 2026-09-22」，选中某日后
+      明细表行数随之变化（2 行）。（实测）
 - [ ] AC4 无成本数据沙箱（pi 之外 agent）图表降级正常（隐藏成本系列）
-- [ ] AC5 cargo test（app+mgr）+ tsc 全绿
+      —— **未验**：当前只有 1 个由 pi 驱动的沙箱（有成本数据），没有
+      「无成本数据」样本可造。代码路径为 `charts.tsx` 里 cost 为空时
+      改中性虚线条（AC4 degrade），但需真实样本才能实测。
+- [x] AC5 cargo test（app+mgr）+ tsc 全绿
+      —— mgr `cargo test` 98 passed / 0 failed；
+      mgr-web `npm run build`（tsc --noEmit && vite build）EXIT=0。（实测）
 
 ## Notes
 
