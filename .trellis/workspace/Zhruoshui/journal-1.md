@@ -1203,3 +1203,116 @@ preset 卡片 + 生效沙箱表）。API 契约零改动。
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: mise 卷化收尾：真实栈验收 + 两子任务归档
+
+**Date**: 2026-09-22
+**Task**: mise 卷化收尾：真实栈验收 + 两子任务归档
+**Branch**: `feat/scenario-granularity-mise`
+
+### Summary
+
+修正 gen/build-base 顺序后完成真实栈验收(AC7/13-18 全过);补证兄弟任务集成验收(最小集 1.42GB);归档两子任务
+
+### Main Changes
+
+**Date**: 2026-09-22
+**Task**: 运行时自由配置：mise 数据目录卷化 + symlink 种子（收尾）
+**Branch**: `feat/scenario-granularity-mise`
+
+### Summary
+
+接上一会话的「实现已完成、实测未做」状态收尾。发现关键阻塞：上次构建**绕过了
+`make gen`**，`Dockerfile.base` 是旧的（烘出旧 profile.d，无卷探测逻辑）——
+即真实栈里探测根本不生效。重跑 `make gen` + `make build-base` + `compose build app`
+后完成全部验收，提交并归档，顺带用全量镜像补证了兄弟任务的集成验收。
+
+### Main Changes
+
+**本任务（09-22-mise-runtime-volume-config，已归档）**
+
+- 修正构建链：`make gen` 必须先于 `make build-base`（Makefile 有依赖，但上次镜像
+  是在 gen 之前建的，烘到了旧 fragment）
+- 验收全过：AC7a/b/c、AC13-AC18 逐条实测（卷足迹 1.5M、24 二进制回归）
+- 文档补一处**已知取舍**：探测在 profile.d → 只对 login shell 生效；
+  非 login 保持烘焙布局是刻意的（ENV 是构建期常量，指向卷会让无卷裸跑失去兜底）
+- PRD 补 AC17（兄弟容器探测）/ AC18（非 login 保持烘焙布局）
+
+**兄弟任务（09-22-scenario-granularity-refactor，已归档）**
+
+- 7.1 cargo test：config 23 / mgr 98 全绿
+- 7.3 最小集构建：临时 repo + 一次性 tag，不碰 sandbox-base:latest；
+  实测「只选 fzf → mise ls 恰单条 fzf，其余 18 工具缺席」，1.42GB vs 7.91GB
+- 7.4 AC4 c23×mise 共存；7.5 AC8 env_hash 差异
+- 未验：AC6（pi 扩展登记需终端）、AC9（TUI 交互帧）
+
+**父任务 09-22-scenario-items-layered-mise**：AC 表按子任务结论汇总勾选，保持
+planning 不归档（AC6/AC9/AC10 未验）。
+
+### 陷阱与教训
+
+- **`make gen` 与 `make build-base` 的顺序**：Makefile 里 build-base 依赖 gen，
+  但当镜像是「手动绕过 Makefile」建的时候，fragment 改了也不会重新装配。
+  **改 fragment 后一定先 `make gen`**，否则烘出旧内容且毫无报错（症状是
+  「新逻辑完全不生效」，极易误判为代码写错）。
+- **`drwxr-xr-x 2` 的目录不代表空**：symlink 不计入目录链接数，我一度据此
+  误判「播种没链上」。核实要用 `ls -la` 或 `find -type l | wc -l`。
+- **`command -v clippy` 是假阴性**：clippy 以 `cargo-clippy` 提供，
+  正确探针是 `cargo clippy --version`。
+- **磁盘**：base 构建后 `/var/lib/docker` 到 96%。按既有记忆流程
+  `docker builder prune -af`（回收 12.6G）→ 立刻 `docker pull docker/dockerfile:1`
+  把 BuildKit 前端镜像拉回。代价：Rust 依赖缓存被清，app 重建时重编译。
+
+### Testing
+
+- [OK] 本任务 8 条 AC 全部实测（含 code-server 容器 AC17）
+- [OK] 24 个二进制运行时回归（login shell）
+- [OK] 三次启动幂等：18 symlink / 0 断裂 / 35 shims
+- [OK] 无卷裸跑回落（`docker run --rm sandbox-base bash -lc` → `/opt/mise`）
+- [OK] 兄弟任务 cargo test 32+98、最小集断言矩阵 23 项
+- [未验] AC6 pi 扩展登记（需终端）、AC9 TUI 交互帧、AC10 make save/load 端到端
+- [残留] 工作区卷留了测试工具 `hyperfine`（1.5M），可用
+  `mise uninstall -g hyperfine` 清掉
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e03464a` | feat: mise 数据目录卷化，运行时 mise use 自装工具跨 recreate 存活 |
+| `11deadc` | chore(trellis): 补齐 scenario 粒度重构的集成验收证据（AC1-5/8/11/12 已验） |
+| `2c22bb7` | chore(task): archive 09-22-mise-runtime-volume-config |
+| `938e1df` | chore(task): archive 09-22-scenario-granularity-refactor |
+| `979da28` | chore(trellis): 父任务验收表按两个子任务的归档结论汇总勾选 |
+
+### Status
+
+[OK] **Completed** —— 两个子任务归档；父任务留着待 AC6/AC9/AC10。
+
+### Next Steps
+
+- AC9/AC6/AC10 三项需 owner 目视或单次实测后决定父任务是否归档
+- 分支 `feat/scenario-granularity-mise` 尚未推送/开 PR
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e03464a` | (see git log) |
+| `11deadc` | (see git log) |
+| `2c22bb7` | (see git log) |
+| `938e1df` | (see git log) |
+| `979da28` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
