@@ -6,7 +6,7 @@ id = "jq"
 name = "jq"
 description = "JSON 命令行处理器(mise aqua 后端,装 /opt/mise/installs)"
 category = "shell"
-
+installer = "mise"
 [[versions]]
 label = "1.8.2"
 version = "1.8.2"

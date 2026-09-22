@@ -6,7 +6,7 @@ id = "codex"
 name = "Codex CLI"
 description = "OpenAI Codex CLI(openai/codex aqua 后端),装 /opt/mise/installs;~354MB。注意:闭源商业工具,烘进镜像后随 make save 分发前请自行确认许可条款"
 category = "app"
-
+installer = "mise"
 [[versions]]
 label = "0.155.1"
 version = "0.155.1"

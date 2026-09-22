@@ -36,12 +36,20 @@ use ratatui::Terminal;
 use aio_config::manifest;
 use aio_config::scenario;
 
-/// A renderable list row: either a category header (non-selectable) or a
-/// scenario item (checkbox). `scenario_idx` indexes the `scenarios` Vec and the
+/// A renderable list row: either a category header, an install-rung
+/// sub-header, or a scenario item (checkbox). Both headers are
+/// non-selectable. `scenario_idx` indexes the `scenarios` Vec and the
 /// parallel `checked` Vec, independent of where headers fall in the row list.
 enum Row {
     Header { category: String },
-    Item { scenario_idx: usize },
+    /// The "ladder" rung inside a layer — only emitted for layers that mix
+    /// installers (L3 = mise-managed tools + the apt system toolchain), so
+    /// a uniform layer like L2 shell stays a flat list. Mirrors the mgr-web
+    /// EnvPicker's sub-headings.
+    Rung { installer: String },
+    /// `nested` = this item sits under a rung (its layer mixes installers),
+    /// so it is drawn one indent level deeper than a flat-layer item.
+    Item { scenario_idx: usize, nested: bool },
 }
 
 pub fn run(repo: &Path) -> Result<()> {
@@ -78,26 +86,45 @@ pub fn run(repo: &Path) -> Result<()> {
         })
         .collect();
 
-    // Order scenarios by (category_rank, id), then build the interleaved row
-    // list: a header row before each new category, followed by its items.
+    // Order scenarios by (category_rank, installer_rank, id), then build the
+    // interleaved row list: a category header before each new layer, an
+    // optional rung sub-header before each new installer WITHIN that layer,
+    // then the items.
     let mut order: Vec<usize> = (0..scenarios.len()).collect();
     order.sort_by_key(|&i| {
         (
             scenario::category_rank(&scenarios[i].meta.category),
+            scenario::installer_rank(&scenarios[i].meta.installer),
             scenarios[i].meta.id.clone(),
         )
     });
     let mut rows: Vec<Row> = Vec::new();
     let mut last_cat: Option<String> = None;
+    let mut last_ins: Option<String> = None;
     for &i in &order {
         let cat = scenarios[i].meta.category.clone();
+        let ins = scenarios[i].meta.installer.clone();
         if last_cat.as_deref() != Some(cat.as_str()) {
             rows.push(Row::Header {
                 category: cat.clone(),
             });
-            last_cat = Some(cat);
+            last_cat = Some(cat.clone());
+            // A new layer always re-opens the rung state.
+            last_ins = None;
         }
-        rows.push(Row::Item { scenario_idx: i });
+        // Ladder rung: only inside a layer that actually mixes installers,
+        // so single-installer layers never grow a redundant sub-heading.
+        let ladder = scenario::has_multiple_installers(&scenarios, &cat);
+        if ladder && last_ins.as_deref() != Some(ins.as_str()) {
+            rows.push(Row::Rung {
+                installer: ins.clone(),
+            });
+            last_ins = Some(ins);
+        }
+        rows.push(Row::Item {
+            scenario_idx: i,
+            nested: ladder,
+        });
     }
 
     let mut state = ListState::default();
@@ -129,13 +156,25 @@ pub fn run(repo: &Path) -> Result<()> {
                         format!("  {}", scenario::category_title(category)),
                         Style::default().add_modifier(Modifier::BOLD),
                     )])),
-                    Row::Item { scenario_idx } => {
+                    // Indented one level past the layer header, dimmer than
+                    // it: the rung is a subdivision of the layer above.
+                    Row::Rung { installer } => ListItem::new(Line::from(vec![Span::styled(
+                        format!("    └ {}", scenario::installer_title(installer)),
+                        Style::default().add_modifier(Modifier::DIM),
+                    )])),
+                    Row::Item {
+                        scenario_idx,
+                        nested,
+                    } => {
                         let s = &scenarios[*scenario_idx];
+                        // Items under a rung sit one level deeper than items in
+                        // a flat layer (4 -> 6 columns).
+                        let pad = if *nested { "      " } else { "    " };
                         if s.meta.always_on {
                             // Locked row ([*]): always baked, Space is a no-op.
                             // Versioned => show the current version [label],
                             // cyclable with Left/Right.
-                            let mut head = format!("    [*] {}  ", s.meta.name);
+                            let mut head = format!("{}[*] {}  ", pad, s.meta.name);
                             if let Some(label) = &version_sel[*scenario_idx] {
                                 head.push_str(&format!("[{}]  ", label));
                             }
@@ -149,7 +188,7 @@ pub fn run(repo: &Path) -> Result<()> {
                         } else {
                             let mark = if checked[*scenario_idx] { "[x]" } else { "[ ]" };
                             ListItem::new(Line::from(vec![
-                                Span::raw(format!("    {} {}  ", mark, s.meta.name)),
+                                Span::raw(format!("{}{} {}  ", pad, mark, s.meta.name)),
                                 Span::styled(
                                     s.meta.description.clone(),
                                     Style::default().add_modifier(Modifier::DIM),
@@ -208,7 +247,7 @@ pub fn run(repo: &Path) -> Result<()> {
                         // rows and always_on rows (locked scenarios can't be
                         // unchecked - node/python via version choice, pi/pi-web
                         // outright).
-                        if let Row::Item { scenario_idx } = rows[i] {
+                        if let Row::Item { scenario_idx, .. } = rows[i] {
                             if !scenarios[scenario_idx].meta.always_on {
                                 checked[scenario_idx] = !checked[scenario_idx];
                             }
@@ -280,7 +319,7 @@ fn cycle_version(
     dir: i32,
 ) {
     let Some(i) = selected else { return };
-    let Row::Item { scenario_idx } = rows[i] else {
+    let Row::Item { scenario_idx, .. } = rows[i] else {
         return;
     };
     let s = &scenarios[scenario_idx];

@@ -6,7 +6,7 @@ id = "rust"
 name = "Rust"
 description = "Rust 工具链(mise core:rust 后端,走 rustup),含 clippy/rustfmt/rust-analyzer 完整组件。装 /opt/mise(系统路径,躲卷遮盖);~1.4GB,是 mise 工具中体积最大的单项"
 category = "lang"
-
+installer = "mise"
 # 版本由 TUI 下拉选,gen 注入 {{version}}。rust 的 fragment 不能直接用
 # `mise use -g`(那只能写简单形式),必须写 table 形式带 profile——见 fragment 注释。
 [[versions]]

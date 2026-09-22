@@ -63,6 +63,37 @@
   --radius-lg: 8px;
   --radius-pill: 9999px;
 
+  /* 1px hairline ring — the universal border/edge treatment for every
+   * elevated surface in this UI (`.rows`, `.card`, `.input`, `.check`,
+   * `.radio`, `.btn-secondary`, `.dialog`, `.menu`; 24 references). It reads
+   * `--border`, which is a PER-THEME token, so one definition here adapts to
+   * all 8 schemes.
+   *
+   * Mode-independent, so it belongs in :root next to the other primitives
+   * (radius/space) rather than in each [data-theme] block. The 09-20
+   * theme-schemes rewrite dropped this line while moving colors into the
+   * theme blocks, which silently voided all 24 references — an undefined
+   * custom property voids the WHOLE declaration, so every surface lost its
+   * edge. For `.check` that was fatal: the checkbox sits on `.rows`, which
+   * has an identical `background: var(--surface)`, so the ring was the only
+   * thing distinguishing the two (invisible boxes, 2026-09-22 report).
+   * Restored by 09-22-scenario-ladder-a11y-offline; dangling-var audit is
+   * part of that task's acceptance. */
+  --elev-ring: 0 0 0 1px var(--border);
+
+  /* Stronger ring for CHECKBOX/RADIO only. Those controls sit on `.rows`/
+   * `.card`, which share their exact `background: var(--surface)` — and in
+   * flexoki-light `--bg` == `--surface` (#fffcf0) as well, so a fill
+   * difference is not available in every theme either. The 1px ring is
+   * therefore the control's ONLY resting affordance, and --elev-ring
+   * (var(--border), ~20% alpha) measures 1.8–2.1:1 against surface — under
+   * the 3:1 WCAG 1.4.11 floor for non-text UI boundaries.
+   *
+   * --muted at 80% is the LOWEST alpha that clears 3:1 in all 8 themes
+   * (measured 2026-09-22, worst case vantablack 3.07; 75% fails at 2.85).
+   * Do not lower it without re-running that sweep. */
+  --control-ring: 0 0 0 1px color-mix(in oklch, var(--muted) 80%, transparent);
+
   /* Motion: 150ms states/dialogs and the 250ms sidebar motion are upstream
    * Kumo values. */
   --motion-fast: 150ms;
@@ -1247,6 +1278,43 @@ body {
   flex: 1;
   height: 1px;
   background: var(--border-soft);
+}
+/* ── install "rungs" (ladder) inside a mixed layer ─────────────────────
+ * Rendered by EnvPicker only when a layer holds more than one installer —
+ * today only L3 (mise-managed rust/go/uv/ruff + the apt system toolchain
+ * c23). A uniform layer (L2 shell is all-mise) renders no rungs at all, so
+ * these rules are inert for it.
+ *
+ * A rung reads as a SUBDIVISION of the layer heading above it: `.layer`
+ * sits outside the `.rows` surface and uses a plain hairline, while `.rung`
+ * sits inside it and uses a full-bleed `--surface-warm` band (the same
+ * "recessed" colour the disabled/`.off` states use), so the hierarchy
+ * layer > rung > row is legible without extra indentation rules. */
+.rung-group {
+  display: flex;
+  flex-direction: column;
+}
+.rung {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-warm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.rung::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+/* The band already separates the heading from its rows; suppress the
+ * hairline `.row` would otherwise add directly beneath it. */
+.rung + .row {
+  border-top: 0;
 }
 .lock {
   font-size: 10px;

@@ -5,13 +5,14 @@ assembles into `Dockerfile.base`. Each scenario is a directory:
 
 ```
 scenarios/<id>/
-├── scenario.toml        # metadata: id, name, description, category, always_on?, versions?
+├── scenario.toml        # metadata: id, name, description, category, installer?, always_on?, versions?
 └── fragment.Dockerfile  # the RUN steps, run as root, inserted between head and tail
 ```
 
 The `id` in `scenario.toml` **must equal the directory name** or `gen` bails.
 Fragments are assembled sorted by `(category_rank, id)`, so the order in the
-built Dockerfile is deterministic regardless of tick order.
+built Dockerfile is deterministic regardless of tick order. (`installer` is
+display-only and deliberately does **not** enter this sort — see `sort_by_layer`.)
 
 ## scenario.toml contract
 
@@ -78,6 +79,17 @@ Fields:
   Empty = not versioned; the fragment is assembled verbatim.
 - `default_version` (default None): which version label `gen` picks if the
   manifest has no entry for this scenario. Falls back to `versions[0]`.
+- `installer` (default `"mise"`): **how the tool gets installed** — one of
+  `mise`/`apt`/`npm`/`tarball`. This is display-only metadata: `gen`/`manifest`/
+  `envhash` never read it. The pickers use it as the "rung" grouping **inside**
+  a layer, to express L3's two camps (mise-managed rust/go/uv/ruff vs the apt
+  system toolchain c23). Rungs render only when a layer mixes installers, so a
+  uniform layer stays flat. Set it to match what the fragment actually does:
+  apt/vendor-repo → `apt`, `npm -g` → `npm`, a release tarball to `/usr/local`
+  → `tarball`, everything through `mise use -g` → `mise`. Getting it wrong is
+  invisible to `gen` but mislabels the UI, so keep it honest. Adding a NEW
+  installer value means updating three tables in lockstep — see
+  `spec/frontend/component-guidelines.md` §"Scenario grouping".
 
 `gen` substitutes every `{{key}}` in the fragment using the selected version's
 `vars`. If a fragment contains `{{` but the scenario has no versions, `gen`

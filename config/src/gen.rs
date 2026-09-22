@@ -309,6 +309,7 @@ mod tests {
             description: String::new(),
             category: "os".to_string(),
             always_on: true,
+            installer: "mise".to_string(),
             default_version: default.map(String::from),
             versions: labels
                 .iter()

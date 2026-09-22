@@ -2,6 +2,7 @@ id = "pi"
 name = "pi AI agent"
 description = "pi coding agent(earendil-works,npm @earendil-works/pi-coding-agent),装 /usr/local/bin;扩展烘 /opt/pi-extensions(pi-packages 清单),aio-pi-extensions 零网络登记到 ~/.pi(卷)"
 category = "app"
+installer = "npm"
 # S1(2026-09-10,父任务 D1):由 always_on 改为可选场景——mgr 创建向导的
 # 服务开关「pi」就是本场景的 UI 升格(默认开),关闭则不烘。app 侧模型配置页
 # 读 ~/.pi/agent/models.json 等三大功能在未装时由入口按 command -v 守卫跳过

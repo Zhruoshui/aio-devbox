@@ -2,6 +2,7 @@ id = "node"
 name = "Node.js"
 description = "Node 运行时(nodejs.org tarball /usr/local;code-server + app web-builder 依赖,必装)"
 category = "os"
+installer = "tarball"
 always_on = true
 default_version = "22.23.2"
 

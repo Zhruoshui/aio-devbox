@@ -6,7 +6,7 @@ id = "uv"
 name = "uv"
 description = "uv(Python 包/项目管理器,astral-sh aqua 后端),装 /opt/mise/installs;含 uv/uvx。体积小(~30MB),常与 ruff 搭配"
 category = "lang"
-
+installer = "mise"
 [[versions]]
 label = "0.5.11"
 version = "0.5.11"

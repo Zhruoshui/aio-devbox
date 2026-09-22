@@ -183,6 +183,12 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     layL3: "语言 (L3)",
     layL4: "应用 (L4)",
     layOther: "其他",
+    // Install "rungs" inside a layer (only rendered when the layer mixes
+    // installers). Wording names WHERE the tool lands - the actual choice.
+    insMise: "mise 托管 · /opt/mise shims",
+    insApt: "系统路径 · apt / 官方源",
+    insNpm: "npm 全局 · /usr/local/bin",
+    insTarball: "官方 tarball · /usr/local",
     wzResources: "资源限制",
     wzCpus: "CPU 核数",
     wzCpusPh: "例如：4",
@@ -628,6 +634,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     layL3: "Languages (L3)",
     layL4: "Apps (L4)",
     layOther: "Other",
+    insMise: "mise-managed · /opt/mise shims",
+    insApt: "System path · apt / vendor repo",
+    insNpm: "npm global · /usr/local/bin",
+    insTarball: "Vendor tarball · /usr/local",
     wzResources: "Resource limits",
     wzCpus: "CPU cores",
     wzCpusPh: "e.g. 4",

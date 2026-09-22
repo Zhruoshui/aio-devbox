@@ -111,6 +111,7 @@ mod tests {
                 description: String::new(),
                 category: "lang".to_string(),
                 always_on,
+                installer: "mise".to_string(),
                 default_version: None,
                 versions: Vec::new(),
             },

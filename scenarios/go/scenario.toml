@@ -6,7 +6,7 @@ id = "go"
 name = "Go"
 description = "Go 工具链(mise core:go 后端),装 /opt/mise/installs;含 go/gofmt。版本由 TUI 下拉选"
 category = "lang"
-
+installer = "mise"
 [[versions]]
 label = "1.23.4"
 version = "1.23.4"

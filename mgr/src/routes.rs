@@ -174,6 +174,11 @@ async fn scenarios(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_j
                 "name": s.meta.name,
                 "description": s.meta.description,
                 "category": s.meta.category,
+                // Install "rung" inside the layer (mise / apt / npm /
+                // tarball). EnvPicker groups L3 by this to render the
+                // mise-vs-system ladder; the TUI does the same via
+                // scenario::installer_rank.
+                "installer": s.meta.installer,
                 "always_on": s.meta.always_on,
                 "default_version": s.meta.default_version,
                 "versions": s.meta.versions.iter().map(|v| &v.label).collect::<Vec<_>>(),

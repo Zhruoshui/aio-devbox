@@ -6,4 +6,5 @@ id = "mise"
 name = "mise engine"
 description = "mise 工具链管理器本体(二进制 + shims + 家目录重定向),烘焙到 /opt/mise(系统路径,躲卷遮盖)。L1 常驻:只提供「能装工具」的能力,本身不装任何工具——具体工具在 L2 shell / L3 lang / L4 app 各层按需勾选"
 category = "os"
+installer = "tarball"
 always_on = true

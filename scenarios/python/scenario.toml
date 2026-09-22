@@ -2,6 +2,7 @@ id = "python"
 name = "Python"
 description = "CPython(python-build-standalone tarball /usr/local;版本可选,必装)"
 category = "os"
+installer = "tarball"
 always_on = true
 default_version = "3.12.7"
 

@@ -26,6 +26,11 @@ export interface Scenario {
   name: string;
   description: string;
   category: string;
+  /** How the tool is installed: "mise" | "apt" | "npm" | "tarball". EnvPicker
+   * groups a layer's rows by this and renders a sub-heading per rung, but
+   * ONLY when the layer mixes installers (L3 = mise tools + the apt system
+   * toolchain). Mirrors the config TUI's scenario::installer_rank. */
+  installer: string;
   /** Locked scenarios are baked unconditionally (node/python/pi/pi-web);
    * only their VERSION is selectable - same semantics as the config TUI. */
   always_on: boolean;

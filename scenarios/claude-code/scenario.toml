@@ -6,7 +6,7 @@ id = "claude-code"
 name = "Claude Code"
 description = "Claude Code(anthropics/claude-code aqua 后端),装 /opt/mise/installs;~224MB。注意:闭源商业工具,烘进镜像后随 make save 分发前请自行确认许可条款"
 category = "app"
-
+installer = "mise"
 [[versions]]
 label = "2.1.278"
 version = "2.1.278"

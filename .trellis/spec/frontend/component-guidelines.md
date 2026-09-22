@@ -10,6 +10,34 @@ export function XtermPane({ service }: { service: ServiceEntry }): JSX.Element {
 - Return type is annotated `JSX.Element`.
 - No class components, no `React.FC`.
 
+## Scenario grouping: layer (`category`) × install rung (`installer`)
+
+`EnvPicker.tsx` renders the scenario catalog in two nested groupings, and BOTH
+must mirror the config TUI (`config/src/scenario.rs`) — a cross-layer contract,
+not a frontend detail:
+
+- **Layer** = `scenario.category` (`os`/`shell`/`lang`/`app`), ordered by the
+  local `LAYERS` table. Backend counterpart: `scenario::category_rank`.
+- **Rung** = `scenario.installer` (`mise`/`apt`/`npm`/`tarball`), ordered by the
+  local `INSTALLERS` table. Backend counterpart: `scenario::installer_rank`.
+
+Rungs render **only when a layer mixes installers** (`layerRows()` checks
+`new Set(items.map(s => s.installer)).size < 2` → flat). Deliberate: L2 shell is
+100% mise, so a sub-heading there is pure noise, while L3 genuinely needs the
+split (`mise 托管` rust/go/uv/ruff vs `系统路径·apt` c23 — the "两派" the
+scenario PRD always described). The TUI applies the same rule via
+`scenario::has_multiple_installers`; keep the two in sync.
+
+The rung label names **where the tool lands** (`/opt/mise shims` vs a system apt
+path), because that is what the user is actually choosing between. Each surface
+owns its own label strings (SPA i18n, TUI `installer_title`) rather than
+shipping display text over the API — same pattern as the layer headings.
+
+Adding an installer means touching **three** places in lockstep: Rust
+`INSTALLER_ORDER`, SPA `INSTALLERS`, and the `ins*` i18n pair. An unknown
+installer degrades gracefully on both sides (renders last, labelled by its raw
+string) — the same "never break on the unknown" rule as unknown categories.
+
 ## Dispatch by service type, not by id
 
 `PaneForService` (`App.tsx`) is the single switch on `service.type`:

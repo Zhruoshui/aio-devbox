@@ -169,6 +169,30 @@ docker exec aio-app-1 bash -ic '<tool> --version' 2>/dev/null   # 非 login(code
 
 离线补装绕过正常验签(apt `dpkg -i` 不验来源、cargo vendor 信任联网机内容、rust/uv 制品只验 sha256)→ **联网机是受信暂存点**,它被污染会污染所有下游。气隙场景要把联网机本身管好。
 
+### 3.6 mise 工具链的离线语义(2026-09-22 实测)
+
+粒度重构后 L2/L3/L4 的工具**全部由 mise 托管**(装 `/opt/mise/installs`,经 shims 暴露)。
+这改变了离线问题的形状,以下是 `--network none` 容器里的逐条实测结论:
+
+| 场景 | 离线结果 | 说明 |
+|---|---|---|
+| **已烘焙工具的调用** | ✅ 可用 | 35 项探针在 login(`bash -l`)与**非 login**(`bash -c`)两条通道上各 35/35 通过。ENV 通道(`MISE_DATA_DIR` + shims PATH)与 profile.d 通道都独立成立 |
+| **新工具 `mise use -g <新工具>`** | ❌ 失败 | 需要拉 registry 版本列表 + 下载制品。**失败是快速且显式的**(DNS 报错),不会静默挂起——因为镜像里 `[settings] auto_install = false` |
+| **已烘焙工具 `mise use -g <已烘焙>`** | ✅ 成功 | 只需写 config,不下载。会打一条 `Remote versions cannot be fetched` 警告后**回落本地安装**,工具照常可用 |
+| 设 `MISE_OFFLINE=1` | ⚠️ 报错信息有误导 | 同样快速失败,但错误变成 `no versions found for <tool> matching date filter`,不如默认的 DNS 报错好定位 |
+
+**结论**:离线机的环境配置能力 = **镜像里烘焙了什么**。运行期自装**不能**离线完成,
+这是 mise 的固有属性(与 AIO 的封装无关)。
+
+> 卷缓存**不是**离线兜底:下载缓存(`~/.cache/mise`、`/opt/mise/downloads`)只含
+> **已烘焙**工具的制品。新工具从未下载过,缓存里没有,离线仍装不上。
+> 注意 `~/.cache/mise` 在 `/root` 下,首次挂新卷时由 Docker 从镜像**播种**进去,
+> 因此运行期可见——但这只是让"已烘焙"的边界更宽松,不改变"新工具需联网"的结论。
+
+**离线机要加新工具的合规路径**:在**联网机**上把它加进 `.aio/enabled.toml`
+→ `make gen && make build-base` → 重新 `make save` 分发。
+即 §1.2 表格里的「镜像」持久位,而不是共享卷。
+
 ---
 
 ## 第二部分:参考配方(7 类,均已实测)

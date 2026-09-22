@@ -41,6 +41,31 @@ const LAYERS: { cats: string[]; labelKey: StringKey }[] = [
   { cats: ["app"], labelKey: "layL4" },
 ];
 
+/** Install "rungs" inside a layer, in display order. Mirrors the config TUI's
+ * scenario::INSTALLER_ORDER / installer_rank, so both surfaces show the same
+ * ladder; labels live in i18n (like LAYERS) rather than being sent by the
+ * API. Unknown installers render last, keyed by their raw string. */
+const INSTALLERS: { id: string; labelKey: StringKey }[] = [
+  { id: "mise", labelKey: "insMise" },
+  { id: "apt", labelKey: "insApt" },
+  { id: "npm", labelKey: "insNpm" },
+  { id: "tarball", labelKey: "insTarball" },
+];
+
+/** Rank for the rung order; unknown installers sort last. */
+const installerRank = (id: string): number => {
+  const i = INSTALLERS.findIndex((x) => x.id === id);
+  return i === -1 ? INSTALLERS.length : i;
+};
+
+/** Label for a rung. Known installers get the i18n string; an unrecognised
+ * one falls back to its raw value (same "never break on the unknown" rule as
+ * the layer grouping). */
+const installerLabel = (lang: Lang, id: string): string => {
+  const hit = INSTALLERS.find((x) => x.id === id);
+  return hit ? t(lang, hit.labelKey) : id;
+};
+
 /** Scenario ids owned by the services area (S1, parent D1): pi and pi-web are
  * surfaced there, NOT in the four-layer scenario section — a single switch
  * in one place, never two. EnvPicker still honors their presence in
@@ -110,12 +135,31 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
     );
   };
 
+  /** Rows of one layer, split into install rungs when the layer mixes
+   * installers. A uniform layer (L2 shell is all-mise) renders exactly as
+   * before - no sub-headings, no extra indent. */
+  const layerRows = (items: Scenario[]) => {
+    const rungs = [...new Set(items.map((s) => s.installer))];
+    if (rungs.length < 2) {
+      return <div className="rows" role="group">{items.map(row)}</div>;
+    }
+    rungs.sort((a, b) => installerRank(a) - installerRank(b));
+    return (
+      <div className="rows" role="group">
+        {rungs.map((r) => (
+          <div key={r} className="rung-group">
+            <p className="rung">{installerLabel(lang, r)}</p>
+            {items.filter((s) => s.installer === r).map(row)}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const group = (labelKey: StringKey, items: Scenario[]) => (
     <div key={labelKey}>
       <p className="layer">{t(lang, labelKey)}</p>
-      <div className="rows" role="group" aria-label={t(lang, labelKey)}>
-        {items.map(row)}
-      </div>
+      {layerRows(items)}
     </div>
   );
 

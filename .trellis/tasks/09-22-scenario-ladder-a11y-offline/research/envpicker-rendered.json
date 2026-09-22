@@ -1,0 +1,85 @@
+{
+ "log": [
+  "clicked 管理",
+  "miss 管理沙箱",
+  "buttons@list=[\"导入现有栈\",\"新建沙箱\"]",
+  "clicked 新建沙箱",
+  "miss 下一步",
+  "buttons@wiz=[\"取消\",\"创建沙箱\"]",
+  "layers=4"
+ ],
+ "groups": [
+  {
+   "layer": "系统 (L1)",
+   "rungs": [
+    "系统路径 · apt / 官方源",
+    "官方 tarball · /usr/local"
+   ],
+   "rowsByRung": {
+    "系统路径 · apt / 官方源": [
+     "字体 (Maple Mono NF CN)"
+    ],
+    "官方 tarball · /usr/local": [
+     "mise engine必装",
+     "Node.js必装",
+     "Python必装"
+    ]
+   },
+   "firstRowShadow": "oklch(0.676424 0.0805552 276.738 / 0.8) 0px 0px 0px 1px",
+   "checkedCount": 3
+  },
+  {
+   "layer": "Shell (L2)",
+   "rungs": [],
+   "rowsByRung": {
+    "(flat)": [
+     "bat",
+     "delta",
+     "eza",
+     "fd",
+     "fzf",
+     "jq",
+     "ripgrep",
+     "starship",
+     "yq",
+     "zoxide"
+    ]
+   },
+   "firstRowShadow": "oklch(0.676424 0.0805552 276.738 / 0.8) 0px 0px 0px 1px",
+   "checkedCount": 0
+  },
+  {
+   "layer": "语言 (L3)",
+   "rungs": [
+    "mise 托管 · /opt/mise shims",
+    "系统路径 · apt / 官方源"
+   ],
+   "rowsByRung": {
+    "mise 托管 · /opt/mise shims": [
+     "Go",
+     "ruff",
+     "Rust",
+     "uv"
+    ],
+    "系统路径 · apt / 官方源": [
+     "C23 开发环境"
+    ]
+   },
+   "firstRowShadow": "oklch(0.676424 0.0805552 276.738 / 0.8) 0px 0px 0px 1px",
+   "checkedCount": 0
+  },
+  {
+   "layer": "应用 (L4)",
+   "rungs": [],
+   "rowsByRung": {
+    "(flat)": [
+     "Claude Code",
+     "Codex CLI",
+     "opencode"
+    ]
+   },
+   "firstRowShadow": "oklch(0.676424 0.0805552 276.738 / 0.8) 0px 0px 0px 1px",
+   "checkedCount": 0
+  }
+ ]
+}
