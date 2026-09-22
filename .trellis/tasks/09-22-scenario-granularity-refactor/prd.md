@@ -105,17 +105,33 @@ starship = "1.26.0"
 
 ## Acceptance Criteria
 
-- [ ] **AC1** — 构建后 `mise --version` 可用，且 `/opt/mise/installs` **为空**
-- [ ] **AC2** — 只选 `fzf` 构建后，`fzf` 可用、其余 9 个 shell 工具**不存在**
-- [ ] **AC3** — 选 `rust` 后 `rustc / cargo / clippy / rustfmt / rust-analyzer` 全可用
-- [ ] **AC4** — c23 的 `clang -std=c23` 冒烟编译运行通过；与 mise 派同时选中互不干扰
-- [ ] **AC5** — 每个 agent 单独选中后命令可用（`opencode --version` /
-      `claude --version` / `codex --version`）
-- [ ] **AC6** — pi 由 mise 装后 `aio-pi-extensions` 登记流程仍可用
-- [ ] **AC8** — 同一 scenario 选不同工具产生不同 `env_hash`
-- [ ] **AC9** — TUI 能正常展示新的四层分组与全部目录
-- [ ] **AC11** — `cargo test`（config + mgr）全绿
-- [ ] **AC12** — 仓库 `.aio/enabled.toml` 已更新，`make config` 后 `gen` 不 bail
+- [x] **AC1** — 构建后 `mise --version` 可用，且 `/opt/mise/installs` **为空**
+      —— engine fragment 末尾有构建期断言 `[ -z "$(ls -A /opt/mise/installs)" ]`
+      （fragment.Dockerfile:139），两次构建（全量 + 最小集）均通过该断言
+- [x] **AC2** — 只选 `fzf` 构建后，`fzf` 可用、其余 9 个 shell 工具**不存在**
+      —— 最小集镜像实测：`mise ls` 恰为单条 `fzf 0.74.4`，rg/bat/eza/zoxide/
+      delta/starship/jq/yq/fd 全部缺席（详见 implement.md 7.3）
+- [x] **AC3** — 选 `rust` 后 `rustc / cargo / clippy / rustfmt / rust-analyzer`
+      全可用 —— 实测 `rustc 1.93.1` / `cargo 1.93.1` / `rustfmt` /
+      `rust-analyzer` 就位；clippy 以 `cargo-clippy` 提供
+      （shim 在 `/opt/mise/shims/cargo-clippy`，`cargo clippy --version` →
+      `clippy 0.1.93`）。⚠️ 探针注意：`command -v clippy` 会假阴性
+- [x] **AC4** — c23 的 `clang -std=c23` 冒烟编译运行通过；与 mise 派同时选中
+      互不干扰 —— `clang 22.1.8` + `rustc 1.93.1` + `go 1.23.4` + `uv 0.5.11`
+      并存于同一镜像，C23 程序编译运行通过
+- [x] **AC5** — 每个 agent 单独选中后命令可用（`opencode --version` /
+      `claude --version` / `codex --version`）—— 实测 1.18.24 / 2.1.278 / 0.155.1
+- [ ] **AC6** — pi 由 mise 装后 `aio-pi-extensions` 登记流程仍可用 ——
+      **未验**：`pi 0.84.2` 本体可用，但登记流程需在终端跑一次
+      （README 的「跑一次 aio-pi-extensions」步骤）
+- [x] **AC8** — 同一 scenario 选不同工具产生不同 `env_hash` ——
+      `["mise","rust"]` → `90ba36cd…` vs `["mise","rust","go"]` → `fda90ee3…`
+- [ ] **AC9** — TUI 能正常展示新的四层分组与全部目录 —— **未截到交互帧**；
+      分层/排序有单测覆盖，需 owner 目视确认一次
+- [x] **AC11** — `cargo test`（config + mgr）全绿 —— config 23 / mgr 98，
+      均 0 failed
+- [x] **AC12** — 仓库 `.aio/enabled.toml` 已更新，`make config` 后 `gen` 不 bail
+      —— 本会话跑 `make gen` 成功写入 21 个 scenario（含 L2/L3/L4 全部）
 
 ## Out of Scope
 

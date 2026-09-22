@@ -145,23 +145,44 @@
 
 ## 阶段 7 · 集成验收
 
-- [ ] **7.1** `cargo test`（config + mgr）全绿（AC11）
+> 2026-09-22 由兄弟任务 `09-22-mise-runtime-volume-config` 的收尾会话补齐：
+> 该任务需要全量重建 base + app 并起真实栈，正好覆盖本阶段多项验收。
+
+- [x] **7.1** `cargo test`（config + mgr）全绿（AC11）—— config 23 passed、
+      mgr 98 passed，均 0 failed
   ```bash
   cd config && cargo test
   cd ../mgr && cargo test
   ```
-- [ ] **7.2** `make config`（TUI）正常展示四层分组与全部目录（AC9）
-- [ ] **7.3** 完整构建：最小集 + 全选各一次
-- [ ] **7.4** AC4：c23 与 mise 派同时选中互不干扰
+- [x] **7.4** AC4：c23 与 mise 派同时选中互不干扰 —— 全量镜像内
+      `clang 22.1.8` / `rustc 1.93.1` / `go 1.23.4` / `uv 0.5.11` 并存，
+      `clang -std=c23` 编译运行通过
   ```bash
   docker run --rm sandbox-base:latest bash -lc 'clang --version && rustc --version'
   echo 'int main(){return 0;}' > /tmp/t.c
   docker run --rm -v /tmp/t.c:/tmp/t.c sandbox-base:latest bash -lc 'clang -std=c23 /tmp/t.c -o /tmp/t && /tmp/t && echo OK'
   ```
-- [ ] **7.5** AC8：不同选择产生不同 env_hash
+- [x] **7.5** AC8：不同选择产生不同 env_hash —— 临时 repo 跑 `aio-config gen`
+      两次：`["mise","rust"]` → `90ba36cd…`，`["mise","rust","go"]` → `fda90ee3…`
+      （env_hash = 装配后 `Dockerfile.base` 内容的 sha256，见 `config/src/gen.rs:56`）
   ```bash
   # 通过 mgr API 或直接对比 gen 产物
   ```
+- [x] **7.3** 完整构建：最小集 + 全选各一次
+  - **全选**（21 个 scenario，7.91GB）：24 个二进制运行时抽查全 OK，
+    见 `mise-runtime-volume-config` 任务 implement.md 阶段 5.5
+  - **最小集**（`scenarios = ["fzf"]`，1.42GB）：断言矩阵全过 ——
+    存在 `fzf`/`mise`/`node`/`python3`/`git`(选中 + always_on)；
+    18 个未选中工具全部缺席（rustc cargo go uv ruff rg bat eza zoxide
+    delta starship jq yq opencode pi claude codex clang）；`mise ls` 恰为
+    单条 `fzf 0.74.4`（**AC2 成立**：只选 fzf 不会带出其它工具）
+  - 做法（不打断在跑的 aio 栈）：临时 repo 里 `aio-config gen` 生成最小
+    `Dockerfile.base`，`docker build -t aio-base-minimal` 用一次性 tag 建，
+    验完 `docker rmi` —— 全程不碰 `sandbox-base:latest`
+- [ ] **7.2** `make config`（TUI）正常展示四层分组与全部目录（AC9）——
+      **未截到交互帧**（pty 抓帧在本环境不配合）；分层/排序逻辑有单测覆盖
+      （`scenario.rs::category_rank_orders_known_layers_and_pushes_unknown_last`
+      等），且 `make config` 是 owner 日常入口。需 owner 目视确认一次。
 
 ---
 
