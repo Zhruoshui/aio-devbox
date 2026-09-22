@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端校验基准：类型契约单一所有者（types.ts）、i18n 字符串模式、组件分层"}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端校验基准：mgr 路由/DB 迁移（pragma-probe）/job 日志契约约定"}
+{"file": ".trellis/tasks/09-22-scenario-items-layered-mise/prd.md", "reason": "父任务 AC9：分层场景在 TUI 与 mgr-web 的展示语义是本任务折叠/全选的回归基线"}
