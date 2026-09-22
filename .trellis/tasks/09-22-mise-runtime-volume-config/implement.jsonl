@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "app/entrypoint.sh 与卷布局的既有结构契约；本任务改的是启动期卷准备逻辑"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "容器启动、卷挂载与 recreate 语义的运维契约；AC7b「跨 recreate 存活」直接依赖它"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "镜像层（/opt/mise 只读烘焙）与卷层（用户自装）的边界划分；本任务核心就是这条边界"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "离线分发与镜像/卷体积约定；AC7c 与「离线分发不被破坏」需遵守"}

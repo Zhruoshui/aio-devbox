@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "父任务最终集成校验需逐层核对契约（AC1-AC10 跨构建/API/前端/运维四层）"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "校验端到端流程（创建/重建/离线分发）符合运维契约（AC7/AC10）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验全部改动（Rust + shell + Dockerfile）通过质量门"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "校验最终镜像体积/分层/tag 符合约定，离线分发未被破坏"}

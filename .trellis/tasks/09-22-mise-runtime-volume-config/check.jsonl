@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "校验 restart/recreate 后卷内容与容器状态符合既有运维契约（AC7b）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验 entrypoint 脚本改动的质量门与幂等性要求（AC14）"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "校验离线分发路径（make save/load）未被破坏、卷体积符合约定（AC7c）"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "校验新增脚本/卷路径的放置位置符合结构契约"}

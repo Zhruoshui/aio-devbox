@@ -1,0 +1,29 @@
+{
+  "id": "scenario-items-layered-mise",
+  "name": "scenario-items-layered-mise",
+  "title": "Scenario item 化重构：L1 mise engine 必装 + L2/L3/L4 按条可选 + mise 运行时自由配置",
+  "description": "把 scenario 从整体开关升级为条目级(item)可选：L1 只放 mise engine(必装,给能力)，L2 shell/L3 lang/L4 agent 的工具全部按条勾选；L3 分两派(mise spec 方式 / 系统 pkg 方式)；新增 L4 agent 层收编 opencode/codex/claude-code/pi",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "Zhruoshui",
+  "assignee": "Zhruoshui",
+  "createdAt": "2026-09-22",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-22-scenario-granularity-refactor",
+    "09-22-mise-runtime-volume-config"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

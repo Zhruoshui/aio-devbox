@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "scenario 目录与 config crate 的既有结构契约；本次新增约 16 个 scenario 目录需遵循"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "mgr 侧场景/环境选择与镜像构建的运维契约；env_hash 与 SandboxEnv 的行为基线"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "GET /api/scenarios 返回的 Scenario 形状；场景目录变化后 API 输出面需保持一致"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "scenario.toml → gen → Dockerfile → env_hash → mgr → mgr-web 跨多层的契约流转；本任务核心是跨层一致性"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "镜像构建约定（分层、tag、体积）；L1 engine 拆分与 L4 新增需遵守"}

@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验 config/mgr 侧 Rust 代码质量门（本次预期不改 Rust 代码，需确认无意外改动）"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "校验新 scenario 目录结构合规、id 与目录名一致、fragment 命名正确"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "校验 env_hash 敏感性（AC8）与旧 sandbox 的失败行为符合既有运维契约"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "校验镜像分层、体积与 tag 约定未被破坏"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "校验 mgr-web EnvPicker/ServicesPicker 的落位改动（若有）符合前端结构契约"}

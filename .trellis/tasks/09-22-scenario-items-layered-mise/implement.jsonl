@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "父任务的核心是跨层一致性：scenario.toml → gen → Dockerfile → env_hash → mgr → mgr-web，集成验收需按层核对"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "父任务阶段 3 的端到端验收（新建 sandbox、镜像构建、离线分发）依赖该运维契约"}
+{"file": ".trellis/spec/guides/ci-image-conventions.md", "reason": "父任务跨子任务的镜像体积/分层/tag 总体约束；L4 agent 新增 862MB 需对照"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "父任务需确保两个子任务改动后的整体目录结构自洽"}
