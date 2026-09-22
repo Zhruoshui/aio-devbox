@@ -94,29 +94,38 @@ from the upstream releases page.
 ## Recipe 3: add an L2 apt utility (e.g. htop)
 
 Could be a scenario or a head edit. A scenario is right if it's a named,
-toggleable tool; for pure infra apt, edit `Dockerfile.base.head` instead. Here's
-the scenario version:
+toggleable tool set; for pure infra apt with no narrative, edit
+`Dockerfile.base.head` instead. The real, shipped example is the
+`shell-tools` scenario — wget / tree / less / file / zip / vim, the baseline
+set every distro ships. To add MORE baseline tools, extend that scenario's
+fragment; to add a single named tool, follow this recipe.
 
-`scenarios/shell-extras/scenario.toml`:
+`scenarios/<your-tool>/scenario.toml`:
 ```toml
-id = "shell-extras"
-name = "Shell 额外工具"
-description = "htop / jq / tree 等便利工具(apt 装系统路径)"
+id = "<your-tool>"
+name = "<Your Tool>"
+description = "<what it does>(apt 装系统路径)"
 category = "shell"
+installer = "apt"
 ```
 
-`scenarios/shell-extras/fragment.Dockerfile`:
+`scenarios/<your-tool>/fragment.Dockerfile`:
 ```dockerfile
-# >>> scenario: shell-extras >>>
+# >>> scenario: <your-tool> >>>
 RUN apt-get update \
- && apt-get install -y --no-install-recommends htop jq tree \
+ && apt-get install -y --no-install-recommends <your-tool> \
  && rm -rf /var/lib/apt/lists/* \
- && htop --version && jq --version && tree --version
-# <<< scenario: shell-extras <<<
+ && <your-tool> --version \
+ && bash -lc 'command -v <your-tool> >/dev/null || exit 1' \
+ && bash -c  'command -v <your-tool> >/dev/null || exit 1'
+# <<< scenario: <your-tool> <<<
 ```
 
 `apt-get update` first (head cleared the lists - rule 5). These land in
-`/usr/bin`, already on PATH. Build + verify as in Recipe 1.
+`/usr/bin`, already on PATH. `installer = "apt"` matters: it is what puts the
+scenario in the "系统路径 · apt / 官方源" rung of the L2 ladder (the
+mise-managed tools occupy the "mise 托管 · /opt/mise shims" rung). Build +
+verify as in Recipe 1.
 
 ## Recipe 3b: user-tools — the user-editable escape hatch (non-mise)
 

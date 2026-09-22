@@ -3,7 +3,7 @@
   "name": "base-tools-and-noto",
   "title": "base 层扩充: Noto 字体默认必装 + L2 常用 shell 工具(非 mise)",
   "description": "把字体换成 Noto Sans CJK 默认必装(不再走可勾选场景),并在 L2 shell 层级追加常用非 mise 系统工具(wget 等,apt 烘焙进系统路径)",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

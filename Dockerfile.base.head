@@ -12,6 +12,15 @@
 # this head. Scenario fragments insert AFTER this (still root, before the
 # tail's `USER root` / `WORKDIR /root`).
 #
+# Fonts live HERE, not in a scenario (2026-09-22). The earlier `scenarios/fonts`
+# was an `os`-category scenario - i.e. an L1 row the user could UNCHECK. That
+# conflated two axes: `category` decided both the grouping AND whether the row
+# could be turned off (issue #30, friction point 1). Fonts are non-versioned
+# infrastructure with no version axis, so per layers.md they belong in the
+# head: always present, never toggleable. Noto replaces the old Maple Mono NF
+# CN - it covers CJK (Sans + Serif) and color emoji, and is the most widely
+# deployed font family there is.
+#
 # Do NOT hand-edit the generated repo-root Dockerfile.base. Edit this head,
 # scenarios/<id>/fragment.Dockerfile, or Dockerfile.base.tail, then re-run
 # `make build-base` (which runs `gen`).
@@ -51,6 +60,49 @@ RUN apt-get -o Acquire::https::Verify-Peer=false update \
         locales tzdata sudo \
  && rm -rf /var/lib/apt/lists/* \
  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+
+# Fonts (Noto, always baked - see the header note). The base image starts with
+# ZERO fonts, so any server-side text render (matplotlib, pandoc/HTML->PDF,
+# headless screenshots) shows tofu boxes for CJK. Noto Sans CJK covers
+# Simplified/Traditional Chinese, Japanese and Korean; Noto Color Emoji adds
+# emoji. The web UI renders in the HOST browser and uses host fonts, so this
+# scenario is about in-container rendering only.
+#
+# Why the /etc/fonts/local.conf aliases are REQUIRED (measured 2026-09-22):
+# with DejaVu also present, fontconfig's default ordering picks DejaVu for
+# monospace/sans-serif/serif - `fc-match "sans-serif:lang=zh"` lands on DejaVu,
+# which has no CJK glyphs. Strong-binding aliases pin all three generic
+# families to the Noto SC faces, so terminal/editors/renders are deterministic
+# and tofu-free. The assertion below (not a print!) fails the build if any
+# family slips back to a non-Noto font.
+#
+# Tradeoff (accepted): `monospace` becomes Noto Sans Mono CJK SC, which is a
+# CJK-oriented mono face - no programming ligatures and weaker glyph
+# disambiguation than DejaVu/Maple. Determinism + full CJK coverage won over
+# Latin-only polish. (The old Maple Mono NF CN also carried Nerd Font icons;
+# Noto has none - see docs/wiki/Scenarios.md for the icon fallback note.)
+#
+# apt lists were cleared at the end of the bootstrap RUN above, so re-update.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        fontconfig fonts-noto-cjk fonts-noto-color-emoji \
+ && rm -rf /var/lib/apt/lists/* \
+ && printf '%s\n' \
+      '<?xml version="1.0"?>' \
+      '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
+      '<fontconfig>' \
+      '  <alias binding="strong"><family>monospace</family><prefer><family>Noto Sans Mono CJK SC</family></prefer></alias>' \
+      '  <alias binding="strong"><family>sans-serif</family><prefer><family>Noto Sans CJK SC</family></prefer></alias>' \
+      '  <alias binding="strong"><family>serif</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>' \
+      '</fontconfig>' > /etc/fonts/local.conf \
+ && fc-cache -f \
+# Assertions (not prints): every generic family must resolve to Noto, and the
+# cmap must actually carry CJK + emoji glyphs. Any failure fails the build.
+ && fc-match -f '%{family}\n' monospace | grep -qi noto \
+ && fc-match -f '%{family}\n' 'sans-serif:lang=zh' | grep -qi noto \
+ && fc-list ':charset=4e2d' family | grep -qi 'noto sans cjk sc' \
+ && fc-list ':charset=1f600' family | grep -qi emoji \
+ && fc-match -f '%{family}\n' emoji | grep -qi emoji
 
 # No non-root user: root (uid 0) is the default (and only) user across every
 # container that touches the shared workspace volume (R6 / R9). Historically a

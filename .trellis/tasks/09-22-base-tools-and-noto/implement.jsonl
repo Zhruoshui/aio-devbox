@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "fragment.Dockerfile 契约、两条硬规则(系统路径 + login shell 可见)、apt 场景的 apt-get update 规则、checklist —— 写 shell-tools 场景必须逐条对照"}
+{"file": ".claude/skills/aio-env-config/references/layers.md", "reason": "五层模型与「非版本化基础设施进 head、永不作为场景」的教条 —— 字体进 head 而非 always_on 场景的依据;也是要同步的文档"}
+{"file": ".claude/skills/aio-env-config/references/recipes.md", "reason": "Recipe 3「add an L2 apt utility」示例名 shell-extras 需校正为 shell-tools;Recipe 3b 是刚加的 user-tools,与 shell-tools 的互补关系需说明"}
+{"file": ".claude/skills/aio-env-config/references/paths-and-offline.md", "reason": "系统路径 vs 卷遮盖的规则(安装必须落 /usr/local 或 /opt,绝不写 /root)"}
+{"file": ".trellis/tasks/09-22-base-tools-and-noto/prd.md", "reason": "本任务的验收标准与已确认决策"}
+{"file": ".trellis/tasks/09-22-base-tools-and-noto/design.md", "reason": "技术设计:head 放什么、断言怎么写、L2 阶梯渲染的预期交互"}

@@ -168,7 +168,7 @@ build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
 
 | Layer | `category` | What lives here | Selectable? |
 |---|---|---|---|
-| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** and the **mise engine** as `always_on` scenarios | infra: hardcoded; node/python/mise: always on (node/python version-selectable) |
+| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts — Noto CJK + emoji, hardcoded in `Dockerfile.base.head`) or fixed fragments; **versioned runtimes Node + Python** and the **mise engine** as `always_on` scenarios | infra: hardcoded; node/python/mise: always on (node/python version-selectable) |
 | L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd / eza / zoxide / delta / starship / jq / yq) | yes |
 | L3 Language toolchains | `lang` | **two schools** — mise-managed (rust / go / uv / ruff) and system-managed (c23) | yes |
 | L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode / claude-code / codex / pi / pi-web) | yes |
@@ -198,9 +198,10 @@ mask):
 |---|---|---|---|---|
 | `node` | L1 `os` | ✓ | 22.23.2 *(default)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 `os` | ✓ | 3.12.7 *(default)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
-| `fonts` | L1 `os` | — | — | Maple Mono NF CN (mono + Nerd Font icons + CJK, ~78MB) → `/usr/local/share/fonts`, aliased as default for mono/sans/serif via `/etc/fonts/local.conf`; fixes tofu in server-side rendering |
 | `mise` | L1 `os` | ✓ | — | mise **engine only** — binary + shims + the four redirect vars (`/opt/mise`) + `/etc/profile.d/mise.sh` activate. Installs **no tools** (~30MB); a build-time self-check asserts `installs/` is empty |
-| `shell` tools (×10) | L2 `shell` | — | each has one version | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq` — one scenario each, `mise use -g` → `/opt/mise/installs`, shims on `/opt/mise/shims` |
+| `shell` tools (×10, mise) | L2 `shell` | — | each has one version | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq` — one scenario each, `mise use -g` → `/opt/mise/installs`, shims on `/opt/mise/shims` |
+| `shell-tools` | L2 `shell` | — | — | wget / tree / less / file / zip / vim — the baseline set every distro ships (apt, system path). Complements the mise-managed modern replacements |
+| `user-tools` | L2 `shell` | — | — | empty skeleton the user edits in place; see Recipe 3b in the skill references |
 | `rust` / `go` / `uv` / `ruff` | L3 `lang` | — | one each | **mise school**. `rust` additionally needs the table-form spec (`profile = "default"`) + `rustup component add rust-analyzer` (without the latter, shim recursion) |
 | `c23` | L3 `lang` | — | — | **system school** — clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin`. Kept on apt because mise's clang is the conda backend (foreign sysroot) and 7 of its tools aren't in the registry |
 | `opencode` / `claude-code` / `codex` | L4 `app` | — | one each | mise school AI-agent CLIs. Sidebar/agent buttons appear only when baked (command-exists detection). Scenario `claude-code` installs the **`claude`** binary |
@@ -309,8 +310,9 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 
 - `minimal` — the always-on baseline (Node + Python + the pi/pi-web workbench core).
 - `full` — every scenario fragment baked in (the `["*"]` wildcard expands to
-  all selectable scenarios: the 10 L2 shell tools, the L3 toolchains in both
-  schools, every L4 agent, plus c23 / fonts / pi / pi-web).
+  all selectable scenarios: the 10 L2 mise shell tools + the 2 L2 apt
+  scenarios (shell-tools / user-tools), the L3 toolchains in both
+  schools, every L4 agent, plus c23 / pi / pi-web).
 
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)

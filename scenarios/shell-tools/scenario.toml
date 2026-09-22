@@ -1,0 +1,10 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "shell-tools"
+name = "常用 Shell 工具"
+description = "wget/tree/less/file/zip/vim 等各发行版通用基线工具(apt 装系统路径)。与 mise 托管的 L2 工具互补:mise 侧是版本可选的现代替代品(rg/bat/fd/eza),这里是最基础、几乎所有 Linux 都自带的那些——脚本与文档里默认它们存在"
+category = "shell"
+installer = "apt"
+always_on = false

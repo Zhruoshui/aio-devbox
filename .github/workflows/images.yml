@@ -226,7 +226,7 @@ jobs:
           else
             # full = 全部可选场景的代表工具；bash -lc 顺带守护场景编写的 login-shell PATH 规则
             # （mise 场景 = profile.d/activate 通道；rust/go/uv/ruff/opencode 均由 mise 烘焙）
-            tools="node python3 mise rustc cargo go gofmt uv ruff clang gcc gdb cmake ninja fzf rg bat fd opencode pi pi-web fc-list"
+            tools="node python3 mise rustc cargo go gofmt uv ruff clang gcc gdb cmake ninja fzf rg bat fd opencode pi pi-web fc-list wget tree less file zip vim"
           fi
           docker run --rm --entrypoint bash sandbox-base -lc \
             "for t in ${tools}; do command -v \${t} >/dev/null || { echo \"MISSING in sandbox-base: \${t}\"; exit 1; }; done; echo 'sandbox-base probe ok'"

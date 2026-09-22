@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/09-22-base-tools-and-noto/prd.md", "reason": "验收标准清单 —— check 阶段逐条核对"}
+{"file": ".trellis/tasks/09-22-base-tools-and-noto/implement.md", "reason": "门禁条件(构建通过/双通道通过/无 Rust 改动/文档一致)与验证命令汇总"}
+{"file": ".claude/skills/aio-env-config/references/scenario-authoring.md", "reason": "checklist 逐条核对新场景是否合规(系统路径、login shell、apt-get update、ARG 版本等)"}
+{"file": ".claude/skills/aio-env-config/references/layers.md", "reason": "核对层归属是否正确、文档同步是否到位"}

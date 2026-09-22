@@ -126,7 +126,7 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 
 | 层 | `category` | 放什么 | 可勾选? |
 |---|---|---|---|
-| L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential、字体);**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
+| L1 OS 包 | `os` | 非版本化基础设施(apt、ca-certs、build-essential、字体——Noto CJK + emoji,硬编码在 `Dockerfile.base.head`);**版本化运行时 Node + Python** 作 `always_on` 场景 | 基础设施:硬编码;node/python:可选版本、始终启用 |
 | L2 Shell 便利 | `shell` | CLI 工具(fzf / rg / bat / fd) | 是 |
 | L3 语言工具链 | `lang` | mise(rust + go + uv + ruff + opencode 全家桶)/ c23 | 是 |
 | L4 应用 | `app` | CLI 应用 / AI agent(opencode;pi、pi-web 为 `always_on`) | 是(pi/pi-web:锁定必装) |
@@ -153,8 +153,9 @@ app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]
 | `node` | L1 `os` | ✓ | 22.23.2 *(默认)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 `os` | ✓ | 3.12.7 *(默认)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
 | `mise` | L1 `os` | ✓ | — | mise **engine 本体**——二进制 + shims + 四个重定向 env(`/opt/mise`)+ `/etc/profile.d/mise.sh` activate。**不装任何工具**(~30MB);构建期自检断言 `installs/` 为空 |
-| `fonts` | L1 `os` | — | — | Maple Mono NF CN(等宽 + Nerd Font 图标 + 中文,~78MB)→ `/usr/local/share/fonts`,经 `/etc/fonts/local.conf` 钉为 mono/sans/serif 默认;修复服务端渲染豆腐块 |
-| shell 工具(×10) | L2 `shell` | — | 各一个版本 | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq`——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
+| shell 工具(×10,mise) | L2 `shell` | — | 各一个版本 | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq`——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
+| `shell-tools` | L2 `shell` | — | — | wget / tree / less / file / zip / vim——各发行版通用基线工具(apt,系统路径),与 mise 侧的现代替代品互补 |
+| `user-tools` | L2 `shell` | — | — | 用户自由编辑的空骨架,见 skill references 的 Recipe 3b |
 | `rust`/`go`/`uv`/`ruff` | L3 `lang` | — | 各一个版本 | **mise 派**。其中 `rust` 需 table 形式 spec(`profile = "default"`)+ `rustup component add rust-analyzer`(缺后者会 shim 递归) |
 | `c23` | L3 `lang` | — | — | **系统派**——clang-22(apt.llvm.org,完整 C23)+ 复用 gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace;无版本后缀软链 → `/usr/local/bin`。留在 apt 的原因:mise 的 clang 是 conda 后端(异源 sysroot),且所需 7 个工具不在其 registry |
 | `opencode`/`claude-code`/`codex` | L4 `app` | — | 各一个版本 | mise 派 AI agent CLI。面板按钮仅在烘进镜像时出现(命令存在探测)。场景 `claude-code` 装出的二进制是 **`claude`** |
@@ -250,7 +251,8 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 
 - `minimal`——always_on 基线(Node + Python + pi/pi-web 工作台核心)。
 - `full`——全部场景片段都烘进去(`["*"]` 通配符展开为所有可选场景:L2 十个
-  shell 工具、L3 两派语言工具链、L4 全部 agent,外加 c23 / fonts / pi / pi-web)。
+  mise shell 工具 + 两个 L2 apt 场景(shell-tools / user-tools)、L3 两派语言
+  工具链、L4 全部 agent,外加 c23 / pi / pi-web)。
 
 ```sh
 make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)

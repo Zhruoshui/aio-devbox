@@ -12,8 +12,8 @@
 
 | 层 | category | 定位 | 当前场景 |
 |---|---|---|---|
-| L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on` | node、python、**mise engine**、fonts |
-| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | 十个独立条目:fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq |
+| L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on`;字体在 head,不进场景 | node、python、**mise engine** |
+| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | mise 派(十个独立条目):fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq;apt 派:shell-tools / user-tools |
 | L3 语言工具链 | `lang` | 编译器 / 工具链 / 语言版本管理(**两派**) | **mise 派**:rust / go / uv / ruff;**系统派**:c23 |
 | L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | opencode / claude-code / codex / pi / pi-web |
 | L5 外部服务 | `service` | 自带端口 + 面板的 Web 服务 | 预留(code-server / vnc 目前走 compose profiles,不是场景) |
@@ -23,6 +23,11 @@
 > 独立场景。每个工具只为勾选的付体积代价。新增工具 = 新增一个
 > `scenarios/<id>/` 目录,不需要任何聚合机制——`mise use -g` 是读改写语义,
 > 在 Docker 顺序层上天然合并。
+>
+> **字体场景退场(2026-09-22)。** 原 `scenarios/fonts/`(Maple Mono NF CN,
+> 可勾选、L1 `os` 分类)因 issue #30 摩擦点 1(`category` 兼任分组与可关闭性
+> 两个语义轴)而移除——字体属非版本化基础设施,移至 `Dockerfile.base.head`
+> 无条件烘焙,并用 Noto 替换 Maple。详见 head 内注释。
 
 ## 当前场景清单
 
@@ -34,8 +39,10 @@
 | `node` | L1 | ✓ | 22.23.2 *(默认)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 | ✓ | 3.12.7 *(默认)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
 | `mise` | L1 | ✓ | — | mise **engine 本体**——二进制 + shims + 四个重定向 env + `/etc/profile.d/mise.sh` activate。**不装任何工具**(~30MB);构建期自检断言 `installs/` 为空 |
-| `fonts` | L1 | — | — | Maple Mono NF CN(等宽 + Nerd Font + 中文,~78MB)→ `/usr/local/share/fonts`,修复服务端渲染豆腐块 |
+| 字体(Noto) | L1 head | 必装 | — | Noto Sans CJK SC + Noto Sans Mono CJK SC + Noto Serif CJK SC + Noto Color Emoji(~102MB),硬编码在 `Dockerfile.base.head`;经 `/etc/fonts/local.conf` strong alias 钉为 mono/sans/serif 默认;**无 Nerd Font 图标**,终端 starship prompt 若有 NF 图标会显示豆腐块 |
 | shell 工具 ×10 | L2 | — | 各一个版本 | fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
+| `shell-tools` | L2 | — | — | wget / tree / less / file / zip / vim——各发行版通用基线(apt,系统路径)。与 mise 侧的现代替代品互补 |
+| `user-tools` | L2 | — | — | 空骨架,用户自由编辑 fragment 添加非 mise 工具。见 `.claude/skills/aio-env-config/references/recipes.md` Recipe 3b |
 | `rust` `go` `uv` `ruff` | L3 | — | 各一个版本 | **mise 派**。`rust` 需 table 形式 spec(`profile = "default"`)+ `rustup component add rust-analyzer`(缺后者 shim↔代理死循环) |
 | `c23` | L3 | — | — | **系统派**——clang-22(apt.llvm.org,完整 C23)+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace。留 apt 的原因:mise 的 clang 走 conda 后端(异源 sysroot),且所需 7 个工具不在其 registry |
 | `opencode` `claude-code` `codex` | L4 | — | 各一个版本 | mise 派 AI agent CLI。场景 `claude-code` 装出的二进制是 **`claude`** |
