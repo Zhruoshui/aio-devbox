@@ -23,11 +23,23 @@
 
 ## Acceptance Criteria
 
-- [ ] AC1 镜像列表显示组合清单 + 体积；空数据回退正常
-- [ ] AC2 refcount>0 的镜像删除按钮禁用且显示原因
-- [ ] AC3 删除未引用镜像组成功且镜像页刷新；docker images 验证真删
-- [ ] AC4 一键清理报告回收空间（镜像 + 缓存分列）
-- [ ] AC5 cargo test + tsc 全绿
+> 2026-09-22 验收。AC1/AC2/AC5 由 AI 实机验证（puppeteer + 容器内 chromium
+> 打运行中的 mgr `http://mgr.localhost/`）；AC3/AC4 属破坏性操作，
+> 由 **owner 手动验证**。
+
+- [x] AC1 镜像列表显示组合清单 + 体积；空数据回退正常
+      —— 实测 4 行；示例行 `sandbox-base-c528612259c5 | c528612259c5 |
+      mise+pi+pi-web+shell-utils node@22.23.2,python@3.12.7 [svc: all] |
+      1.2 GiB | 9/22/2026, 2:00:59 AM | refcount=1`，组合与体积均非空。
+- [x] AC2 refcount>0 的镜像删除按钮禁用且显示原因
+      —— 实测 refcount=1 行删除按钮 `disabled=true`，
+      `title="被 1 个沙箱引用，无法删除"`。
+- [x] AC3 删除未引用镜像组成功且镜像页刷新；`docker images` 验证真删
+      —— **owner 手动验证**（删除操作未由 AI 执行）。
+- [x] AC4 一键清理报告回收空间（镜像 + 缓存分列）
+      —— **owner 手动验证**。AI 侧只验到「一键清理」按钮存在且非禁用。
+- [x] AC5 cargo test + tsc 全绿
+      —— mgr `cargo test` 98 passed / 0 failed；mgr-web `npm run build` EXIT=0。（实测）
 
 ## Notes
 

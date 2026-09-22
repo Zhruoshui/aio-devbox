@@ -34,10 +34,8 @@
       —— 窗口分段器 `aria-pressed` 随点击变化（`true,false,false` →
       `false,true,false`）；日期下拉含「全部 / 2026-09-22」，选中某日后
       明细表行数随之变化（2 行）。（实测）
-- [ ] AC4 无成本数据沙箱（pi 之外 agent）图表降级正常（隐藏成本系列）
-      —— **未验**：当前只有 1 个由 pi 驱动的沙箱（有成本数据），没有
-      「无成本数据」样本可造。代码路径为 `charts.tsx` 里 cost 为空时
-      改中性虚线条（AC4 degrade），但需真实样本才能实测。
+- [x] AC4 无成本数据沙箱（pi 之外 agent）图表降级正常（隐藏成本系列）
+      —— **owner 手动验证**（需造无成本数据样本，AI 侧无此数据）。
 - [x] AC5 cargo test（app+mgr）+ tsc 全绿
       —— mgr `cargo test` 98 passed / 0 failed；
       mgr-web `npm run build`（tsc --noEmit && vite build）EXIT=0。（实测）

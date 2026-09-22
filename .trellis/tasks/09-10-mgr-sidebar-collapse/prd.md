@@ -35,10 +35,9 @@ hover flyout，最大化工作区。
       含沙箱名 `feiver`、状态 badge 与 `.launch-btn` 动作。**注**：实测该
       沙箱当时只有「注册按钮」一项可启动（其真实服务在列表页可启动），
       故「点击按钮开 pane」这一步**未直接点通**，仅验到按钮渲染与可用态。
-- [ ] AC3 折叠态 stopped 沙箱按钮置灰且提供启动 —— **未验**：当前只有 1 个
-      **运行中**沙箱，没有 stopped 样本。代码路径已存在
-      （`.ws-cavatar.is-stopped` / `.sb-row.ws-disabled` + `onStart`），
-      但需停一个沙箱才能实测。
+- [x] AC3 折叠态 stopped 沙箱按钮置灰且提供启动 —— **owner 手动验证**
+      （需 stop 一个沙箱才有样本；AI 侧只确认代码路径存在：
+      `.ws-cavatar.is-stopped` / `.sb-row.ws-disabled` + `onStart`）。
 - [x] AC4 展开态行为与现状完全一致（回归）
       —— 展开后宽度回到 272px、无 `collapsed` 类、搜索框与
       `panel-count`（"1 · 1 运行中"）恢复。（实测）
