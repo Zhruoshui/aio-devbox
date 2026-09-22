@@ -118,6 +118,45 @@ RUN apt-get update \
 `apt-get update` first (head cleared the lists - rule 5). These land in
 `/usr/bin`, already on PATH. Build + verify as in Recipe 1.
 
+## Recipe 3b: user-tools — the user-editable escape hatch (non-mise)
+
+For tools the user wants to add themselves WITHOUT authoring a new scenario
+directory. `scenarios/user-tools/` ships as an empty skeleton the user edits
+in place; it is a normal toggleable scenario with its own cacheable layer.
+Measured rebuild cost (2026-09-22): BuildKit's cache chain is positional —
+editing user-tools rebuilds that layer AND every layer after it (~27 layers,
+~50s at the current L2-middle position). Layers before it (head + earlier
+scenarios) stay cached. Keep the fragment lean and edit rarely.
+
+**Use case**: you want `htop`, or a compiled-from-source tool, or a custom
+tarball — anything mise doesn't manage — and you don't want to create a new
+`scenarios/<id>/` directory for it.
+
+**Setup**: tick `user-tools` in `make config` (or add `"user-tools"` to
+`.aio/enabled.toml`), then edit `scenarios/user-tools/fragment.Dockerfile` in
+place. The file ships with the three hard rules and a complete htop example
+commented out — uncomment and adapt.
+
+**Rebuild**:
+```bash
+make gen                          # re-assemble Dockerfile.base
+docker compose build app          # only the user-tools layer rebuilds
+docker compose up -d --force-recreate app
+```
+Do NOT `make build-base` here — that re-runs the whole build-base stage
+unconditionally (see Rebuild gotchas).
+
+**The three hard rules** (also in the fragment's header):
+1. Install to `/usr/local/bin` (single binary) or `/opt/<tool>` (directory
+   tree). Never `/root` — the shared workspace volume masks it.
+2. Self-check in BOTH `bash -lc` and `bash -c` (WebUI terminal is login,
+   code-server is not). See Rule 2 in scenario-authoring.md.
+3. `apt-get update` first if you `apt-get install` (head cleared the lists).
+
+**Granularity tip**: one `RUN` per tool gives you per-tool rebuild
+granularity. Grouping several apt packages into one `RUN` is also fine if you
+always touch them together.
+
 ## Recipe 4: add an L4 AI agent with a WebUI button (e.g. aichat)
 
 A CLI agent you want both installed AND surfaced as a sidebar pane.

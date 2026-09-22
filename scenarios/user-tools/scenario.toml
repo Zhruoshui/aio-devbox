@@ -1,0 +1,10 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "user-tools"
+name = "用户自定义工具"
+description = "用户自行管理的非 mise 工具层。自由编辑 fragment.Dockerfile 添加 apt/tarball/编译安装等任意工具,独立 RUN 层可单独重建,不影响其他场景。安装到 /usr/local 或 /opt(勿写 /root,会被工作区卷遮盖)"
+category = "shell"
+installer = "apt"
+always_on = false

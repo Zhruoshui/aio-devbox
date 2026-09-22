@@ -346,3 +346,21 @@ Both shell channels are checked (Rule 2): `bash -lc` for the terminal pane,
       `command -v` — Rule 2 is exactly what makes the probe pass). A new
       scenario joins the CI full build automatically via the `["*"]` preset;
       the probe list is the only manual follow-up.
+
+## user-tools: the user-editable escape hatch
+
+`scenarios/user-tools/` is NOT a template to copy — it's a real, toggleable
+scenario the user edits in place to add non-mise tools without authoring a
+new `<id>/` directory. See Recipe 3b in `recipes.md` for the full workflow.
+
+When touching `user-tools` itself (e.g. improving its skeleton comment):
+
+- [ ] Keep the three hard rules in the header: install to `/usr/local` or
+      `/opt` (never `/root`), self-check BOTH `bash -lc` and `bash -c`,
+      `make gen && docker compose build app` (NOT `make build-base`).
+- [ ] Keep at least one complete commented-out example (htop) so a new user
+      can uncomment-and-go.
+- [ ] The trailing `RUN echo "user-tools: no custom tools yet"` must stay
+      so an empty edit still produces a valid layer.
+- [ ] `category = "shell"`, `installer = "apt"`, `always_on = false` — these
+      three are load-bearing for layer ordering and TUI grouping.
