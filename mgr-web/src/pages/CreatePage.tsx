@@ -242,6 +242,11 @@ export function CreatePage({
     if (sbx !== undefined) return sbx.image;
     if (knownImg !== null) {
       for (const img of knownImg) {
+        // R3: rows are also recorded for FAILED builds (the registry keeps
+        // their output). Such a row's image was never produced, so it must
+        // not feed the "reuses an existing image" hint - size_bytes is null
+        // exactly when the base image is absent ("—" on the images page).
+        if (img.size_bytes === null) continue;
         if (img.combo !== null && comboKey(img.combo) === key) {
           return img.tag.replace("sandbox-base-", "sandbox-app-");
         }

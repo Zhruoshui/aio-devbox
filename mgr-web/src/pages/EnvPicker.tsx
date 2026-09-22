@@ -19,8 +19,11 @@
 // The value is a SandboxEnv ({scenarios, versions}) - the same contract as
 // POST/PUT bodies and the sandbox list's env field (types.ts single owner).
 
+import { useState } from "react";
+
 import type { Lang, StringKey } from "../i18n";
 import { t } from "../i18n";
+import { Icon } from "../icons";
 import type { Scenario, SandboxEnv } from "../types";
 
 interface Props {
@@ -73,6 +76,10 @@ const installerLabel = (lang: Lang, id: string): string => {
 const SERVICE_SCENARIOS = ["pi", "pi-web"];
 
 export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Element {
+  // Layer collapse state (R1): keyed by layer labelKey, default ALL EXPANDED.
+  // Purely presentational - collapsing never touches `env`.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
   const toggle = (id: string, on: boolean) => {
     if (on) {
       onChange({ ...env, scenarios: [...env.scenarios, id] });
@@ -86,6 +93,20 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
 
   const setVersion = (id: string, label: string) => {
     onChange({ ...env, versions: { ...env.versions, [id]: label } });
+  };
+
+  /** R1: layer-wide select-all / select-none. Targets ONLY the layer's
+   * non-always_on ids: always_on rows are locked on and never appear in
+   * env.scenarios (the API rejects them there), so they are untouched by
+   * construction. */
+  const setLayerAll = (items: Scenario[], on: boolean) => {
+    const layerIds = items.filter((s) => !s.always_on).map((s) => s.id);
+    if (on) {
+      const merged = new Set([...env.scenarios, ...layerIds]);
+      onChange({ ...env, scenarios: [...merged] });
+    } else {
+      onChange({ ...env, scenarios: env.scenarios.filter((s) => !layerIds.includes(s)) });
+    }
   };
 
   const visible = scenarios.filter((s) => !SERVICE_SCENARIOS.includes(s.id));
@@ -156,12 +177,45 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
     );
   };
 
-  const group = (labelKey: StringKey, items: Scenario[]) => (
-    <div key={labelKey}>
-      <p className="layer">{t(lang, labelKey)}</p>
-      {layerRows(items)}
-    </div>
-  );
+  /** Layer heading with collapse toggle (chevron + label + selected count)
+   * and a select-all/none affordance (R1). Clicking the heading toggles
+   * collapse; the count stays visible so a collapsed layer still shows its
+   * selection state. */
+  const group = (labelKey: StringKey, items: Scenario[]) => {
+    const optional = items.filter((s) => !s.always_on);
+    const total = optional.length;
+    const selected = optional.filter((s) => env.scenarios.includes(s.id)).length;
+    const allSelected = total > 0 && selected === total;
+    const isCollapsed = collapsed[labelKey] ?? false;
+    return (
+      <div key={labelKey}>
+        <div className="layer-head">
+          <button
+            type="button"
+            className="layer-toggle"
+            aria-expanded={!isCollapsed}
+            title={t(lang, isCollapsed ? "layerExpand" : "layerCollapse")}
+            onClick={() => setCollapsed((c) => ({ ...c, [labelKey]: !isCollapsed }))}
+          >
+            <Icon name={isCollapsed ? "chev-r" : "chev-down"} />
+            <span>{t(lang, labelKey)}</span>
+            <span className="layer-count">
+              {selected}/{total}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="layer-all"
+            disabled={total === 0}
+            onClick={() => setLayerAll(items, !allSelected)}
+          >
+            {allSelected ? t(lang, "layerNone") : t(lang, "layerAll")}
+          </button>
+        </div>
+        {!isCollapsed && layerRows(items)}
+      </div>
+    );
+  };
 
   return (
     <div>

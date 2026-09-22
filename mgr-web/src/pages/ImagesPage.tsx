@@ -11,18 +11,32 @@
 // S7 (prototype redesign): the table moves to the shared .table inside a
 // .card (right-aligned numeric cells via .r); the head/actions already use
 // the component layer (.page-head/.sec-acts/.dialog).
+//
+// R3: the combo cell becomes a toggle that expands a STRUCTURED detail
+// panel (build-time scenarios + versions, always-on set, service switches)
+// from the new /api/images `env`/`services` fields. The build-log toggle
+// and the combo toggle share ONE expansion slot per row (a row shows
+// either the detail panel or the log, never both at once). Rows recorded
+// before R3 have env === null and fall back to a plain note.
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
-import { cleanupImages, deleteImage, getJob, listImages } from "../api";
+import { cleanupImages, deleteImage, getJob, listImages, listScenarios } from "../api";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
-import type { Image } from "../types";
+import type { Image, Scenario } from "../types";
+
+/** The single per-row expansion slot: "" = collapsed; otherwise names the
+ * panel kind and the row's env_hash ("combo:<h>" / "log:<h>"). One slot
+ * keeps the expanded row unambiguous (a row can show its detail panel OR
+ * its build log, never both). */
+type OpenPanel = "" | `combo:${string}` | `log:${string}`;
 
 export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
   const [images, setImages] = useState<Image[] | null>(null);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [error, setError] = useState("");
-  const [open, setOpen] = useState(""); // env_hash whose log is expanded
+  const [open, setOpen] = useState<OpenPanel>("");
   // S3: which env_hash is being deleted right now (its row shows a spinner)
   const [deleting, setDeleting] = useState("");
   // S3: a one-shot cleanup job in flight (progress surface at the top)
@@ -50,6 +64,11 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
 
   useEffect(() => {
     refresh();
+    // R3: scenario catalog for the detail panel (name/version resolution).
+    // A failure only degrades the panel (ids shown raw), never the page.
+    listScenarios()
+      .then((r) => setScenarios(r.scenarios))
+      .catch(() => setScenarios([]));
     return stopPoll;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
@@ -116,6 +135,59 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
     return `${b} B`;
   };
 
+  const toggle = (panel: "combo" | "log", hash: string): void => {
+    const want = `${panel}:${hash}` as OpenPanel;
+    setOpen((cur) => (cur === want ? "" : want));
+  };
+
+  /** R3 structured combo detail. env/services are null on pre-R3 rows. */
+  const comboDetail = (img: Image): JSX.Element => {
+    if (img.env === null || img.services === null) {
+      return <p className="img-detail-note">{t(lang, "imgDetailEmpty")}</p>;
+    }
+    const byId = new Map(scenarios.map((s) => [s.id, s]));
+    const alwaysOn = scenarios.filter((s) => s.always_on && !["pi", "pi-web"].includes(s.id));
+    const svc = (on: boolean): string => (on ? "✓" : "✗");
+    return (
+      <div className="img-detail">
+        <p className="img-detail-title">{t(lang, "imgDetail")}</p>
+        <p className="img-detail-sec">{t(lang, "imgScenarios")}</p>
+        {img.env.scenarios.length === 0 && (
+          <p className="img-detail-note">{t(lang, "imgNoSelection")}</p>
+        )}
+        {img.env.scenarios.map((id) => {
+          const s = byId.get(id);
+          const label = img.env!.versions[id];
+          return (
+            <p key={id} className="img-detail-row">
+              <span className="img-detail-name">{s?.name ?? id}</span>
+              <span className="img-detail-meta mono">
+                {s && s.name !== id ? id : ""}
+                {label ? ` · ${label}` : ""}
+              </span>
+            </p>
+          );
+        })}
+        <p className="img-detail-sec">{t(lang, "imgAlwaysOn")}</p>
+        {alwaysOn.map((s) => {
+          const label = img.env!.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
+          return (
+            <p key={s.id} className="img-detail-row">
+              <span className="img-detail-name">{s.name}</span>
+              <span className="img-detail-meta mono">{label}</span>
+            </p>
+          );
+        })}
+        <p className="img-detail-sec">{t(lang, "imgServices")}</p>
+        <p className="img-detail-row mono">
+          code-server {svc(img.services.code_server)} · vnc {svc(img.services.vnc)} · pi{" "}
+          {svc(img.env.scenarios.includes("pi"))} · pi-web{" "}
+          {svc(img.env.scenarios.includes("pi-web"))}
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="page">
       <div className="page-head">
@@ -158,9 +230,10 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
           <tbody>
             {images.map((img) => {
               const built = img.built_at !== null ? new Date(img.built_at * 1000) : null;
-              const isOpen = open === img.env_hash;
               const referenced = img.refcount > 0;
               const busy = deleting === img.env_hash;
+              const comboOpen = open === `combo:${img.env_hash}`;
+              const logOpen = open === `log:${img.env_hash}`;
               return (
                 <Fragment key={img.env_hash}>
                   <tr>
@@ -168,8 +241,15 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                     <td className="mono" title={img.env_hash}>
                       {img.env_hash.slice(0, 12)}
                     </td>
-                    <td className="mono" title={img.combo ?? img.env_hash}>
-                      {img.combo ?? img.env_hash.slice(0, 12)}
+                    <td className="mono">
+                      <button
+                        className="img-log-toggle"
+                        aria-expanded={comboOpen}
+                        title={img.combo ?? img.env_hash}
+                        onClick={() => toggle("combo", img.env_hash)}
+                      >
+                        {img.combo ?? img.env_hash.slice(0, 12)}
+                      </button>
                     </td>
                     <td className="r">
                       {img.size_bytes !== null ? fmtBytes(img.size_bytes) : t(lang, "imgSizeUnknown")}
@@ -179,9 +259,9 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                     <td>
                       <button
                         className="img-log-toggle"
-                        aria-expanded={isOpen}
+                        aria-expanded={logOpen}
                         disabled={img.build_log === ""}
-                        onClick={() => setOpen(isOpen ? "" : img.env_hash)}
+                        onClick={() => toggle("log", img.env_hash)}
                       >
                         {t(lang, "imgLog")}
                       </button>
@@ -202,10 +282,14 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                       </button>
                     </td>
                   </tr>
-                  {isOpen && (
+                  {(comboOpen || logOpen) && (
                     <tr>
                       <td className="img-log-cell" colSpan={8}>
-                        <pre className="img-log">{img.build_log}</pre>
+                        {comboOpen ? (
+                          comboDetail(img)
+                        ) : (
+                          <pre className="img-log">{img.build_log}</pre>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -257,4 +341,3 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
     </div>
   );
 }
-

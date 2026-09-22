@@ -54,6 +54,18 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
     if has_combo == 0 {
         conn.execute_batch("ALTER TABLE images ADD COLUMN combo TEXT")?;
     }
+    // R3: images.env_json / services_json (structured combo detail source) -
+    // NULL on pre-R3 rows, the images page falls back to the build log only.
+    for col in ["env_json", "services_json"] {
+        let has: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = '{col}'"),
+            [],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE images ADD COLUMN {col} TEXT"))?;
+        }
+    }
     Ok(())
 }
 
@@ -75,7 +87,9 @@ CREATE TABLE IF NOT EXISTS images (
   tag TEXT NOT NULL,                -- sandbox-base-<env_hash[:12]>
   built_at INTEGER,
   build_log TEXT,                   -- last build output tail (failure display)
-  combo TEXT                        -- S3: readable combo description; NULL = pre-S3
+  combo TEXT,                       -- S3: readable combo description; NULL = pre-S3
+  env_json TEXT,                    -- R3: build-time SandboxEnv JSON; NULL = pre-R3
+  services_json TEXT                -- R3: build-time Services JSON; NULL = pre-R3
 );
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,34 +269,59 @@ pub fn delete_sandbox(conn: &Connection, name: &str) -> Result<()> {
 /// rebuild (non-empty log) replaces both. `combo` (S3) is the readable combo
 /// description, written on every upsert (it is not log-coupled: a same-env
 /// reuse re-writes the same description; a config change hashes differently
-/// and lands a fresh row with its own combo).
+/// and lands a fresh row with its own combo). `env_json`/`services_json`
+/// (R3) are the structured detail source for the images page - written on
+/// every upsert (never log-coupled, same reasoning as combo).
 pub fn upsert_image(
     conn: &Connection,
     env_hash: &str,
     tag: &str,
     build_log: &str,
     combo: Option<&str>,
+    env_json: &str,
+    services_json: &str,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO images (env_hash, tag, built_at, build_log, combo) VALUES (?1,?2,?3,?4,?5)
+        "INSERT INTO images (env_hash, tag, built_at, build_log, combo, env_json, services_json) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7)
          ON CONFLICT(env_hash) DO UPDATE SET
            built_at = CASE WHEN ?4 = '' THEN images.built_at ELSE ?3 END,
            build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END,
-           combo = COALESCE(?5, images.combo)",
-        params![env_hash, tag, chrono_now_secs(), build_log, combo],
+           combo = COALESCE(?5, images.combo),
+           env_json = CASE WHEN ?6 = '' THEN images.env_json ELSE ?6 END,
+           services_json = CASE WHEN ?7 = '' THEN images.services_json ELSE ?7 END",
+        params![env_hash, tag, chrono_now_secs(), build_log, combo, env_json, services_json],
     )?;
     Ok(())
 }
 
-/// One images-table row: (env_hash, tag, built_at, build_log, combo).
-pub type ImageRow = (String, String, i64, String, Option<String>);
+/// One images-table row: (env_hash, tag, built_at, build_log, combo,
+/// env_json, services_json). env_json/services_json are NULL on pre-R3 rows.
+pub type ImageRow = (
+    String,
+    String,
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 pub fn list_images(conn: &Connection) -> Result<Vec<ImageRow>> {
     let mut stmt = conn.prepare(
-        "SELECT env_hash, tag, built_at, build_log, combo FROM images ORDER BY built_at DESC",
+        "SELECT env_hash, tag, built_at, build_log, combo, env_json, services_json \
+         FROM images ORDER BY built_at DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            r.get(2)?,
+            r.get(3)?,
+            r.get(4)?,
+            r.get(5)?,
+            r.get(6)?,
+        ))
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
@@ -467,9 +506,11 @@ mod tests {
             "sandbox-base-h1",
             "original log",
             Some("a+b (cs,vnc)"),
+            r#"{"scenarios":["a","b"],"versions":{}}"#,
+            r#"{"code_server":true,"vnc":true}"#,
         )
         .unwrap();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "", None).unwrap();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "", None, "", "").unwrap();
         let (built_at, build_log, combo) = conn
             .query_row(
                 "SELECT built_at, build_log, combo FROM images WHERE env_hash = 'h1'",
@@ -495,8 +536,8 @@ mod tests {
     #[test]
     fn upsert_image_real_rebuild_replaces_log() {
         let conn = mem_db();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "old", None).unwrap();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "new log", None).unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "old", None, "", "").unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "new log", None, "", "").unwrap();
         let build_log: String = conn
             .query_row(
                 "SELECT build_log FROM images WHERE env_hash = 'h2'",
@@ -512,7 +553,7 @@ mod tests {
         // No prior row: the empty-log preservation branch must not swallow
         // the INSERT (CASE only fires on conflict).
         let conn = mem_db();
-        upsert_image(&conn, "h3", "sandbox-base-h3", "", Some("x+y")).unwrap();
+        upsert_image(&conn, "h3", "sandbox-base-h3", "", Some("x+y"), "", "").unwrap();
         let (tag, build_log): (String, String) = conn
             .query_row(
                 "SELECT tag, build_log FROM images WHERE env_hash = 'h3'",
@@ -556,17 +597,71 @@ mod tests {
     }
 
     #[test]
+    fn init_schema_adds_env_and_services_json_to_preexisting_images_table() {
+        // R3 migration: fresh db creates env_json/services_json; re-running
+        // init_schema is idempotent (the pragma-probe ALTER path fires on
+        // real pre-existing state.db files).
+        let conn = mem_db();
+        for col in ["env_json", "services_json"] {
+            let has: i64 = conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = '{col}'"),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(has, 1, "fresh db creates the {col} column");
+        }
+        init_schema(&conn).unwrap();
+        let has: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'env_json'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has, 1, "init_schema is idempotent on env_json");
+    }
+
+    #[test]
     fn list_images_carries_combo_and_delete_image_row_removes() {
         let conn = mem_db();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "log1", Some("a (vnc)")).unwrap();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "log2", None).unwrap();
+        upsert_image(
+            &conn,
+            "h1",
+            "sandbox-base-h1",
+            "log1",
+            Some("a (vnc)"),
+            r#"{"scenarios":["a"],"versions":{}}"#,
+            r#"{"code_server":false,"vnc":true}"#,
+        )
+        .unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "log2", None, "", "").unwrap();
+        // Simulate a pre-R3 row: the columns did not exist then, so a real
+        // old row reads NULL (the ''-preserve branch above keeps it NULL).
+        conn.execute(
+            "UPDATE images SET env_json = NULL, services_json = NULL WHERE env_hash = 'h2'",
+            [],
+        )
+        .unwrap();
 
         let rows = list_images(&conn).unwrap();
         assert_eq!(rows.len(), 2);
         let h1 = rows.iter().find(|(h, ..)| h == "h1").unwrap();
         assert_eq!(h1.4.as_deref(), Some("a (vnc)"), "combo read back");
+        assert_eq!(
+            h1.5.as_deref(),
+            Some(r#"{"scenarios":["a"],"versions":{}}"#),
+            "env_json read back"
+        );
+        assert_eq!(
+            h1.6.as_deref(),
+            Some(r#"{"code_server":false,"vnc":true}"#),
+            "services_json read back"
+        );
         let h2 = rows.iter().find(|(h, ..)| h == "h2").unwrap();
         assert_eq!(h2.4, None, "NULL combo on pre-existing rows");
+        assert_eq!(h2.5, None, "NULL env_json on pre-existing rows");
 
         // delete_image_row: existing -> true, gone -> false.
         assert!(delete_image_row(&conn, "h1").unwrap());

@@ -14,15 +14,30 @@ use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-/// Run `docker build` with the repo root as context; streams progress to the
-/// returned String instead of the terminal (job log).
+/// Cap on the merged build output accumulated for return / error context.
+/// The job log tail and the images-table build_log apply their own (smaller)
+/// caps downstream; this only bounds what a pathological build can hold in
+/// memory (a full BuildKit progress run is single-digit MB at most).
+const BUILD_OUTPUT_CAP: usize = 4 * 1024 * 1024;
+
+/// Run `docker build` with the repo root as context, STREAMING progress to
+/// `on_line` as it arrives (R4.1: the create job forwards each line into the
+/// job log so the progress view scrolls during a build, not only after).
+/// BuildKit writes its progress to STDERR and the build script's own output
+/// to STDOUT - both are forwarded, line by line.
+///
+/// Returns the full captured merged output (stdout + stderr) on success; the
+/// images-table build_log stores a tail of it. On failure the error carries
+/// the merged tail (R4.3) so the caller can append it to the job log.
 pub async fn build(
     context: &Path,
     dockerfile: &Path,
     tag: &str,
     build_args: &[(&str, &str)],
+    on_line: &mut (dyn FnMut(&str) + Send),
 ) -> Result<String> {
     let mut args: Vec<String> = vec![
         "build".into(),
@@ -36,8 +51,70 @@ pub async fn build(
         args.push(format!("{k}={v}"));
     }
     args.push(context.display().to_string());
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_capture("docker", &args_ref).await
+
+    let mut child = Command::new("docker")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("spawn docker build {tag}"))?;
+    // Both streams must be drained CONCURRENTLY: docker build progress
+    // (stderr) can fill the OS pipe while we still read the other side,
+    // deadlocking the build. Two BufReader lines() loops merged in a
+    // select!; each side counts down to EOF (read_line returns Ok(0)).
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let mut out = BufReader::new(stdout).lines();
+    let mut err = BufReader::new(stderr).lines();
+    let mut stdout_open = true;
+    let mut stderr_open = true;
+    let mut captured = String::new();
+    let mut push = |line: &str, captured: &mut String| {
+        on_line(line);
+        if captured.len() < BUILD_OUTPUT_CAP {
+            captured.push_str(line);
+            captured.push('\n');
+        }
+    };
+    loop {
+        tokio::select! {
+            line = out.next_line(), if stdout_open => match line {
+                Ok(Some(l)) => {
+                    let l = l.trim_end().to_string();
+                    if !l.is_empty() {
+                        push(&l, &mut captured);
+                    }
+                }
+                Ok(None) => stdout_open = false,
+                Err(e) => bail!("read docker build stdout: {e}"),
+            },
+            line = err.next_line(), if stderr_open => match line {
+                Ok(Some(l)) => {
+                    let l = l.trim_end().to_string();
+                    if !l.is_empty() {
+                        push(&l, &mut captured);
+                    }
+                }
+                Ok(None) => stderr_open = false,
+                Err(e) => bail!("read docker build stderr: {e}"),
+            },
+        }
+        if !stdout_open && !stderr_open {
+            break;
+        }
+    }
+    let status = child
+        .wait()
+        .await
+        .with_context(|| format!("wait docker build {tag}"))?;
+    if !status.success() {
+        bail!(
+            "docker build {tag} exited {:?}:\n{}",
+            status.code(),
+            tail_str(&captured, 2000)
+        );
+    }
+    Ok(captured)
 }
 
 /// Idempotent `docker network create` (design §1): "already exists" is

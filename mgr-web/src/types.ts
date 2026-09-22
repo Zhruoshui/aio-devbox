@@ -16,7 +16,8 @@
 //   DELETE /api/sandboxes/:n jobs.rs (async) -> {job, ...} for native rows,
 //                            routes.rs unadopt_sandbox (sync) -> {ok} for
 //                            adopted rows (DeleteReply below)
-//   GET  /api/images         routes.rs list_images    (db images table)
+//   GET  /api/images         routes.rs list_images    (db images table;
+//                            R3: + env/services structured combo detail)
 //   GET  /api/jobs/:id       routes.rs get_job        (state::JobShared)
 
 // ── GET /api/scenarios ─────────────────────────────────────────────
@@ -181,6 +182,13 @@ export interface Image {
   /** S3: readable combo description; null on pre-S3 rows (page falls back
    * to the env_hash). */
   combo: string | null;
+  /** R3: structured build-time env (scenarios + versions) powering the
+   * combo-detail panel; null on rows recorded before R3 (the panel then
+   * shows a fallback note). */
+  env: SandboxEnv | null;
+  /** R3: build-time code-server/vnc switches; pi/pi-web derive from
+   * env.scenarios (S1 single-owner). null on pre-R3 rows. */
+  services: { code_server: boolean; vnc: boolean } | null;
   /** S3: live image size in bytes (docker inspect); null = failed / gone. */
   size_bytes: number | null;
 }

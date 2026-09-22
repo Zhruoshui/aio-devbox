@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{mpsc, Mutex as TokioMutex};
 
 use crate::caddy;
 use crate::composegen;
@@ -25,6 +25,12 @@ use crate::state::{AppState, JobShared};
 /// Log tail cap for the job record. The progress view shows the tail; the
 /// full output is not persisted (personal scale).
 const LOG_TAIL: usize = 8 * 1024;
+
+/// Images-table build_log tail cap (R4.2): bigger than the live job tail so
+/// the registry page keeps enough of a failed build's output for debugging -
+/// 8KB often cut the actual error off; 256KB covers a full BuildKit failure
+/// run at personal scale.
+const BUILD_LOG_TAIL: usize = 256 * 1024;
 
 /// Spawn the create/recreate job for a sandbox. All parameters are owned -
 /// the task outlives the request. Returns the job id.
@@ -136,10 +142,40 @@ async fn run_create(
 
     // 3. Images: build missing ones. Order base -> app -> code-server -> vnc
     //    (dependency: app/cs FROM base). Same-env reuse (A5) hits the
-    //    existence checks and skips everything. The base build's output is
-    //    kept (tail) as the images-table build_log - the registry page's
-    //    "build log" column / failure display (design §3.3).
+    //    existence checks and skips everything. Builds STREAM their output
+    //    into the job log line by line (R4.1); the base build's full captured
+    //    output is kept (tail) as the images-table build_log - the registry
+    //    page's "build log" column / failure display (design §3.3).
     let mut base_build_log = String::new();
+    // Line-forwarding for the streaming builds (R4.1): every docker build
+    // line goes into the job log as it arrives. ONE ordered drainer task
+    // consumes an mpsc channel, so the log keeps the build's emission order -
+    // a tokio::spawn per line is NOT a valid shortcut: the multi-threaded
+    // runtime schedules them in arbitrary order and the reproduced result was
+    // visibly shuffled BuildKit output (verified: 43k-line burst, lines
+    // swapped within the first handful).
+    //
+    // The channel is UNBOUNDED: the callback runs on a runtime worker thread
+    // (docker::build's read loop), where the bounded `blocking_send` panics
+    // with "cannot block the current thread from within a runtime" - the
+    // unbounded `send` is a plain non-blocking call. Backpressure is not
+    // needed: the drain task only locks + pushes into an 8KB-capped buffer,
+    // and a build's whole output is a few MB at most.
+    //
+    // Dropping the Sender (end of run_create) closes the channel and makes
+    // the drain task finish on its own.
+    let (log_tx, mut log_rx) = mpsc::unbounded_channel::<String>();
+    let drain_log = log.clone();
+    tokio::spawn(async move {
+        while let Some(line) = log_rx.recv().await {
+            append_log(&drain_log, &line).await;
+        }
+    });
+    let mut line_forward = move |line: &str| {
+        // Closed channel (runtime shutting down) -> drop the line rather than
+        // fail the whole create job.
+        let _ = log_tx.send(format!("{line}\n"));
+    };
     if !docker::image_exists(&base_tag).await? {
         append_log(&log, &format!("building {base_tag} ...\n")).await;
         // Per-sandbox Dockerfile.base so builds don't share the repo-root
@@ -147,9 +183,37 @@ async fn run_create(
         let df_path = instance.join("Dockerfile.base");
         std::fs::write(&df_path, &dockerfile_base)
             .with_context(|| format!("write {}", df_path.display()))?;
-        let out = docker::build(&repo, &df_path, &base_tag, &[]).await?;
-        append_log(&log, &out).await;
-        base_build_log = tail(&out, LOG_TAIL);
+        match docker::build(&repo, &df_path, &base_tag, &[], &mut line_forward).await {
+            Ok(out) => base_build_log = tail(&out, BUILD_LOG_TAIL),
+            Err(e) => {
+                // R4.3: docker build's failure tail (stdout + stderr merged)
+                // goes back into the job log - the caller previously buried
+                // it inside the anyhow error only. The log is prefixed so the
+                // 2KB cap on that tail (docker.rs tail_str) can never hide
+                // the line itself when the job log tail is read.
+                append_log(&log, &format!("=== build failed: {e:#}\n")).await;
+                // Record a FAILED-build row so the registry page keeps the
+                // failure output for debugging (a failed build previously
+                // left no trace outside the ephemeral job log). built_at
+                // becomes the attempt time - the row's size reads "—" and
+                // refcount stays 0, so cleanup/delete treat it normally.
+                {
+                    let conn = state.db.lock().unwrap();
+                    let combo = envhash::describe_combo(&env, &services);
+                    let fail_log = tail(&format!("{e:#}\n"), BUILD_LOG_TAIL);
+                    let _ = db::upsert_image(
+                        &conn,
+                        &hash,
+                        &base_tag,
+                        &fail_log,
+                        Some(&combo),
+                        &env.canonical_json(),
+                        &services.canonical_json(),
+                    );
+                }
+                return Err(e);
+            }
+        }
     } else {
         append_log(&log, &format!("{base_tag} exists, skip\n")).await;
     }
@@ -161,27 +225,27 @@ async fn run_create(
     // is missing — later vnc sandboxes hit the image_exists short-circuit.
     if !docker::image_exists(&app_tag).await? {
         append_log(&log, &format!("building {app_tag} ...\n")).await;
-        let out = docker::build(
+        docker::build(
             &repo,
             &repo.join("app/Dockerfile"),
             &app_tag,
             &[("BASE_IMAGE", &base_tag)],
+            &mut line_forward,
         )
         .await?;
-        append_log(&log, &out).await;
     } else {
         append_log(&log, &format!("{app_tag} exists, skip\n")).await;
     }
     if services.code_server && !docker::image_exists(&cs_tag).await? {
         append_log(&log, &format!("building {cs_tag} ...\n")).await;
-        let out = docker::build(
+        docker::build(
             &repo,
             &repo.join("code-server/Dockerfile"),
             &cs_tag,
             &[("BASE_IMAGE", &base_tag)],
+            &mut line_forward,
         )
         .await?;
-        append_log(&log, &out).await;
     } else if services.code_server {
         append_log(&log, &format!("{cs_tag} exists, skip\n")).await;
     } else {
@@ -191,8 +255,14 @@ async fn run_create(
     // when THIS sandbox has the vnc service and the shared tag is missing.
     if services.vnc && !docker::image_exists(envhash::VNC_TAG).await? {
         append_log(&log, &format!("building {} ...\n", envhash::VNC_TAG)).await;
-        let out = docker::build(&repo, &repo.join("vnc/Dockerfile"), envhash::VNC_TAG, &[]).await?;
-        append_log(&log, &out).await;
+        docker::build(
+            &repo,
+            &repo.join("vnc/Dockerfile"),
+            envhash::VNC_TAG,
+            &[],
+            &mut line_forward,
+        )
+        .await?;
     }
     if !services.vnc {
         append_log(&log, "vnc not installed, skip vnc image\n").await;
@@ -201,8 +271,16 @@ async fn run_create(
     {
         let conn = state.db.lock().unwrap();
         let combo = envhash::describe_combo(&env, &services);
-        db::upsert_image(&conn, &hash, &base_tag, &base_build_log, Some(&combo))
-            .with_context(|| "record image")?;
+        db::upsert_image(
+            &conn,
+            &hash,
+            &base_tag,
+            &base_build_log,
+            Some(&combo),
+            &env.canonical_json(),
+            &services.canonical_json(),
+        )
+        .with_context(|| "record image")?;
     }
 
     // 4. Compose + Caddyfile.
@@ -491,7 +569,7 @@ async fn run_image_cleanup(st: &Arc<AppState>, log: &Arc<TokioMutex<JobShared>>)
     let mut images_reclaimed: u64 = 0;
     let mut deleted_rows = 0u64;
     let mut failed_rows = 0u64;
-    for (env_hash, _, _, _, _) in rows {
+    for (env_hash, ..) in rows {
         {
             let conn = st.db.lock().unwrap();
             let rc = db::image_refcount(&conn, &env_hash)?;

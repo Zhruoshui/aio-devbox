@@ -359,6 +359,24 @@ piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
 每写携带,ON CONFLICT 时 `COALESCE(?5, images.combo)`——NULL combo 不覆盖
 已有描述(旧行 A5 复用场景)。
 
+R3(picker UX)起 `upsert_image` 为 7 参:追加 `env_json` / `services_json`
+(结构化组合详情源,create 时写 `SandboxEnv::canonical_json()` 与
+`Services::canonical_json()`)。两者与 build_log 同款 `CASE WHEN ?n = ''`
+保留语义(空串 = 不覆盖旧值);与 combo 一样**不**是空 log 才写——同 env
+重建每次都带真值。`list_images` / `ImageRow` 相应扩为 7 元组。
+
+**失败构建也留行(R3)**:base 构建失败时 create job 仍 upsert 一行
+(build_log = 失败输出 tail、combo/env_json/services_json 照常),
+使镜像页保留失败现场;该行 tag 对应的镜像并不存在,故
+`size_bytes` 为 null、refcount 为 0(cleanup/delete 走「缺失跳过」路径),
+前端复用提示类逻辑须以 `size_bytes !== null` 作为「镜像真实存在」判据。
+
+**build_log 双 cap(R3)**:job 运行期日志尾 8KB(`LOG_TAIL`),images 表
+留存量 256KB(`BUILD_LOG_TAIL`,mgr/src/jobs.rs)——8KB 常把真正的
+错误行裁掉。注意失败路径写入的是 `docker::build` 错误里的 merged tail
+(2KB,`docker.rs` 的 `tail_str`),因为同一字符串还要进 job.error
+(1.5s 轮询 + jobs 表落库),不能放大。
+
 ## GET /api/models/usage (app) — byDay 序列(S4,D5)
 
 响应在既有 `rows` + `generatedAt` 之上增 `byDay`:近 14 个自然日
@@ -400,11 +418,17 @@ piweb:8088/<path>`——上游宿主由 name 封闭派生(无 SSRF 面),HTTP+WS
 ## images 管理端点(S3,D3)
 
 - `GET /api/images` — 每行 `{env_hash, tag, built_at, refcount, build_log,
-  combo, size_bytes}`。`combo` 为可读组合描述(create 时 envhash:
+  combo, env, services, size_bytes}`。`combo` 为可读组合描述(create 时 envhash:
   `describe_combo(env, services)` 写入;旧行 NULL,前端回退 env_hash[:12]。
   pi/pi-web 服务开关从 env.scenarios 推导,S1 折叠后 Services 仅含
   cs/vnc)。`size_bytes` = 实时 `docker image inspect {{.Size}}`(base tag),
   查询失败/镜像不存在 → null(前端显示 —),**永不因此报错**。
+- `env` = 构建时 `SandboxEnv` 的规范化 JSON(`{scenarios, versions}`),
+  `services` = 构建时 `{code_server, vnc}` 布尔组(R3:镜像页组合详情面板的
+  结构化数据源,不再解析 combo 字符串)。两者来自 images 表 R3 新增的
+  `env_json`/`services_json` 列;列缺失(NULL,pre-R3 行)或 JSON 解析失败
+  → **null**(never break on the unknown),前端回退为「仅可看构建日志」提示。
+  不入库历史回填(D-b)。
 - `POST /api/images/:env_hash/delete` → **202 {job}**(kind `image-delete`)。
   预检同步:env_hash 必须 64 hex(否则 400);行不存在 404;`refcount > 0`
   → **409**(R3,含构建中引用——create/recreate 沙箱在 run_create 写

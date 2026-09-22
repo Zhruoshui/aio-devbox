@@ -1157,14 +1157,18 @@ async fn entry_url(
 /// GET /api/images — one row per recorded image (S3: + combo description and
 /// live size. `combo` is NULL on pre-S3 rows (the frontend falls back to the
 /// env_hash); `size_bytes` is a live docker inspect that the frontend shows
-/// as "—" when it fails / the image is gone, never an error here).
+/// as "—" when it fails / the image is gone, never an error here). R3 adds
+/// `env` (the build-time SandboxEnv) and `services` (the build-time
+/// code-server/vnc switches) as structured combo-detail sources; both are
+/// NULL on pre-R3 rows (never break on the unknown: unparseable values fall
+/// back to NULL the same way).
 async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
     let rows = {
         let conn = state.db.lock().unwrap();
         db::list_images(&conn)?
     };
     let mut out = Vec::with_capacity(rows.len());
-    for (env_hash, tag, built_at, build_log, combo) in rows {
+    for (env_hash, tag, built_at, build_log, combo, env_json, services_json) in rows {
         let refcount = {
             let conn = state.db.lock().unwrap();
             db::image_refcount(&conn, &env_hash)?
@@ -1172,6 +1176,12 @@ async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde
         // Live size of the base image (the row's tag): best-effort, "—" on
         // failure (image deleted behind our back, docker down).
         let size_bytes = docker::image_size(&tag).await.ok();
+        let env = env_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+        let services = services_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
         out.push(json!({
             "env_hash": env_hash,
             "tag": tag,
@@ -1179,6 +1189,8 @@ async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde
             "refcount": refcount,
             "build_log": build_log,
             "combo": combo,
+            "env": env,
+            "services": services,
             "size_bytes": size_bytes,
         }));
     }
@@ -1204,7 +1216,7 @@ async fn delete_image(
         // refreshes).
         let exists: bool = db::list_images(&conn)?
             .iter()
-            .any(|(eh, _, _, _, _)| eh == &h);
+            .any(|row| row.0 == h.as_str());
         if !exists {
             return Err(ApiError::bad(format!("image {h} not found")));
         }

@@ -275,6 +275,18 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgDeleteRunning: "删除中…",
     imgJobError: "操作失败",
     imgReclaimTitle: "回收空间",
+    // R3: combo detail panel (click the combo cell to expand)
+    imgDetail: "组合详情",
+    imgDetailEmpty: "该记录无结构化配置数据（详情功能之前的旧记录），仅可查看构建日志。",
+    imgScenarios: "场景",
+    imgAlwaysOn: "必装",
+    imgServices: "服务",
+    imgNoSelection: "（未勾选任何可选场景）",
+    // EnvPicker layer collapse + select-all
+    layerExpand: "展开",
+    layerCollapse: "折叠",
+    layerAll: "全选",
+    layerNone: "全不选",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)
@@ -724,6 +736,18 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     imgDeleteRunning: "Deleting…",
     imgJobError: "Operation failed",
     imgReclaimTitle: "Reclaimed",
+    // R3: combo detail panel (click the combo cell to expand)
+    imgDetail: "Combo detail",
+    imgDetailEmpty: "No structured config for this record (predates the detail feature); only the build log is available.",
+    imgScenarios: "Scenarios",
+    imgAlwaysOn: "Always-on",
+    imgServices: "Services",
+    imgNoSelection: "(no optional scenario selected)",
+    // EnvPicker layer collapse + select-all
+    layerExpand: "Expand",
+    layerCollapse: "Collapse",
+    layerAll: "Select all",
+    layerNone: "Select none",
     // models page (ported from web/src/panes/models; mc*/ma* keys keep the
     // workbench names so the two SPAs stay diffable; mp* = model profiles,
     // unified Phase 4)
