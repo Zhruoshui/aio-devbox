@@ -157,9 +157,14 @@ Install baked tools to a system path the volume does not cover:
 The only things that belong under `/root` are **runtime** (not baked)
 user data: a user's own `cargo install` output (`~/.cargo` is redirected to
 `/opt/mise/cargo` for the baked toolchain, so user cargo runs share it).
-Note: runtime `mise use <tool>` in the deployed sandbox writes to the
-container writable layer (NOT the volume) and is lost on recreate - a known,
-accepted tradeoff of the mise scenario.
+
+Runtime `mise use -g <tool>` **survives recreate** (2026-09-22): at boot the
+app container seeds `~/.local/share/mise` on the volume with symlinks into the
+image's baked trees, then `/etc/profile.d/mise.sh` probes for that layout and
+prefers it. So a **new scenario does not need to do anything** for this — just
+install into `/opt/mise` as usual and the volume layer picks it up. See
+paths-and-offline.md for the four traps that constrain how the probe is
+written.
 
 ### Rule 2: make the tool findable in a login shell
 

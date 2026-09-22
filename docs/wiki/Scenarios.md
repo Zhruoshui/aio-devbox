@@ -68,10 +68,46 @@ L3 曾有 5 个手写场景(rust / go / nvm / uv / python-dev),后来全量收�
   不需要任何聚合机制或依赖图(实测:三个独立 RUN 层 → `[tools]` 是三者并集);
 - **二进制名可能≠场景名**:`ripgrep`→`rg`、`claude-code`→`claude`。自检必须
   用真实二进制名,写错会「构建通过但运行时不可用」;
-- **已知取舍**:运行时 `mise use <tool>` 落容器可写层,recreate 即丢;离线
-  补装走整目录搬迁配方(`docs/offline-tool-install.md` §14)。
-  *(此项正由任务 `09-22-mise-runtime-volume-config` 处理:卷化 `MISE_DATA_DIR`
-  + symlink 种子,实测卷仅占 3.7M 即可让用户自装工具跨 recreate 存活。)*
+- **运行时自装可持久化**(2026-09-22 起):`mise use -g <tool>` 装的东西**跨
+  recreate 存活**。做法见下节。
+
+## 运行时自装工具的持久化(卷化)
+
+原先运行时 `mise use` 落容器可写层、recreate 即丢。现在改成**卷 + symlink**:
+
+```
+镜像层 /opt/mise/installs/*  ──symlink──▶  卷 ~/.local/share/mise/installs/*
+                                           卷还含:rustup/ cargo/ shims/ config.toml
+                                           + 用户自装工具(实体)
+```
+
+- **播种**:app 容器启动时 `app/aio-mise-volume.sh` 建 symlink、`mise reshim`
+  生成 shim 农场、合并生成卷上的 config.toml。**卷开销仅几十 KB**——烘焙的
+  1.9GB 不复制,只是被链接。
+- **探测**:`/etc/profile.d/mise.sh` 每次 login shell 判断卷是否已播种,是则
+  用卷、否则回落到镜像布局。探测放 profile.d 是因为它烘在 sandbox-base、
+  被 code-server / vnc 共享——app 播种一次,所有容器都受益。
+- **失败隔离**:seeder 失败只打日志;PATH 同时保留镜像 shims 作为兜底,
+  最坏情况退化为「用户工具丢失」而非「全部工具丢失」。
+- **只在 login shell 生效**(已知取舍):探测写在 `profile.d`,只被 login
+  shell(`bash -l`)读取。WebUI 终端面板、code-server 终端、`bash -lc '...'`
+  都是 login shell,走卷;而 `docker exec -it <c> bash`(非 login 交互)继承
+  的是镜像 ENV 通道的**烘焙布局**,在那里 `mise use -g` 仍落容器可写层、
+  recreate 即丢。这是刻意的:ENV 是构建期常量,若也指向卷路径,无卷裸跑
+  (`docker run --rm <base> bash`)会得到一个空数据目录而非烘焙工具链,
+  失去唯一的兜底路径。需要持久化时请显式用 login shell。
+
+四个实现期踩到的坑(写代码前必读):
+
+1. 只链 `installs/` 不够——**`rustup/` `cargo/` 也必须链**,否则 rust 全线不可用;
+2. **不要设 `MISE_GLOBAL_CONFIG_FILE`**——它**替换**而非叠加
+   `MISE_CONFIG_DIR/config.toml`,设了会让所有烘焙工具报 "No version is set";
+3. **`shims/` 不能 symlink 镜像的**——mise 校验 shim 归属,会报
+   "is not a valid shim";必须 `mise reshim` 生成真实文件;
+4. **`mise activate` 会把 shims 目录从 PATH 移除**——所以要在 activate
+   **之后**重新追加,否则本 shell 内刚装的工具不可见。
+
+离线补装仍走整目录搬迁配方(`docs/offline-tool-install.md` §14)。
 
 ## TUI 勾选工作流
 

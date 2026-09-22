@@ -65,6 +65,17 @@ always_on 排除规则唯一归属 `config/src/manifest.rs::expand`。
 CI 的 full 通用探针清单仍需为代表性 CLI 手动补条目——但**构建期自检已覆盖**
 每个选中工具的可用性,离线性问题在 build 阶段即暴露,不必等 CI。
 
+**2026-09-22 补充:login 通道现在是「探测式」的。** 上面的 `bash -lc` 探针
+在**不挂工作区卷**时仍是烘焙布局(`MISE_DATA_DIR=/opt/mise`),CI 的
+`docker run --rm` 正是这种情况,所以既有断言全部保持有效。差异只出现在
+**挂了卷且 app 容器已启动**时:`/etc/profile.d/mise.sh` 探测到
+`$HOME/.local/share/mise/installs`(由 `app/aio-mise-volume.sh` 播种)后改用
+卷布局,让用户运行期 `mise use -g` 的东西跨 recreate 存活。因此:
+
+- 别在 CI 里用 `-v <某个卷>:/root` 跑 `bash -lc` 探针,那测的是卷布局;
+- 「非 login 保持烘焙布局」是**刻意**的(ENV 是构建期常量,卷路径会让无卷
+  裸跑失去兜底),不要在 CI 里把它当回归来"修"。
+
 ## 约定 5: 标签方案(三处对齐)
 
 | 镜像 | 浮动标签 | ref 标签 | v* 追加 |

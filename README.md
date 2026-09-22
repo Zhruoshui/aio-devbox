@@ -61,10 +61,16 @@ now, filled in progressively).
   unified-mgr task) surfaced in the create wizard's services area.
 - **Survives container recreate.** The workspace is a named Docker volume on
   `/root`; runtime user data (projects, configs, `~/.local/bin` tools) lives
-  on the volume and survives `down`/`up`. Note: runtime `mise use` in a
-  deployed sandbox lands on the container writable layer and is lost on
-  recreate (known tradeoff — offline whole-dir transfer is the supported
-  path, see `docs/offline-tool-install.md` §14).
+  on the volume and survives `down`/`up`. That now includes **runtime
+  `mise use -g <tool>`**: the app container seeds a mise data dir on the volume
+  at boot (symlinks to the image's baked toolchains, so the volume costs tens
+  of KB, not the 1.9GB), and `/etc/profile.d/mise.sh` probes for it — so tools
+  you install yourself outlive recreate. The probe lives in `profile.d`, so it
+  applies to **login shells** (the WebUI terminal, code-server's terminal, or
+  `bash -lc`); a non-login `docker exec -it <c> bash` keeps the baked layout by
+  design, so the no-volume fallback stays intact. Offline whole-dir transfer
+  remains the supported path for offline machines, see
+  `docs/offline-tool-install.md` §14.
 - **Offline-ready.** Build online, ship via `make save` → `make load` (or plain
   `docker save`/`load`), run with `make up NOBUILD=1`. A full offline
   tool-install handbook lives in

@@ -67,17 +67,67 @@ RUN mkdir -p /opt/mise \
  && printf '[settings]\nauto_install = false\n\n[tools]\n' > /opt/mise/config.toml \
  && mise settings get auto_install | grep -qx false
 
-# ── 通道 2:profile.d(login shell 补偿)───────────────────────────────
-RUN printf '%s\n' \
-      '# mise activation for login shells (bash -l), scenario: mise.' \
-      '# ENV channel covers non-login shells; this compensates /etc/profile' \
-      '# resetting PATH in login shells (AIO terminal panel runs a pty bash -l).' \
-      'export MISE_DATA_DIR=/opt/mise' \
-      'export MISE_CONFIG_DIR=/opt/mise' \
-      'export RUSTUP_HOME=/opt/mise/rustup' \
-      'export CARGO_HOME=/opt/mise/cargo' \
-      'eval "$(mise activate bash)"' \
-      > /etc/profile.d/mise.sh
+# ── 通道 2:profile.d(login shell 补偿 + 卷优先探测)─────────────────
+# 这是**探测式**的:每次 source 时判断工作区卷上是否已播种(见
+# app/aio-mise-volume.sh),是则优先用卷,否则回落到镜像内的 /opt/mise。
+#
+# 为什么探测放在 profile.d 而不是让 entrypoint 改写它:profile.d 烘在
+# sandbox-base 里,被每个派生镜像共享——app 容器播种一次,code-server 与
+# vnc 的 login shell 也跟着受益。若在运行期改写,只能修好改写者自己那个容器。
+#
+# 为什么需要「卷优先」:卷化后用户 `mise use -g` 装的东西才跨 recreate 存活
+# (否则落容器可写层,recreate 即丢)。烘焙工具不受影响——卷上的树是 symlink,
+# 指向的正是镜像里的 /opt/mise。
+#
+# 两个分支都用 `: "${HOME:=/root}"` 兜底:HOME 在 profile.d 被 source 的时机
+# 由 /etc/profile 设好,但显式兜底更稳(与 ENV 通道的 /root 一致)。
+RUN cat > /etc/profile.d/mise.sh <<'MISEPROFILE'
+# mise activation for login shells (bash -l), scenario: mise.
+# ENV channel covers non-login shells; this compensates /etc/profile
+# resetting PATH in login shells (AIO terminal panel runs a pty bash -l).
+#
+# Prefer the volume-seeded data dir when present (seeded at app-container boot
+# by app/aio-mise-volume.sh); otherwise fall back to the baked image layout.
+# This file is baked into sandbox-base and shared by every derived image, so
+# ONE seeding (by the always-started app container) makes the volume live for
+# code-server's and vnc's shells too.
+#
+# Volume mode is what lets a user's runtime `mise use -g <tool>` survive
+# recreate. Baked tools are unaffected: the volume's trees are symlinks into
+# the image's /opt/mise.
+if [ -d "${HOME:-/root}/.local/share/mise/installs" ]; then
+	# Volume mode. MISE_CONFIG_DIR moves here too: the shims consult exactly
+	# ONE config file, and it must list baked AND user tools together.
+	# app/aio-mise-volume.sh regenerates $VOL/config.toml on every boot from
+	# the image's (authoritative for baked tools) plus the user's additions.
+	#
+	# Note MISE_GLOBAL_CONFIG_FILE is deliberately NOT set: it REPLACES
+	# MISE_CONFIG_DIR/config.toml rather than layering on top of it, so setting
+	# both would hide the baked [tools] list and every baked tool would fail
+	# with "No version is set for shim" (verified 2026-09-22).
+	MISE_DATA_DIR="${HOME:-/root}/.local/share/mise"
+	MISE_CONFIG_DIR="${HOME:-/root}/.local/share/mise"
+	RUSTUP_HOME="${HOME:-/root}/.local/share/mise/rustup"
+	CARGO_HOME="${HOME:-/root}/.local/share/mise/cargo"
+else
+	# Baked-only mode (no workspace volume, e.g. `docker run --rm <base> bash`).
+	MISE_DATA_DIR=/opt/mise
+	MISE_CONFIG_DIR=/opt/mise
+	RUSTUP_HOME=/opt/mise/rustup
+	CARGO_HOME=/opt/mise/cargo
+fi
+export MISE_DATA_DIR MISE_CONFIG_DIR RUSTUP_HOME CARGO_HOME
+eval "$(mise activate bash)"
+# Re-append the shim dirs AFTER activate, deliberately. activate rewrites PATH
+# to the per-tool install dirs of the CURRENTLY activated tool set and drops
+# the shims dirs entirely (verified 2026-09-22: 1 entry before, 0 after). That
+# makes a tool installed during this very shell session invisible until the
+# next activate — so `mise use -g X && X` would fail. Keeping the shims dirs
+# on PATH restores it; they are only a fallback, since activate's dirs come
+# first. Volume shims rank above the image's baked shims.
+PATH="$MISE_DATA_DIR/shims:/opt/mise/shims:$PATH"
+export PATH
+MISEPROFILE
 
 # ── 自检:双通道各过一遍(安装期内失败即中止,不留隐性回归)──────────────
 # engine 只验 mise 本身;工具可用性由各自 fragment 自检。

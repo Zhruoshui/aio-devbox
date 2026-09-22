@@ -44,9 +44,14 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
   app 的模型配置页在运行期读写 pi 自己的配置与会话数据,因此每个镜像都自带
   工作台核心 agent。
 - **扛容器重建。** 工作区是挂在 `/root` 的命名卷;运行时用户数据(项目、配置、
-  `~/.local/bin` 工具)都在卷上,扛过 `down`/`up`。注意:已部署沙箱里运行时
-  `mise use` 落容器可写层,recreate 即丢(已知取舍——离线整目录搬迁是受支持
-  的路径,见 `docs/offline-tool-install.md` §14)。
+  `~/.local/bin` 工具)都在卷上,扛过 `down`/`up`。**运行时 `mise use -g <tool>`
+  现在也在其中**:app 容器启动时在卷上播种 mise 数据目录(symlink 引用镜像里
+  烘焙的工具链,卷开销仅几十 KB 而非 1.9GB),`/etc/profile.d/mise.sh` 探测到
+  即用卷——你自己装的工具因此也扛 recreate。探测写在 `profile.d`,故只对
+  **login shell** 生效(WebUI 终端、code-server 终端、`bash -lc`);
+  `docker exec -it <c> bash` 这类非 login shell 仍是烘焙布局——这是刻意的,
+  为的是保留无卷裸跑时的兜底路径。离线机仍走整目录搬迁
+  (见 `docs/offline-tool-install.md` §14)。
 - **支持离线。** 联网机 `make save` 打包(镜像 + `.env` + 场景选择),
   离线机 `make load` 恢复(或裸 `docker save`/`load`),`make up NOBUILD=1` 运行。
   完整的离线补装手册见 [`docs/offline-install-guide.md`](docs/offline-install-guide.md)。

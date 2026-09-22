@@ -36,6 +36,25 @@ set -eu
 # code-server / the terminal pane via `tail -f`), not to docker logs, which
 # stays axum-only.
 : "${HOME:=/root}"
+
+# Seed the mise data dir on the workspace volume (no-op when the engine isn't
+# baked or the workspace isn't a volume). This is what lets a user's runtime
+# `mise use -g <tool>` survive recreate: it symlinks the image's baked
+# toolchains into the volume and regenerates the volume's config.toml from the
+# image's (authoritative) plus the user's own entries.
+#
+# Done here, in the app container, because that container is always started —
+# and because /etc/profile.d/mise.sh (baked into sandbox-base, shared by
+# code-server and vnc too) probes for the seeded layout, one seeding lights up
+# every container's login shells.
+#
+# Runs before the server starts and needs no network: the script only links and
+# copies. A failure is logged and ignored so a seeding problem can never stop
+# the sandbox from booting; baked tools keep working via the image layout.
+if [ -x /usr/local/bin/aio-mise-volume ]; then
+	aio-mise-volume || echo "warn: aio-mise-volume failed (baked-only layout stays in effect)"
+fi
+
 if command -v pi-web >/dev/null 2>&1; then
 	mkdir -p "$HOME/.aio"
 	(

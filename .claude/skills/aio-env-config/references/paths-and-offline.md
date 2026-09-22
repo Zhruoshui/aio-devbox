@@ -141,9 +141,32 @@ Does it need to be part of the shipped image (reproducible, on fresh checkouts)?
           └─ apt package (temporary only) -> container writable layer (gone on recreate; don't rely on it)
 ```
 
-Note on mise: unlike the old nvm/uv hybrid (manager baked system-side,
-runtimes on the volume), the mise scenario bakes everything to `/opt/mise`
-(image layer). Runtime `mise use <tool>` in a deployed sandbox therefore lands
-on the **container writable layer** and is lost on recreate - a known,
-accepted tradeoff. The offline whole-directory recipe above is the supported
-way to add mise-managed tools to an offline machine.
+Note on mise: the **engine** and every **baked tool** live at `/opt/mise`
+(image layer) — that is forced by the workspace volume covering `/root`.
+
+Runtime `mise use -g <tool>` nevertheless **survives recreate** (since
+2026-09-22). At app-container boot, `app/aio-mise-volume.sh` seeds
+`~/.local/share/mise` on the volume: it symlinks the image's `installs/`,
+`rustup/` and `cargo/` trees (so the 1.9GB is NOT copied — the volume costs
+tens of KB), runs `mise reshim` there, and regenerates the volume's
+`config.toml` from the image's (authoritative for baked tools) plus the user's
+own entries. `/etc/profile.d/mise.sh` then probes for that seeded layout and
+picks the volume when present, falling back to the image layout otherwise.
+
+The probe is in `profile.d`, so it only fires for **login shells** (the WebUI
+terminal, code-server's terminal, `bash -lc`). A non-login `docker exec -it
+<c> bash` inherits the image's ENV channel and stays on the BAKED layout —
+deliberate: ENV is a build-time constant, and pointing it at the volume path
+would leave a no-volume `docker run --rm <base> bash` with an empty data dir
+instead of the baked toolchains, losing the only fallback. Use a login shell
+when you need `mise use -g` to persist.
+
+Four traps this design had to work around, worth knowing before touching it:
+`rustup/`+`cargo/` must be linked too (else rust breaks); `MISE_GLOBAL_CONFIG_FILE`
+**replaces** rather than layers, so it must NOT be set; the volume's `shims/`
+cannot be a symlink to the image's (mise rejects foreign shims — use `mise
+reshim`); and `mise activate` strips the shim dirs from PATH, so they must be
+re-appended *after* the activate call.
+
+The offline whole-directory recipe above remains the supported way to add
+mise-managed tools to an offline machine.

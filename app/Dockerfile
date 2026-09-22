@@ -80,6 +80,12 @@ COPY --from=builder /app/target/release/aio-app /usr/local/bin/aio-app
 # without a separate RUN chmod.
 COPY --chmod=755 app/entrypoint.sh /usr/local/bin/aio-entrypoint.sh
 
+# mise volume seeder (issue: runtime `mise use` was lost on recreate). The
+# entrypoint runs it at boot; it symlinks the baked /opt/mise trees into the
+# workspace volume and regenerates the volume's config.toml so user-installed
+# tools persist. See the script's header for the full rationale.
+COPY --chmod=755 app/aio-mise-volume.sh /usr/local/bin/aio-mise-volume
+
 # Static redirect page (unified Phase 6, D1): web/ — the per-sandbox
 # workbench SPA — is retired; "/" now serves a minimal page that bounces to
 # the Sandbox manager (MGR_URL set, patched by the entrypoint) or explains
