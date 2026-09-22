@@ -154,18 +154,33 @@ starship = "1.26.0"
 
 ## Acceptance Criteria
 
-- [ ] AC1 — L1 构建后 `mise --version` 可用，且 `/opt/mise/installs` 中**无任何工具**
-- [ ] AC2 — 只勾选 fzf 构建后，fzf 可用、其余 9 个 shell 工具**不存在**
-- [ ] AC3 — 勾选 rust 后 `rustc/cargo/clippy/rustfmt/rust-analyzer` 全部可用
-- [ ] AC4 — c23 的 `clang -std=c23` 冒烟编译运行通过，且与 mise 派同时选中时互不干扰
-- [ ] AC5 — 每个 agent 单独勾选后对应命令可用（`opencode --version` /
-      `claude --version` / `codex --version`）
+> 2026-09-22 两个子任务均已归档，证据见各自 archive 目录下的 prd/implement。
+> 下面按子任务结论汇总勾选。
+
+- [x] AC1 — L1 构建后 `mise --version` 可用，且 `/opt/mise/installs` 中**无任何工具**
+      —— engine fragment 构建期断言（fragment.Dockerfile:139），两次构建均过
+- [x] AC2 — 只勾选 fzf 构建后，fzf 可用、其余 9 个 shell 工具**不存在**
+      —— 最小集镜像（1.42GB）实测：`mise ls` 恰为单条 `fzf`，其余 18 个缺席
+- [x] AC3 — 勾选 rust 后 `rustc/cargo/clippy/rustfmt/rust-analyzer` 全部可用
+      —— clippy 以 `cargo-clippy` 提供，探针须用 `cargo clippy --version`
+- [x] AC4 — c23 的 `clang -std=c23` 冒烟编译运行通过，且与 mise 派同时选中时互不干扰
+      —— clang 22.1.8 / rustc 1.93.1 / go 1.23.4 / uv 0.5.11 并存，C23 程序编译运行通过
+- [x] AC5 — 每个 agent 单独勾选后对应命令可用（`opencode --version` /
+      `claude --version` / `codex --version`）—— 1.18.24 / 2.1.278 / 0.155.1
 - [ ] AC6 — pi 由 mise 管理后，`aio-pi-extensions` 登记流程仍可用
-- [ ] AC7 — 容器内 `mise use -g <新工具>` 后（a）立即可用；（b）`docker restart`
+      —— **未验**：pi 0.84.2 本体可用，登记流程需终端跑一次
+- [x] AC7 — 容器内 `mise use -g <新工具>` 后（a）立即可用；（b）`docker restart`
       后仍可用；（c）卷体积增量仅为该工具本身，不含烘焙内容副本
-- [ ] AC8 — 不同 scenario 选择产生不同 `env_hash`（自动满足，需验证）
-- [ ] AC9 — TUI 与 mgr-web 均能展示并操作新的分层场景列表
-- [ ] AC10 — 离线分发（`make save/load`）路径不被破坏
+      —— hyperfine 实测三问全过，卷足迹 1.5M
+- [x] AC8 — 不同 scenario 选择产生不同 `env_hash`（自动满足，需验证）
+      —— `["mise","rust"]` vs `["mise","rust","go"]` 哈希不同
+- [~] AC9 — TUI 与 mgr-web 均能展示并操作新的分层场景列表
+      —— **部分**：TUI 分层有单测覆盖但**未截到交互帧**；mgr-web 侧未验。
+      需 owner 目视一次。
+- [~] AC10 — 离线分发（`make save/load`）路径不被破坏
+      —— **未实跑**：本次改动未触碰 `make save/load`，卷内容本就不在 `save`
+      范围内（子任务 2 的 Out of Scope 已声明），故无已知破坏路径；
+      但端到端未验证，需单独安排一次 `make save` → `make load` → `up NOBUILD=1`。
 
 ## Out of Scope
 
