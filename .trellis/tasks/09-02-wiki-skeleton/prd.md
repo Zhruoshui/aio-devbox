@@ -31,10 +31,21 @@
 
 ## Acceptance Criteria
 
-- [ ] `docs/wiki/` 包含 R1 列出的 6 个文件,链接互通,无死链
-- [ ] `publish-wiki.yml` 语法有效(actionlint 或人工核对)
-- [ ] README 双语各有 wiki 链接
-- [ ] 用户执行网页初始化后,push 到 main 可让 workflow 成功同步(手动步骤,由用户配合验证;本次 PR 内至少完成 workflow lint 与内容自查)
+- [x] `docs/wiki/` 包含 R1 列出的 6 个文件,链接互通,无死链
+      —— 6 页齐(Architecture/FAQ/Home/Offline-Bundle/Scenarios/_Sidebar)；
+      29 条内部链接按 GitHub Wiki **页面名**约定解析（`[Home](Home)`，不写
+      `.md`），死链 **0**。(2026-09-22 复核)
+- [x] `publish-wiki.yml` 语法有效(actionlint 或人工核对)
+      —— YAML 解析通过，jobs=[publish]；触发条件 = push main 且 docs/wiki/**
+      或本文件变更。(2026-09-22 复核)
+- [x] README 双语各有 wiki 链接
+      —— README.md:17 与 README.zh-CN.md:15 均指向
+      `https://github.com/Zhruoshui/aio-devbox/wiki`
+- [x] 用户执行网页初始化后,push 到 main 可让 workflow 成功同步(手动步骤,由用户配合验证;本次 PR 内至少完成 workflow lint 与内容自查)
+      —— 用户在网页完成了初始化（`gh api repos/Zhruoshui/aio-devbox`
+      返回 `has_wiki: true`），此后 push main 触发的 publish-wiki **多次
+      success**：`33752225340`(09-03)、`33832829535`(09-04)、
+      `34316060577`(09-09)、`34836033994`(09-14，14s)。端到端闭环成立。
 
 ## Notes
 
