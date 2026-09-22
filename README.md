@@ -49,9 +49,16 @@ now, filled in progressively).
   Dockerfiles for toolchains.
 - **Versioned base runtimes.** Node and CPython are `always_on` scenarios with
   a version dropdown — pick a version, not whether to install.
-- **Pinned AI workbench core.** The pi stack (`pi` agent + `pi-web` UI) is
-  `always_on` too: the app's model-config page reads/writes pi's own config
-  and session data, so the workbench ships with its core agent in every image.
+- **Toolchain manager + per-tool opt-in.** The `mise` engine is `always_on`
+  (~30MB, installs nothing), and every tool — L2 shell utilities, L3 language
+  toolchains, L4 AI agents — is its own togglable scenario, so the image
+  carries exactly what you ticked. Adding a tool is `mise use -g` in a new
+  `scenarios/<id>/` directory.
+- **Pinned AI workbench core.** The pi stack (`pi` agent + `pi-web` UI) ships
+  in the repo's default selection: the app's model-config page reads/writes
+  pi's own config and session data, so the workbench carries its core agent.
+  Both are ordinary selectable scenarios (they became optional in the S1
+  unified-mgr task) surfaced in the create wizard's services area.
 - **Survives container recreate.** The workspace is a named Docker volume on
   `/root`; runtime user data (projects, configs, `~/.local/bin` tools) lives
   on the volume and survives `down`/`up`. Note: runtime `mise use` in a
@@ -155,10 +162,10 @@ build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
 
 | Layer | `category` | What lives here | Selectable? |
 |---|---|---|---|
-| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** as `always_on` scenarios | infra: hardcoded; node/python: version-selectable, always on |
-| L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd) | yes |
-| L3 Language toolchains | `lang` | mise (rust + go + uv + ruff + opencode, all-in-one) / c23 | yes |
-| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode; pi, pi-web are `always_on`) | yes (pi/pi-web: locked on) |
+| L1 OS packages | `os` | non-versioned infra (apt, ca-certs, build-essential, fonts) in `Dockerfile.base.head` or fixed fragments; **versioned runtimes Node + Python** and the **mise engine** as `always_on` scenarios | infra: hardcoded; node/python/mise: always on (node/python version-selectable) |
+| L2 Shell conveniences | `shell` | CLI tools (fzf / rg / bat / fd / eza / zoxide / delta / starship / jq / yq) | yes |
+| L3 Language toolchains | `lang` | **two schools** — mise-managed (rust / go / uv / ruff) and system-managed (c23) | yes |
+| L4 Applications | `app` | CLI apps / AI-agent CLIs (opencode / claude-code / codex / pi / pi-web) | yes |
 | L5 External services | `service` | _(future, not yet implemented)_ | — |
 
 The L1 **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
@@ -166,10 +173,16 @@ build-essential) stays hardcoded in `Dockerfile.base.head` and never reaches
 the TUI — it's the foundation every `FROM sandbox-base` service inherits. The
 **versioned runtimes** Node + Python are `always_on` scenarios: always baked
 (code-server and the app web-builder depend on Node), shown in the TUI as
-locked rows `[*]` whose version `[label]` cycles with **Left/Right**. The
-**pi stack** (`pi` + `pi-web`, L4) is `always_on` as well — locked rows with
-no version dropdown — because the app depends on pi's data formats at runtime.
-L2–L4 minus pi are normal toggleable preferences.
+locked rows `[*]` whose version `[label]` cycles with **Left/Right**.
+The **mise engine** is `always_on` too, but installs **no tools** — it only
+provides the manager (~30MB) so that every L2/L3/L4 tool scenario can call it.
+L2–L4 are normal toggleable preferences.
+
+> **Granularity (2026-09-22).** `mise` used to be an all-or-nothing five-tool
+> bundle. It is now engine-only, and **every tool is its own scenario**, so you
+> pay only for what you tick. Adding a tool means adding a directory — no
+> aggregation step exists or is needed, because `mise use -g` merges across
+> fragments on Docker's ordered layers.
 
 Current scenarios (all install to **system paths** — `/opt`, `/usr/local`,
 `/etc/profile.d` — never `/root/*`, which the shared workspace volume would
@@ -180,12 +193,13 @@ mask):
 | `node` | L1 `os` | ✓ | 22.23.2 *(default)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 `os` | ✓ | 3.12.7 *(default)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
 | `fonts` | L1 `os` | — | — | Maple Mono NF CN (mono + Nerd Font icons + CJK, ~78MB) → `/usr/local/share/fonts`, aliased as default for mono/sans/serif via `/etc/fonts/local.conf`; fixes tofu in server-side rendering |
-| `shell-utils` | L2 `shell` | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin` (Debian `bat`→`batcat`, `fd`→`fdfind` symlinks) |
-| `c23` | L3 `lang` | — | — | clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin` |
-| `mise` | L3 `lang` | — | — | mise (L3 toolchain manager) bakes rust + go + uv + ruff + opencode into `/opt/mise` (all five, all-or-nothing, ~1.5GB); versions via the fragment's ARG block; visibility = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
-| `opencode` | L4 `app` | — | — | (baked by the `mise` scenario) opencode AI-agent CLI via mise shims. Sidebar button only when baked (command-exists detection). |
-| `pi` | L4 `app` | ✓ | — | pi coding agent → `/usr/local/bin`; extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal. `always_on` (issue #8): the app's model-config page and usage stats read pi's config/session data at runtime. |
-| `pi-web` | L4 `app` | ✓ | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath). `always_on` (issue #8): the pane is a core workbench surface. |
+| `mise` | L1 `os` | ✓ | — | mise **engine only** — binary + shims + the four redirect vars (`/opt/mise`) + `/etc/profile.d/mise.sh` activate. Installs **no tools** (~30MB); a build-time self-check asserts `installs/` is empty |
+| `shell` tools (×10) | L2 `shell` | — | each has one version | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq` — one scenario each, `mise use -g` → `/opt/mise/installs`, shims on `/opt/mise/shims` |
+| `rust` / `go` / `uv` / `ruff` | L3 `lang` | — | one each | **mise school**. `rust` additionally needs the table-form spec (`profile = "default"`) + `rustup component add rust-analyzer` (without the latter, shim recursion) |
+| `c23` | L3 `lang` | — | — | **system school** — clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin`. Kept on apt because mise's clang is the conda backend (foreign sysroot) and 7 of its tools aren't in the registry |
+| `opencode` / `claude-code` / `codex` | L4 `app` | — | one each | mise school AI-agent CLIs. Sidebar/agent buttons appear only when baked (command-exists detection). Scenario `claude-code` installs the **`claude`** binary |
+| `pi` | L4 `app` | — | — | pi coding agent, **mise-managed** (`pi@0.84.2`, version-pinned to match the agent-browser plugin baseline); extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal. Surfaced in the create wizard's **services** area, not the L4 scenario list (cascades with pi-web) |
+| `pi-web` | L4 `app` | — | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath). Same services-area placement as `pi` |
 
 **Workflow.** `make config` opens the TUI (ratatui): scenarios grouped by
 layer; toggle with **Space**, cycle `always_on` versions with **Left/Right**,
@@ -269,8 +283,9 @@ make load                                  # restore images + .env + selection
 make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
-The `pi` scenario is always baked; run `aio-pi-extensions` once in a terminal
-after first start to register the baked extensions into `~/.pi`. The
+When the `pi` scenario is baked (it is in the repo's default selection), run
+`aio-pi-extensions` once in a terminal after first start to register the baked
+extensions into `~/.pi`. The
 `aio-config` image also fetches crates from crates.io at build time, so it is
 built online and loaded offline like the rest.
 
@@ -287,7 +302,9 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 `sandbox-vnc`:
 
 - `minimal` — the always-on baseline (Node + Python + the pi/pi-web workbench core).
-- `full` — every scenario fragment baked in (mise [rust/go/uv/ruff/opencode] / c23 / pi / …).
+- `full` — every scenario fragment baked in (the `["*"]` wildcard expands to
+  all selectable scenarios: the 10 L2 shell tools, the L3 toolchains in both
+  schools, every L4 agent, plus c23 / fonts / pi / pi-web).
 
 ```sh
 make pull VARIANT=full           # pull + retag to local names (default: full)

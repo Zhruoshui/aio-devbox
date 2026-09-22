@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "starship"
+name = "starship"
+description = "跨 shell 提示符(prompt)定制(mise aqua 后端,装 /opt/mise/installs)"
+category = "shell"
+
+[[versions]]
+label = "1.26.0"
+version = "1.26.0"

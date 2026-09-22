@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "fd"
+name = "fd"
+description = "用户友好的 find 替代(mise aqua 后端,装 /opt/mise/installs)"
+category = "shell"
+
+[[versions]]
+label = "10.5.0"
+version = "10.5.0"

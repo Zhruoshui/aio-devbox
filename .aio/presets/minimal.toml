@@ -1,10 +1,14 @@
-# Minimal preset: the always_on baseline (node + python, versioned selection
-# pinned here) plus the default-on service-switch scenarios pi/pi-web
-# (S1/D1: the mgr create-wizard service toggles are scenario UI upgrades,
-# default all-on; repo CI builds with the defaults). CI copies this to
-# .aio/enabled.toml to build the minimal variant. `scenarios = [...]` lists
-# the non-always_on scenarios to bake; everything else (shell-utils/c23/mise/
-# fonts) is minimal's cut.
+# Minimal preset: the always_on baseline (node + python + the mise ENGINE,
+# with versioned selection pinned here) plus the default-on service-switch
+# scenarios pi/pi-web (S1/D1: the mgr create-wizard service toggles are
+# scenario UI upgrades, default all-on; repo CI builds with the defaults).
+# CI copies this to .aio/enabled.toml to build the minimal variant.
+# `scenarios = [...]` lists the non-always_on scenarios to bake; the cut is
+# every tool scenario — the L2 shell tools, both L3 schools, L4 agents other
+# than pi/pi-web, plus c23 and fonts.
+#
+# Note the mise engine is always_on, so minimal still carries `mise` (~30MB).
+# It installs no tools itself, so no L2/L3/L4 tool rides along with it.
 scenarios = ["pi", "pi-web"]
 
 [[versions]]

@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "eza"
+name = "eza"
+description = "现代 ls 替代(图标/树形/Git 状态)(mise aqua 后端,装 /opt/mise/installs)"
+category = "shell"
+
+[[versions]]
+label = "0.23.5"
+version = "0.23.5"

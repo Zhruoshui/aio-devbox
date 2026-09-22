@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "opencode"
+name = "opencode"
+description = "opencode AI coding agent(anomalyco aqua 后端),装 /opt/mise/installs;~177MB。app 面板的 opencode 按钮按 command -v 守卫,未装即隐藏"
+category = "app"
+
+[[versions]]
+label = "1.18.24"
+version = "1.18.24"

@@ -131,9 +131,14 @@ L1 的**非版本化基础设施**(HTTPS apt 源、ca-certs 自举、build-essen
 `Dockerfile.base.head`,不进 TUI——它是所有 `FROM sandbox-base` 服务继承的地基。
 **版本化运行时** Node + Python 是 `always_on` 场景:始终烘进(code-server 和
 app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]` 用
-**左/右方向键**循环。**pi 栈**(`pi` + `pi-web`,L4)同为 `always_on`——
-锁定行、无版本下拉——因为 app 运行期依赖 pi 的数据格式。其余 L2–L4 是普通
+**左/右方向键**循环。**mise engine** 同为 `always_on`,但**不装任何工具**——
+只提供管理器本体(~30MB),让 L2/L3/L4 的工具场景有得可调。其余 L2–L4 是普通
 可勾选偏好。
+
+> **粒度(2026-09-22)。** `mise` 过去是 all-or-nothing 的五工具全家桶,现在
+> 收窄为 engine-only,**每个工具各成一个场景**,只为勾选的付体积代价。新增工具
+> = 新增一个目录——不需要(也不应发明)任何聚合机制,因为 `mise use -g` 在
+> Docker 顺序层上天然合并。
 
 当前场景清单(一律装**系统路径**——`/opt`、`/usr/local`、`/etc/profile.d`——
 绝不装 `/root/*`,共享工作区卷会遮盖它):
@@ -142,13 +147,14 @@ app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]
 |---|---|---|---|---|
 | `node` | L1 `os` | ✓ | 22.23.2 *(默认)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 `os` | ✓ | 3.12.7 *(默认)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
+| `mise` | L1 `os` | ✓ | — | mise **engine 本体**——二进制 + shims + 四个重定向 env(`/opt/mise`)+ `/etc/profile.d/mise.sh` activate。**不装任何工具**(~30MB);构建期自检断言 `installs/` 为空 |
 | `fonts` | L1 `os` | — | — | Maple Mono NF CN(等宽 + Nerd Font 图标 + 中文,~78MB)→ `/usr/local/share/fonts`,经 `/etc/fonts/local.conf` 钉为 mono/sans/serif 默认;修复服务端渲染豆腐块 |
-| `shell-utils` | L2 `shell` | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin`(Debian `bat`→`batcat`、`fd`→`fdfind` 软链) |
-| `c23` | L3 `lang` | — | — | clang-22(apt.llvm.org,完整 C23)+ 复用 gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace;无版本后缀软链 → `/usr/local/bin` |
-| `mise` | L3 `lang` | — | — | mise(L3 工具链统一管理器)把 rust + go + uv + ruff + opencode 一并烘到 `/opt/mise`(五工具全家桶,~1.5GB);版本升级 = 改 fragment ARG 块;可见性 = ENV shims PATH + `/etc/profile.d/mise.sh` activate |
-| `opencode` | L4 `app` | — | — | (由 `mise` 场景附带烘焙)opencode AI agent CLI,经 mise shims 提供。侧边栏按钮仅在烘进镜像时出现(命令存在探测)。 |
-| `pi` | L4 `app` | ✓ | — | pi coding agent → `/usr/local/bin`;扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷)。`always_on`(issue #8):app 的模型配置页与用量统计在运行期读 pi 的配置/会话数据 |
-| `pi-web` | L4 `app` | ✓ | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径)。`always_on`(issue #8):面板是工作台核心界面之一 |
+| shell 工具(×10) | L2 `shell` | — | 各一个版本 | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq`——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
+| `rust`/`go`/`uv`/`ruff` | L3 `lang` | — | 各一个版本 | **mise 派**。其中 `rust` 需 table 形式 spec(`profile = "default"`)+ `rustup component add rust-analyzer`(缺后者会 shim 递归) |
+| `c23` | L3 `lang` | — | — | **系统派**——clang-22(apt.llvm.org,完整 C23)+ 复用 gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace;无版本后缀软链 → `/usr/local/bin`。留在 apt 的原因:mise 的 clang 是 conda 后端(异源 sysroot),且所需 7 个工具不在其 registry |
+| `opencode`/`claude-code`/`codex` | L4 `app` | — | 各一个版本 | mise 派 AI agent CLI。面板按钮仅在烘进镜像时出现(命令存在探测)。场景 `claude-code` 装出的二进制是 **`claude`** |
+| `pi` | L4 `app` | — | — | pi coding agent,**由 mise 管理**(`pi@0.84.2`,版本钉定以匹配 agent-browser 插件基线);扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷)。UI 落位在创建向导的**服务区**,不在 L4 场景区(与 pi-web 级联) |
+| `pi-web` | L4 `app` | — | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径)。与 `pi` 同处服务区 |
 
 **工作流。** `make config` 打开 TUI(ratatui):场景按层分组;**空格**勾选,
 **左/右方向键**循环 `always_on` 版本,`s` 保存到 `.aio/enabled.toml`。随后
@@ -238,7 +244,8 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 `sandbox-vnc`:
 
 - `minimal`——always_on 基线(Node + Python + pi/pi-web 工作台核心)。
-- `full`——全部场景片段都烘进去(mise [rust/go/uv/ruff/opencode] / c23 / pi / …)。
+- `full`——全部场景片段都烘进去(`["*"]` 通配符展开为所有可选场景:L2 十个
+  shell 工具、L3 两派语言工具链、L4 全部 agent,外加 c23 / fonts / pi / pi-web)。
 
 ```sh
 make pull VARIANT=full           # 拉取并 retag 为本地名(默认 full)

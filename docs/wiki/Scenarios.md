@@ -12,11 +12,17 @@
 
 | 层 | category | 定位 | 当前场景 |
 |---|---|---|---|
-| L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on` | node、python、fonts |
-| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | shell-utils(fzf/rg/bat/fd) |
-| L3 语言工具链 | `lang` | 编译器 / 工具链 / 语言版本管理 | **mise**(rust+go+uv+ruff+opencode 五合一)、c23 |
-| L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | **pi、pi-web**(`always_on`,AI 工作台核心栈;opencode 由 mise 附带烘焙) |
+| L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on` | node、python、**mise engine**、fonts |
+| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | 十个独立条目:fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq |
+| L3 语言工具链 | `lang` | 编译器 / 工具链 / 语言版本管理(**两派**) | **mise 派**:rust / go / uv / ruff;**系统派**:c23 |
+| L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | opencode / claude-code / codex / pi / pi-web |
 | L5 外部服务 | `service` | 自带端口 + 面板的 Web 服务 | 预留(code-server / vnc 目前走 compose profiles,不是场景) |
+
+> **粒度重构(2026-09-22)。** `mise` 曾是 all-or-nothing 的五工具全家桶,现
+> 收窄为 **engine-only**(L1 `always_on`,~30MB,不装任何工具),工具各自成
+> 独立场景。每个工具只为勾选的付体积代价。新增工具 = 新增一个
+> `scenarios/<id>/` 目录,不需要任何聚合机制——`mise use -g` 是读改写语义,
+> 在 Docker 顺序层上天然合并。
 
 ## 当前场景清单
 
@@ -27,17 +33,24 @@
 |---|---|---|---|---|
 | `node` | L1 | ✓ | 22.23.2 *(默认)* / 22.11.0 / 20.18.0 / 18.20.4 | nodejs.org tarball → `/usr/local` |
 | `python` | L1 | ✓ | 3.12.7 *(默认)* / 3.13.0 / 3.11.10 | python-build-standalone → `/usr/local` |
+| `mise` | L1 | ✓ | — | mise **engine 本体**——二进制 + shims + 四个重定向 env + `/etc/profile.d/mise.sh` activate。**不装任何工具**(~30MB);构建期自检断言 `installs/` 为空 |
 | `fonts` | L1 | — | — | Maple Mono NF CN(等宽 + Nerd Font + 中文,~78MB)→ `/usr/local/share/fonts`,修复服务端渲染豆腐块 |
-| `shell-utils` | L2 | — | — | fzf / ripgrep / bat / fd → `/usr/local/bin`(Debian 改名 `batcat` / `fdfind` 软链回) |
-| `mise` | L3 | — | — | mise 统一管理器把 **rust + go + uv + ruff + opencode** 一并烘到 `/opt/mise`(all-or-nothing,~1.5GB);版本升级 = 改 fragment 顶部 ARG 块 |
-| `c23` | L3 | — | — | clang-22(apt.llvm.org,完整 C23)+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace |
-| `pi` | L4 | ✓ | — | pi coding agent → `/usr/local/bin`;扩展烘 `/opt/pi-extensions`,终端跑一次 `aio-pi-extensions` 离线登记。`always_on`(issue #8):app 的模型配置页 / 用量统计运行期读写 pi 的配置与会话数据 |
-| `pi-web` | L4 | ✓ | — | pi 的 Web UI(npm 全局);app entrypoint 自启 `:30141`,iframe 内嵌、端口直发。`always_on`(issue #8):面板是工作台核心界面之一 |
+| shell 工具 ×10 | L2 | — | 各一个版本 | fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
+| `rust` `go` `uv` `ruff` | L3 | — | 各一个版本 | **mise 派**。`rust` 需 table 形式 spec(`profile = "default"`)+ `rustup component add rust-analyzer`(缺后者 shim↔代理死循环) |
+| `c23` | L3 | — | — | **系统派**——clang-22(apt.llvm.org,完整 C23)+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace。留 apt 的原因:mise 的 clang 走 conda 后端(异源 sysroot),且所需 7 个工具不在其 registry |
+| `opencode` `claude-code` `codex` | L4 | — | 各一个版本 | mise 派 AI agent CLI。场景 `claude-code` 装出的二进制是 **`claude`** |
+| `pi` | L4 | — | — | pi coding agent,**由 mise 管理**(`pi@0.84.2`,版本钉定以匹配 agent-browser 插件基线);扩展烘 `/opt/pi-extensions`,终端跑一次 `aio-pi-extensions` 离线登记。UI 落位在创建向导**服务区**(与 pi-web 级联) |
+| `pi-web` | L4 | — | — | pi 的 Web UI(npm 全局);app entrypoint 自启 `:30141`,iframe 内嵌、端口直发。与 `pi` 同处服务区 |
 
-## mise 场景的关键设计(2026-09 起 L3 的统一形态)
+> **注**:`pi` / `pi-web` 自 S1(09-10)起已**不是** `always_on`,而是普通可选
+> 场景——mgr 创建向导的服务开关即它们的 UI,开关状态经 `normalize_services`
+> 折进 `manifest.scenarios`。它们仍出现在本仓库的默认选区里。
 
-L3 曾有 5 个手写场景(rust / go / nvm / uv / python-dev),已全量收编为一个
-mise 场景。它踩过的坑固化成了铁律:
+## mise 的关键设计
+
+L3 曾有 5 个手写场景(rust / go / nvm / uv / python-dev),后来全量收编为
+**一个** mise 场景;2026-09-22 的粒度重构又把它拆成 **engine(L1)+ 每工具一个
+场景**。下面这些坑是两轮重构都保留的铁律:
 
 - **四重定向躲卷遮盖**:`MISE_DATA_DIR` / `MISE_CONFIG_DIR` / `RUSTUP_HOME` /
   `CARGO_HOME` 全部指到 `/opt/mise`(镜像层)。mise 的默认家目录全在 `~` 下,
@@ -49,8 +62,16 @@ mise 场景。它踩过的坑固化成了铁律:
   单独 `rustup component add rust-analyzer`(缺组件时 shim↔代理死循环);
 - **auto_install 关闭**:烘焙期写进 config.toml `[settings]`,离线机缺工具时
   显式报错而非静默 hang;
+- **config 可组合**:engine fragment 用 `>` 建立 `/opt/mise/config.toml` 并写
+  `[settings]`;各工具 fragment 用 `>>` 追加自己的 `[tools]` 条目。因为
+  `mise use -g` 是读改写语义,多个 fragment 在 Docker 顺序层上**天然合并**,
+  不需要任何聚合机制或依赖图(实测:三个独立 RUN 层 → `[tools]` 是三者并集);
+- **二进制名可能≠场景名**:`ripgrep`→`rg`、`claude-code`→`claude`。自检必须
+  用真实二进制名,写错会「构建通过但运行时不可用」;
 - **已知取舍**:运行时 `mise use <tool>` 落容器可写层,recreate 即丢;离线
   补装走整目录搬迁配方(`docs/offline-tool-install.md` §14)。
+  *(此项正由任务 `09-22-mise-runtime-volume-config` 处理:卷化 `MISE_DATA_DIR`
+  + symlink 种子,实测卷仅占 3.7M 即可让用户自装工具跨 recreate 存活。)*
 
 ## TUI 勾选工作流
 

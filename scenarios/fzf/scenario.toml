@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "fzf"
+name = "fzf"
+description = "命令行模糊查找器(补全/历史搜索/文件选择)(mise aqua 后端,装 /opt/mise/installs)"
+category = "shell"
+
+[[versions]]
+label = "0.74.4"
+version = "0.74.4"

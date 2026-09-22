@@ -18,10 +18,24 @@ built Dockerfile is deterministic regardless of tick order.
 Minimal (non-versioned, selectable):
 
 ```toml
-id = "mise"
-name = "mise (L3 工具链统一管理器)"
-description = "rust+go+uv+ruff+opencode 五工具全家桶,统一由 mise 烘焙到 /opt/mise"
+id = "c23"
+name = "C23 开发环境"
+description = "clang-22 完整 C23 工具链(apt.llvm.org)+ C 配套,装系统路径"
 category = "lang"
+```
+
+A **mise-managed tool** (the dominant pattern since the 2026-09-22 granularity
+refactor — see §"mise-managed tools" below):
+
+```toml
+id = "fzf"
+name = "fzf"
+description = "命令行模糊查找器(mise aqua 后端,装 /opt/mise/installs)"
+category = "shell"
+
+[[versions]]
+label = "0.74.4"
+version = "0.74.4"
 ```
 
 Versioned + always_on (like node/python):
@@ -195,7 +209,96 @@ live in `scenario.toml`.
 
 `Dockerfile.base.head` ends with `rm -rf /var/lib/apt/lists/*`, so a scenario
 that calls `apt-get install` must first `apt-get update` again (see the
-`shell-utils` fragment). Forgetting this gives "package not found" at build.
+`c23` fragment). Forgetting this gives "package not found" at build.
+
+## mise-managed tools (the default for L2/L3/L4 since 2026-09-22)
+
+Before the granularity refactor, `scenarios/mise/` was an all-or-nothing
+five-tool bundle. It is now **engine-only** (`category = "os"`,
+`always_on = true`, ~30MB, installs no tools), and **each tool is its own
+scenario**. Adding a tool therefore means adding a directory, not editing a
+bundle.
+
+### Why no aggregation machinery is needed
+
+`mise use -g <tool>` is **read-modify-write** on `MISE_CONFIG_DIR/config.toml`:
+it reads the current `[tools]` table, merges the new entry, writes back. On
+Docker's ordered layers this composes idempotently — verified 2026-09-22 by
+running three separate `RUN` layers, each installing one tool, and observing
+the union:
+
+```toml
+[tools]
+fd = "10.5.0"
+jq = "1.8.2"
+starship = "1.26.0"
+```
+
+So `gen` stays a pure string concatenator. **Do not invent an aggregation
+step, placeholder collector, or inter-fragment dependency graph.** (An earlier
+design proposed exactly that; the measurement above is why it was dropped.)
+
+### The standard fragment template
+
+```dockerfile
+# >>> scenario: <id> >>>
+# L2 shell 层:<name> —— <desc>
+#
+# `mise use -g` 是读改写语义,与其他 fragment 在 Docker 顺序层上幂等可组合。
+ARG <ID>_VERSION={{version}}
+RUN mise use -g "<tool>@${<ID>_VERSION}" \
+ && mise ls <tool> \
+ && bash -lc 'command -v <bin> >/dev/null || { echo "MISSING(login): <bin>" >&2; exit 1; }' \
+ && bash -c 'command -v <bin> >/dev/null || { echo "MISSING(non-login): <bin>" >&2; exit 1; }' \
+ && bash -lc '<bin> --version'
+# <<< scenario: <id> <<<
+```
+
+Both shell channels are checked (Rule 2): `bash -lc` for the terminal pane,
+`bash -c` for the `ENV`-inherited path (code-server, non-interactive children).
+
+### Pitfalls specific to mise-managed tools
+
+1. **The binary name may differ from the tool/registry name.** Always verify.
+   Known cases in this repo:
+
+   | scenario id | `mise use -g` argument | resulting binary |
+   |---|---|---|
+   | `ripgrep` | `ripgrep` | **`rg`** |
+   | `claude-code` | `claude-code` | **`claude`** |
+   | `pi` | `pi` | `pi` |
+   | `codex` | `codex` | `codex` |
+
+   `mise ls-remote <tool>` and an actual install are the only reliable ways to
+   confirm; guessing produces a fragment that builds fine but is broken.
+
+2. **`mise use -g` writes the simple form only.** It emits `tool = "1.2.3"`.
+   Some backends need a **table** spec — notably `rust`, which requires
+   `profile = "default"` (without it rustup's minimal profile drops
+   clippy/rustfmt). Those fragments must append to the config directly:
+
+   ```dockerfile
+   RUN printf 'rust = { version = "%s", profile = "default" }\n' "${RUST_VERSION}" \
+         >> /opt/mise/config.toml \
+    && mise install rust \
+    && mise exec -- rustup component add rust-analyzer
+   ```
+
+   Use `>>` (append), never `>` — `>` would clobber other fragments' tools.
+
+3. **The engine fragment owns the config file.** `scenarios/mise/` creates
+   `/opt/mise/config.toml` with `>` and writes the `[settings]` block
+   (`auto_install = false`). Tool fragments always append with `>>`. If the
+   engine fragment ever stops creating the file, every tool fragment breaks.
+
+4. **`rust-analyzer` needs an explicit `rustup component add`.** It is in no
+   rustup profile. Skipping it causes a **shim recursion**: the rustup proxy
+   falls back along PATH into a mise shim, which points back at the proxy.
+
+5. **Ordering is guaranteed by layer, not by declaration.** Tool fragments
+   assume `/opt/mise` and `MISE_*` exist. `gen` sorts `os` before
+   `shell`/`lang`/`app`, which guarantees the engine ran. Keep any future
+   engine scenario at `category = "os"`.
 
 ## Checklist before you save a new scenario
 
@@ -211,6 +314,13 @@ that calls `apt-get install` must first `apt-get update` again (see the
 - [ ] If versioned: every `{{key}}` used in the fragment is present in every
       `[[versions]]` entry (or `gen` bails on an unresolved placeholder).
 - [ ] `# apt-get install` fragments start with `apt-get update`.
+- [ ] **mise-managed tool**: the `bash -lc` / `bash -c` self-check uses the
+      **real binary name**, not the registry name (`ripgrep`→`rg`,
+      `claude-code`→`claude`). Verify before writing.
+- [ ] **mise-managed tool**: appends with `>>` if writing config directly
+      (never `>`); the engine fragment owns creating the file.
+- [ ] **mise-managed tool**: `category` is `shell` (L2) / `lang` (L3
+      mise school) / `app` (L4) — never `os`, which is reserved for the engine.
 - [ ] `make config` to tick it (or hand-edit `enabled.toml`), `make build-base`
       to regenerate `Dockerfile.base`, verify in a container with
       `docker exec aio-app-1 bash -lc '<tool> --version'`.

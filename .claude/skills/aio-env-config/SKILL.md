@@ -100,12 +100,26 @@ Is X a runtime/tool that needs to exist at build time and survive container recr
 What layer does the scenario belong to? (category in scenario.toml; sets TUI group + sort)
 ├─ "os"     (L1) foundational runtime, always present. Use `always_on = true` if it
 │            MUST be in every image (node is, because app/code-server build on it;
-│            python ships alongside as the default runtime). Otherwise L1 infra stays
-│            in Dockerfile.base.head — do NOT add a scenario for plain apt packages; edit head.
-├─ "shell"  (L2) CLI conveniences (fzf/rg/bat/fd). apt or static binaries to system path.
-├─ "lang"   (L3) language toolchains (rust/go/python-dev) and version managers (nvm/uv).
-├─ "app"    (L4) CLI apps / AI agents (opencode). Single binary to /usr/local/bin.
+│            python ships alongside as the default runtime; `mise` is the toolchain
+│            engine, deliberately tool-free so always_on costs only ~30MB).
+│            Otherwise L1 infra stays in Dockerfile.base.head — do NOT add a scenario
+│            for plain apt packages; edit head.
+│            ⚠️ `os` is reserved for infra/engine — a regular tool does NOT belong here.
+├─ "shell"  (L2) CLI conveniences (fzf/rg/bat/fd/eza/zoxide/delta/starship/jq/yq).
+├─ "lang"   (L3) language toolchains, in TWO schools:
+│            · mise school — rust/go/uv/ruff; fragment calls `mise use -g`
+│            · system school — c23; apt to system path (used when mise can't provide it)
+├─ "app"    (L4) CLI apps / AI agents (opencode/claude-code/codex/pi). mise school.
 └─ "service"(L5) reserved/future for external services. Not wired yet.
+
+Is it a mise-managed tool? (default answer for L2/L3/L4 since the 2026-09-22 refactor)
+├─ YES → one scenario per tool; fragment = `ARG X_VERSION={{version}}` +
+│        `mise use -g "<tool>@${X_VERSION}"` + a `bash -lc` AND `bash -c`
+│        self-check using the REAL binary name. See scenario-authoring.md
+│        §"mise-managed tools" — includes the name-mismatch table
+│        (ripgrep→rg, claude-code→claude) and the rust table-form exception.
+│        NO aggregation step is needed: `mise use -g` merges across fragments.
+└─ NO  → system/apt school (template: scenarios/c23).
 
 Does it need version selection in the TUI?
 ├─ YES → add `[[versions]]` (label + template vars) + `default_version`; use

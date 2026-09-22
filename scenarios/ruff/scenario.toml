@@ -1,0 +1,12 @@
+# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# (fragment resolution). The fragment.Dockerfile next to this file holds the
+# actual install steps.
+
+id = "ruff"
+name = "ruff"
+description = "ruff(Python linter/formatter,astral-sh aqua 后端),装 /opt/mise/installs。单二进制,体积很小(~15MB)"
+category = "lang"
+
+[[versions]]
+label = "0.8.4"
+version = "0.8.4"

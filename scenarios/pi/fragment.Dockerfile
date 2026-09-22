@@ -1,10 +1,19 @@
 # >>> scenario: pi >>>
 # L4:pi coding agent(earendil-works/pi,https://github.com/earendil-works/pi)。
-# 官方安装 = `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`
-# (quickstart:pi 不依赖 install scripts)。npm 全局 prefix=/usr/local(node 场景
-# 烘在 /usr/local),故得 /usr/local/bin/pi(系统路径,不被共享卷 aio_workspace
-# 遮盖;login/non-login shell 都在 PATH)。node 是 always_on L1,build 时已在
-# PATH,可直接 npm -g。engines 要求 node>=22.19(enabled.toml 已置 22.23.2)。
+#
+# 安装方式(2026-09-22 粒度重构):CLI 本体改由 **mise** 装在 /opt/mise/installs,
+# 与其余 L4 agent(opencode/codex/claude-code)统一。此前用
+# `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` 装 /usr/local;
+# mise 的 aqua 后端能装同一个包(实测 registry = aqua:earendil-works/pi)。
+#
+# ⚠️ 版本锁定:PI_VERSION 必须与 pi-agent-browser-native 插件基线匹配。mise 的
+#    aqua 源最近版是 0.86.1,而本仓库既有基线是 0.84.2 —— 换源若顺带升级 CLI,
+#    agent-browser 插件(0.5.0)可能失效。故此处**显式锁 0.84.2**(实测该版本在
+#    mise 可用),不跟随上游。要升级需先验证插件兼容性。
+#
+# ⚠️ 注意 pi 的 UI 落位:pi 虽属 L4,但 mgr-web 把它放在**服务区**
+#    (ServicesPicker),而非 L4 场景区 —— 因 pi 与 pi-web 有级联依赖
+#    (开 pi-web 自动开 pi)。见 EnvPicker.tsx 的 SERVICE_SCENARIOS 与父任务 D2。
 #
 # 扩展子集配置(pi-packages):pi 从 ~/.pi/agent/settings.json 的 packages 数组
 # 加载扩展,而 ~/.pi=/root/.pi 被共享卷盖住 -> 登记必须发生在运行时。为了
@@ -13,10 +22,13 @@
 # 清单,单一事实源),运行时由 aio-pi-extensions 用本地路径(pi install /abs/path
 # 不拷贝、零网络)登记进卷上的 settings.json —— 离线机器 `make load` 后跑一次
 # 脚本即可,不需要 npm 网络。同 code-server /opt/cs-extensions 的烘焙模式。
+# **本节逻辑不随 CLI 换源而变**(mise 只接管 CLI 本体)。
 
 ARG PI_VERSION=0.84.2
 COPY scenarios/pi/pi-packages/package.json /opt/pi-extensions/package.json
-RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+RUN mise use -g "pi@${PI_VERSION}" \
+ && bash -lc 'command -v pi >/dev/null || { echo "MISSING(login): pi" >&2; exit 1; }' \
+ && bash -c 'command -v pi >/dev/null || { echo "MISSING(non-login): pi" >&2; exit 1; }' \
  && pi --version \
  && cd /opt/pi-extensions \
  && npm install --omit=dev --no-audit --no-fund \

@@ -53,6 +53,18 @@ always_on 排除规则唯一归属 `config/src/manifest.rs::expand`。
 - mise 场景额外补一路非 login 抽查(`bash -c` 无 -l),守护 ENV + shims
   通道(code-server 非 login 终端、非交互子进程的可见性)。
 
+**2026-09-22 补充:每个 mise 工具 scenario 自带双通道抽查。** 粒度重构后
+`mise` 收窄为 engine(always_on),各工具(rust/go/uv/ruff、10 个 shell 工具、
+4 个 agent)各成独立 scenario,每个 fragment 末尾都有:
+
+```dockerfile
+&& bash -lc 'command -v <bin> >/dev/null || exit 1'   # login 通道
+&& bash -c  'command -v <bin> >/dev/null || exit 1'   # 非 login 通道
+```
+
+CI 的 full 通用探针清单仍需为代表性 CLI 手动补条目——但**构建期自检已覆盖**
+每个选中工具的可用性,离线性问题在 build 阶段即暴露,不必等 CI。
+
 ## 约定 5: 标签方案(三处对齐)
 
 | 镜像 | 浮动标签 | ref 标签 | v* 追加 |

@@ -202,9 +202,15 @@ Produce a table like:
 |---|---|---|---|---|
 | Node 22 | L1 `os` always_on | existing | `scenarios/node/scenario.toml` + `.aio/enabled.toml` | 22.11.0 |
 | Python 3.13 | L1 `os` always_on | existing | `scenarios/python/scenario.toml` + `.aio/enabled.toml` | 3.13.0 / tag 20241016 |
-| Rust + Go | L3 `lang` | existing | `.aio/enabled.toml` (tick mise) | via mise ARG block (rust 1.93.1, go 1.23.4) |
+| Rust + Go | L3 `lang` | existing | `.aio/enabled.toml` (tick `rust` + `go`) | per-scenario ARG (rust 1.93.1, go 1.23.4) |
 | Jupyter pane | L5 `service` | new | `docker-compose.yml` + `Caddyfile` + `app/services.toml` + `jupyter/Dockerfile` | - |
 | aichat | L4 `app` + button | new | `scenarios/aichat/*` + `app/services.toml` | v1.18.7 |
+
+> Note the L3 row: since the 2026-09-22 granularity refactor, `mise` is the
+> engine only and **each tool is its own scenario**. There is no longer a
+> single "mise ARG block" to bump — you tick `rust` and `go` individually, and
+> each carries its own `[[versions]]`. Prefer the mise school for a new
+> toolchain (see layers.md §"Picking the layer").
 
 Then execute in this order. The new pieces (aichat scenario, jupyter service)
 must be **authored on disk before** `make config`, because the TUI only lists

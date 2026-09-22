@@ -1,7 +1,9 @@
 # Full preset: every discovered selectable scenario, auto-including any new
 # scenarios/<id>/ added later (gen expands the "*" wildcard to all non-always_on
-# scenario ids; always_on scenarios — node/python + pi/pi-web — are baked
-# unconditionally regardless).
+# scenario ids; the always_on scenarios — node, python and the mise engine —
+# are baked unconditionally regardless, so they must NOT be listed here).
+# pi/pi-web became ordinary selectable scenarios in S1 and so DO expand from
+# the wildcard.
 # CI copies this to .aio/enabled.toml to build the full variant.
 scenarios = ["*"]
 
