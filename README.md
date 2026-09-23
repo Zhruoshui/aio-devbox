@@ -10,9 +10,10 @@ browser (code-server), Chromium over VNC, a terminal, on-demand AI-agent TUIs
 only capabilities actually present in the image get a button. Personal project.
 
 Toolchains (Node, Python, Rust, Go, …) are **build-time scenario presets** — you
-pick them (and Node/Python versions) in a TUI, and they are baked into a shared
-`sandbox-base` image that every dev container inherits. The whole stack is
-**offline-capable**: build on an online machine, ship the images, run air-gapped.
+pick them (and Node/Python versions) in the mgr-web create/edit wizard, and they
+are baked into a shared `sandbox-base` image that every dev container inherits.
+The whole stack is **offline-capable**: build on an online machine, ship the
+images, run air-gapped.
 
 📖 Wiki: [project wiki](https://github.com/Zhruoshui/aio-devbox/wiki) —
 architecture overview, scenario presets, offline bundle, and FAQ (skeleton
@@ -43,10 +44,10 @@ now, filled in progressively).
   started in a terminal (vite, `python -m http.server`, …) — the button
   appears when the port is listening and opens the dev server in an iframe
   via the app's `/preview/<port>/` reverse proxy (WebSocket / SSE friendly).
-- **Build-time scenario presets.** A Rust TUI (`aio-config`) lists scenarios
-  grouped by layer; the selection is assembled into `Dockerfile.base` (a
-  generated file, not in git) and built into `sandbox-base`. No per-container
-  Dockerfiles for toolchains.
+- **Build-time scenario presets.** Scenarios are organized by layer (L1 OS /
+  L2 shell / L3 language / L4 app); the selection made in the mgr-web wizard
+  is assembled into `Dockerfile.base` (a generated file, not in git) and built
+  into `sandbox-base`. No per-container Dockerfiles for toolchains.
 - **Versioned base runtimes.** Node and CPython are `always_on` scenarios with
   a version dropdown — pick a version, not whether to install.
 - **Toolchain manager + per-tool opt-in.** The `mise` engine is `always_on`
@@ -79,9 +80,9 @@ now, filled in progressively).
 ## Quick start
 
 ```sh
-make config                            # (optional) TUI: pick scenarios + Node/Python versions
 make up PROFILES="code-server vnc"     # start with web buttons (terminal always on)
 # → open http://localhost:8080   (or $AIO_GATEWAY_PORT if set in .env)
+# Scenario selection: use the mgr-web create/edit wizard (EnvPicker)
 ```
 
 With no `PROFILES`, only the always-on services (`gateway` + `app`) start, so
@@ -164,7 +165,7 @@ autostart are unaffected.
 
 Dev environments are organized into **profile layers**. Each scenario is a
 build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
-`category` so the TUI groups scenarios by layer:
+`category` so the mgr-web wizard groups scenarios by layer:
 
 | Layer | `category` | What lives here | Selectable? |
 |---|---|---|---|
@@ -176,10 +177,10 @@ build-time Dockerfile fragment baked into `sandbox-base`, tagged with a
 
 The L1 **non-versioned infra** (HTTPS apt, ca-certs self-bootstrap,
 build-essential) stays hardcoded in `Dockerfile.base.head` and never reaches
-the TUI — it's the foundation every `FROM sandbox-base` service inherits. The
-**versioned runtimes** Node + Python are `always_on` scenarios: always baked
-(code-server and the app web-builder depend on Node), shown in the TUI as
-locked rows `[*]` whose version `[label]` cycles with **Left/Right**.
+the picker — it's the foundation every `FROM sandbox-base` service inherits.
+The **versioned runtimes** Node + Python are `always_on` scenarios: always
+baked (code-server and the app web-builder depend on Node), shown in the
+wizard as locked rows with a version dropdown.
 The **mise engine** is `always_on` too, but installs **no tools** — it only
 provides the manager (~30MB) so that every L2/L3/L4 tool scenario can call it.
 L2–L4 are normal toggleable preferences.
@@ -208,17 +209,15 @@ mask):
 | `pi` | L4 `app` | — | — | pi coding agent, **mise-managed** (`pi@0.84.2`, version-pinned to match the agent-browser plugin baseline); extensions baked to `/opt/pi-extensions` and registered offline into `~/.pi` (volume) by running `aio-pi-extensions` once in a terminal. Surfaced in the create wizard's **services** area, not the L4 scenario list (cascades with pi-web) |
 | `pi-web` | L4 `app` | — | — | pi Web UI (npm global; needs node ≥ 22.19); autostarted by app's entrypoint on `:30141`, embedded as an iframe pane via a published port (Next.js root-absolute assets rule out a gateway subpath). Same services-area placement as `pi` |
 
-**Workflow.** `make config` opens the TUI (ratatui): scenarios grouped by
-layer; toggle with **Space**, cycle `always_on` versions with **Left/Right**,
-`s` saves to `.aio/enabled.toml`. `make build-base` then runs `aio-config gen`,
-which assembles `Dockerfile.base` from `Dockerfile.base.head` + the `always_on`
-L1 runtimes + the enabled `scenarios/<id>/fragment.Dockerfile` files (ordered
-by `category` then id) + `Dockerfile.base.tail`, substituting the selected
-version's `{{version}}`/`{{tag}}` into versioned fragments, and builds
-`sandbox-base`.
+**Workflow.** Pick scenarios and L1 versions in the mgr-web create/edit wizard
+(EnvPicker); the selection is written to `.aio/enabled.toml`. `make build-base`
+then runs `aio-config gen`, which assembles `Dockerfile.base` from
+`Dockerfile.base.head` + the `always_on` L1 runtimes + the enabled
+`scenarios/<id>/fragment.Dockerfile` files (ordered by `category` then id) +
+`Dockerfile.base.tail`, substituting the selected version's
+`{{version}}`/`{{tag}}` into versioned fragments, and builds `sandbox-base`.
 
 ```sh
-make config                       # TUI: pick scenarios + L1 versions → .aio/enabled.toml
 make up                           # gen + build sandbox-base + compose up
 docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 runtimes ready
 ```
@@ -249,7 +248,6 @@ offline path is unchanged).
 
 | Target | What it does |
 |---|---|
-| `make config` | Interactive TUI picker → writes `.aio/enabled.toml`. |
 | `make gen` | Assemble `Dockerfile.base` from head + enabled fragments + tail. (Internal; run by `build-base`.) |
 | `make build-base` | `gen` + `docker build -t sandbox-base -f Dockerfile.base .` |
 | `make build` | `build-base` + `docker compose build` |
@@ -293,8 +291,8 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 When the `pi` scenario is baked (it is in the repo's default selection), run
 `aio-pi-extensions` once in a terminal after first start to register the baked
 extensions into `~/.pi`. The
-`aio-config` image also fetches crates from crates.io at build time, so it is
-built online and loaded offline like the rest.
+`aio-config` image (gen only, no TUI) also fetches crates from crates.io at
+build time, so it is built online and loaded offline like the rest.
 
 For the full handbook — how to add arbitrary tools/packages to a running offline
 stack without rebuilding or networking (7 tested recipes: static binaries, npm
@@ -373,7 +371,7 @@ Dockerfile.base          sandbox-base image (GENERATED by `make gen`, not in git
 Dockerfile.base.head     sandbox-base head (root bootstrap: apt; no language runtimes)
 Dockerfile.base.tail     sandbox-base tail (USER root + WORKDIR /root)
 scenarios/               scenario library, layered by category; <id>/{scenario.toml,fragment.Dockerfile}
-config/                  aio-config crate (Rust): TUI picker + Dockerfile.base generator
+config/                  aio-config crate (Rust): Dockerfile.base generator (gen subcommand)
 app/                     axum app (Cargo.toml, src/, Dockerfile, services.toml)
   └ services.toml        built-in workspace buttons (id/type/target/url/label/cmd)
   └ redirect/            static page served at "/" (bounces to mgr.localhost; the
@@ -386,7 +384,7 @@ docker-compose.yml       gateway + app + code-server + vnc + base (build profile
 Makefile                 config / gen / build-base / up / save / load / pull / mgr-up / clean
 .env / .env.example      PI_WEB_HOST_PORT (optional host-side pi-web port)
 docs/                    offline-install-guide.md (+ offline-tool-install.md test log)
-.aio/enabled.toml        scenario selection (written by `make config`, read by `gen`)
+.aio/enabled.toml        scenario selection (written by mgr-web wizard, read by `gen`)
 .aio/presets/            minimal.toml / full.toml — CI presets (`["*"]` wildcard = all)
 aio-offline-bundle/      output of `make save` (gitignored)
 ```

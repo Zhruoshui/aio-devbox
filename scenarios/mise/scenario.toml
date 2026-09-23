@@ -1,4 +1,4 @@
-# Scenario metadata consumed by `aio-config tui` (listing) and `gen`
+# Scenario metadata consumed by `aio-config gen`
 # (fragment resolution). The fragment.Dockerfile next to this file holds the
 # actual install steps.
 

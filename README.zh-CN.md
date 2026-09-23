@@ -8,9 +8,10 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 (opencode、pi),以及一个模型配置页——每个按钮点开一个标签页,只有镜像里
 真实存在的能力才会有按钮。个人项目。
 
-各种工具链(Node、Python、Rust、Go……)是**构建期场景预置**——你在 TUI 里勾选
-(并选 Node/Python 版本),它们被烘进一个所有开发容器共享的 `sandbox-base`
-镜像。整套栈**支持离线**:联网机构建,打包镜像运走,气隙环境也能跑。
+各种工具链(Node、Python、Rust、Go……)是**构建期场景预置**——你在 mgr-web
+创建/编辑向导里勾选(并选 Node/Python 版本),它们被烘进一个所有开发容器
+共享的 `sandbox-base` 镜像。整套栈**支持离线**:联网机构建,打包镜像运走,
+气隙环境也能跑。
 
 📖 Wiki 文档:[项目 Wiki](https://github.com/Zhruoshui/aio-devbox/wiki)——
 架构总览、场景配置、离线分发、常见问题(骨架已建,正文逐步填充)。
@@ -35,9 +36,9 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
   扛得过容器重建。也可注册 **web 型按钮**,指向你在终端里起的任意 dev server
   端口(vite、`python -m http.server`……):端口有监听时按钮出现,点击经 app 的
   `/preview/<port>/` 反代在 iframe 中打开(WebSocket / SSE 友好)。
-- **构建期场景预置。** 一个 Rust TUI(`aio-config`)按层分组列出场景;勾选结果
-  被组装进 `Dockerfile.base`(生成物,不入 git)并构建进 `sandbox-base`。
-  工具链不需要各自的 Dockerfile。
+- **构建期场景预置。** 场景按层分组(L1 OS / L2 shell / L3 语言 / L4 应用);
+  在 mgr-web 向导里的勾选结果被组装进 `Dockerfile.base`(生成物,不入 git)
+  并构建进 `sandbox-base`。工具链不需要各自的 Dockerfile。
 - **基础运行时可版本化。** Node 与 CPython 是 `always_on` 场景,带版本下拉——
   选的是版本,不是装不装。
 - **AI 工作台核心固化。** pi 栈(`pi` agent + `pi-web` UI)同样是 `always_on`:
@@ -59,9 +60,9 @@ VSCode(code-server)、VNC 里的 Chromium、终端、按需打开的 AI agent TU
 ## 快速开始
 
 ```sh
-make config                            # (可选)TUI:勾场景 + 选 Node/Python 版本
 make up PROFILES="code-server vnc"      # 带 Web 按钮启动(终端始终启用)
 # → 打开 http://localhost:8080   (.env 设了 AIO_GATEWAY_PORT 则用它)
+# 场景选择:用 mgr-web 创建/编辑向导(EnvPicker)
 ```
 
 不带 `PROFILES` 时,只启动常驻服务(`gateway` + `app`),侧边栏显示终端和模型配置
@@ -122,7 +123,7 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 ## 场景预置
 
 开发环境按**分层模型**组织。每个场景都是一个构建期 Dockerfile 片段,烘进
-`sandbox-base`,带一个 `category` 字段让 TUI 按层分组:
+`sandbox-base`,带一个 `category` 字段让 mgr-web 向导按层分组:
 
 | 层 | `category` | 放什么 | 可勾选? |
 |---|---|---|---|
@@ -133,10 +134,10 @@ server(同一回环,不触发 HTTPS-first 升级)。共享 netns 上的保留端
 | L5 外部服务 | `service` | _(未来,尚未实现)_ | — |
 
 L1 的**非版本化基础设施**(HTTPS apt 源、ca-certs 自举、build-essential)硬编码在
-`Dockerfile.base.head`,不进 TUI——它是所有 `FROM sandbox-base` 服务继承的地基。
+`Dockerfile.base.head`,不进选择器——它是所有 `FROM sandbox-base` 服务继承的地基。
 **版本化运行时** Node + Python 是 `always_on` 场景:始终烘进(code-server 和
-app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]` 用
-**左/右方向键**循环。**mise engine** 同为 `always_on`,但**不装任何工具**——
+app 的 web-builder 依赖 Node),向导里显示为锁定行,版本用下拉框选择。
+**mise engine** 同为 `always_on`,但**不装任何工具**——
 只提供管理器本体(~30MB),让 L2/L3/L4 的工具场景有得可调。其余 L2–L4 是普通
 可勾选偏好。
 
@@ -162,16 +163,14 @@ app 的 web-builder 依赖 Node),TUI 里显示为锁定行 `[*]`,版本 `[label]
 | `pi` | L4 `app` | — | — | pi coding agent,**由 mise 管理**(`pi@0.84.2`,版本钉定以匹配 agent-browser 插件基线);扩展烘到 `/opt/pi-extensions`,在终端跑一次 `aio-pi-extensions` 即离线登记进 `~/.pi`(卷)。UI 落位在创建向导的**服务区**,不在 L4 场景区(与 pi-web 级联) |
 | `pi-web` | L4 `app` | — | — | pi 的 Web UI(npm 全局;需 node ≥ 22.19);由 app entrypoint 自启在 `:30141`,iframe 面板内嵌,端口直发(Next.js 根绝对资源路径,走不了网关子路径)。与 `pi` 同处服务区 |
 
-**工作流。** `make config` 打开 TUI(ratatui):场景按层分组;**空格**勾选,
-**左/右方向键**循环 `always_on` 版本,`s` 保存到 `.aio/enabled.toml`。随后
-`make build-base` 运行 `aio-config gen`,把 `Dockerfile.base` 由
-`Dockerfile.base.head` + `always_on` 的 L1 运行时 + 已启用的
+**工作流。** 在 mgr-web 创建/编辑向导(EnvPicker)里勾选场景、选 L1 版本,选择写入
+`.aio/enabled.toml`。随后 `make build-base` 运行 `aio-config gen`,把
+`Dockerfile.base` 由 `Dockerfile.base.head` + `always_on` 的 L1 运行时 + 已启用的
 `scenarios/<id>/fragment.Dockerfile`(按 `category` 再按 id 排序)+
 `Dockerfile.base.tail` 组装而成,把所选版本的 `{{version}}`/`{{tag}}` 替换进版本化
 片段,再构建 `sandbox-base`。
 
 ```sh
-make config                       # TUI:勾场景 + 选 L1 版本 → .aio/enabled.toml
 make up                           # gen + 构建 sandbox-base + compose up
 docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行时就绪
 ```
@@ -198,7 +197,6 @@ docker exec aio-app-1 bash -lc 'node --version; python3 --version'   # L1 运行
 
 | 目标 | 作用 |
 |---|---|
-| `make config` | 交互式 TUI 勾选 → 写 `.aio/enabled.toml`。 |
 | `make gen` | 由 head + 已启用片段 + tail 组装 `Dockerfile.base`。(内部目标,由 `build-base` 调用。) |
 | `make build-base` | `gen` + `docker build -t sandbox-base -f Dockerfile.base .` |
 | `make build` | `build-base` + `docker compose build` |
@@ -236,8 +234,8 @@ make up NOBUILD=1 PROFILES="code-server vnc"
 ```
 
 `pi` 场景恒定烘入;首次启动后在终端跑一次 `aio-pi-extensions`,把烘好的扩展
-登记进 `~/.pi`。`aio-config` 镜像构建时也要从 crates.io 拉 crate,故同样
-联网构建、离线载入。
+登记进 `~/.pi`。`aio-config` 镜像(仅 gen,无 TUI)构建时也要从 crates.io 拉
+crate,故同样联网构建、离线载入。
 
 完整手册——如何给运行中的离线栈补装任意工具/包而不重建、不联网(7 个实测配方:
 静态二进制、npm 全局包、apt deb、cargo crate、rust 工具链、python+uv、脚本)——见
@@ -306,7 +304,7 @@ Dockerfile.base          sandbox-base 镜像(由 `make gen` 生成,不入 git)
 Dockerfile.base.head     sandbox-base 头(root 自举:apt;无语言运行时)
 Dockerfile.base.tail     sandbox-base 尾(USER root + WORKDIR /root)
 scenarios/               场景库,按 category 分层;<id>/{scenario.toml,fragment.Dockerfile}
-config/                  aio-config crate(Rust):TUI 勾选器 + Dockerfile.base 生成器
+config/                  aio-config crate(Rust):Dockerfile.base 生成器(gen 子命令)
 app/                     axum 应用(Cargo.toml、src/、Dockerfile、services.toml)
   └ services.toml        内置工作区按钮(id/type/target/url/label/cmd)
   └ redirect/            "/" 静态指路页(跳 mgr.localhost;每沙箱工作台 SPA 已
@@ -316,10 +314,10 @@ mgr/ + mgr-web/          sandbox-mgr 控制面(axum API + 管理 SPA;状态在 m
 vnc/                     Xvnc + Chromium + noVNC(FROM debian:bookworm-slim)
 code-server/             浏览器版 VSCode 镜像(FROM sandbox-base)
 docker-compose.yml       gateway + app + code-server + vnc + base(build profile)
-Makefile                 config / gen / build-base / up / save / load / pull / mgr-up / clean
+Makefile                 gen / build-base / up / save / load / pull / mgr-up / clean
 .env / .env.example      PI_WEB_HOST_PORT(可选,宿主侧 pi-web 端口)
 docs/                    offline-install-guide.md(+ offline-tool-install.md 实测记录)
-.aio/enabled.toml        场景选择(make config 写,gen 读)
+.aio/enabled.toml        场景选择(mgr-web 向导写,gen 读)
 .aio/presets/            minimal.toml / full.toml——CI 预设(`["*"]` 通配符 = 全选)
 aio-offline-bundle/      `make save` 的输出(gitignored)
 ```

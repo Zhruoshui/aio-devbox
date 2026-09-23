@@ -17,8 +17,8 @@
 | `vnc` | `sandbox-vnc`(Debian slim + Chromium + noVNC) | 浏览器内 Chromium,监听 6080 | profile `vnc` |
 | `base` | `sandbox-base` | 不是运行容器——只是 `make build` 的构建入口 | profile `build` |
 
-`code-server` 与 `vnc` 都要用 `make up PROFILES="code-server vnc"`(或
-`make config` 之外的单开关 `make up PROFILES=code-server`)显式拉起:容器没跑,
+`code-server` 与 `vnc` 都要用 `make up PROFILES="code-server vnc"`(单开关
+`make up PROFILES=code-server` 亦可)显式拉起:容器没跑,
 UI 侧的 TCP 探测就探不到,按钮自动隐藏——**不存在死面板**。
 
 ## 镜像派生关系

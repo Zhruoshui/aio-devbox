@@ -40,7 +40,6 @@ HTTPS GitHub URL (rule 3). `ARG` pins the version (rule 4).
 
 **2. Enable + build.**
 ```bash
-make config                 # tick "Bun" under L3, press s
 make build-base             # gen assembles Dockerfile.base with the bun fragment
 make up                     # rebuilds app (FROM sandbox-base) + starts the stack
 ```
@@ -66,8 +65,7 @@ label = "23.3.0"
 version = "23.3.0"
 ```
 
-**2. Pick it.** Either via the TUI (`make config`, cycle to 23.3.0 on the node
-row, `s`) or hand-edit `.aio/enabled.toml`:
+**2. Pick it.** Hand-edit `.aio/enabled.toml` (or use the mgr-web wizard):
 ```toml
 [[versions]]
 id = "node"
@@ -141,8 +139,8 @@ scenarios) stay cached. Keep the fragment lean and edit rarely.
 tarball — anything mise doesn't manage — and you don't want to create a new
 `scenarios/<id>/` directory for it.
 
-**Setup**: tick `user-tools` in `make config` (or add `"user-tools"` to
-`.aio/enabled.toml`), then edit `scenarios/user-tools/fragment.Dockerfile` in
+**Setup**: add `"user-tools"` to `.aio/enabled.toml` (or tick it in the mgr-web
+wizard), then edit `scenarios/user-tools/fragment.Dockerfile` in
 place. The file ships with the three hard rules and a complete htop example
 commented out — uncomment and adapt.
 
@@ -185,7 +183,6 @@ label = "aichat"
 **3. Build + verify.** `services.toml` is compiled into the app binary
 (`include_str!`), so the **app image must rebuild** (not just restart):
 ```bash
-make config            # tick aichat
 make build-base        # bake the aichat scenario into sandbox-base
 make up                # rebuilds app (picks up services.toml) + starts stack
 docker exec aio-app-1 bash -lc 'aichat --version'
@@ -261,13 +258,14 @@ Produce a table like:
 > toolchain (see layers.md §"Picking the layer").
 
 Then execute in this order. The new pieces (aichat scenario, jupyter service)
-must be **authored on disk before** `make config`, because the TUI only lists
-scenario.toml files that already exist under `scenarios/`:
+must be **authored on disk before** editing `.aio/enabled.toml`, because the
+wizard/gen only lists scenario.toml files that already exist under
+`scenarios/`:
 ```bash
 # 0. author the new files first (aichat: scenarios/aichat/* + services.toml entry;
 #    jupyter: docker-compose.yml service + Caddyfile block + services.toml entry + jupyter/Dockerfile)
-# 1. scenario selection + versions (TUI now sees aichat too)
-make config                # tick mise, aichat; set node=22.11.0, python=3.13.0
+# 1. scenario selection + versions (hand-edit .aio/enabled.toml or use the wizard)
+#    add: scenarios = ["rust", "go", "aichat"] + [[versions]] blocks for node/python
 # 2. assemble + build the base image with all baked scenarios
 make build-base
 # 3. rebuild derived images (app picks up services.toml changes too) + start
@@ -304,8 +302,8 @@ make up` (with the same `PROFILES=`) is the reliable restart.
   the change only lands via `make build-base`.
 - **services.toml/Caddyfile changes need an app/gateway recreate**, not just a
   restart. `make up` rebuilds app; for caddy, `docker compose up -d --force-recreate gateway`.
-- **`make config` writes `.aio/enabled.toml` host-owned** (the Makefile runs
-  aio-config as the host uid). `make gen` / `make build-base` regenerate
+- **`.aio/enabled.toml` should stay host-owned.** The Makefile runs aio-config
+  as the host uid for gen. `make gen` / `make build-base` regenerate
   `Dockerfile.base` host-owned too. Don't run them as root or the files become
   root-owned and awkward to edit later.
 - **vnc is decoupled from sandbox-base.** Rebuilding base for a new scenario

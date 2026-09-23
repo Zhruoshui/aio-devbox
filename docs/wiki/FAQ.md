@@ -33,7 +33,7 @@ make up PROFILES="code-server vnc"
 
 **场景重新勾选后为什么不生效?**
 
-`make config` 只改了 `.aio/enabled.toml`(清单),工具链要烘进镜像才存在:
+改 `.aio/enabled.toml`(清单)只是登记选择,工具链要烘进镜像才存在:
 
 ```sh
 make build                                    # gen + 重烘 sandbox-base
@@ -45,7 +45,7 @@ docker compose up -d --force-recreate app code-server   # 让运行中的容器�
 
 **场景里的工具版本怎么升?**
 
-- L1 node / python:`make config` 里方向键切版本;
+- L1 node / python:在 mgr-web 向导里下拉切换版本(或手改 `.aio/enabled.toml` 的 `[[versions]]`);
 - mise 场景(rust/go/uv/ruff/opencode):改 `scenarios/mise/fragment.Dockerfile`
   顶部 ARG 块,重新 `make build`;
 - 其余场景:改各自 fragment 的 ARG 后重建。
@@ -111,5 +111,5 @@ docker.sock;裸跑为 `MGR_REPO=. MGR_DATA=mgr-data cargo run -p aio-mgr`),
 | vnc 容器反复 flapping(Xvnc "Server is already active") | 旧版遗留 stale `/tmp/.X99-lock`;现 vnc 的 `/tmp` 是 tmpfs,重启即清 |
 | code-server 里 cpptools 弹许可证窗后 LSP 退出 | MS 许可证检查拒绝非微软宿主,**不要装 cpptools**;C/C++ 用 clangd(Open VSX 扩展 + c23 场景烘的 clangd-22) |
 | Chromium 打开 `http://服务名:port` 强制跳 https | HTTPS-first 只豁免 localhost/IP 字面量;内部服务一律用 `http://localhost:port`(netns 共享下与容器内一致) |
-| `make gen` 报场景 id 找不到 | 本地 `.aio/enabled.toml`(gitignored)还勾着已删场景;`make config` 重选或手工移除 |
+| `make gen` 报场景 id 找不到 | 本地 `.aio/enabled.toml`(gitignored)还勾着已删场景;在向导里重选或手工移除 |
 | login shell 找不到某工具,非 login 找得到 | 该工具只配了 ENV PATH 或只配了 profile.d 之一;场景编写规则见 [场景配置](Scenarios) 铁律 2 |

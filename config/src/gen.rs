@@ -112,7 +112,7 @@ pub fn assemble_for(repo: &Path, enabled: &manifest::Enabled) -> Result<(String,
         let s = match by_id.get(id.as_str()) {
             Some(s) => *s,
             None => bail!(
-                "enabled scenario {:?} not found in {} (run `make config` to reselect)",
+                "enabled scenario {:?} not found in {} (edit .aio/enabled.toml to reselect)",
                 id,
                 repo.join("scenarios").display()
             ),

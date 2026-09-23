@@ -338,9 +338,9 @@ Both shell channels are checked (Rule 2): `bash -lc` for the terminal pane,
       (never `>`); the engine fragment owns creating the file.
 - [ ] **mise-managed tool**: `category` is `shell` (L2) / `lang` (L3
       mise school) / `app` (L4) — never `os`, which is reserved for the engine.
-- [ ] `make config` to tick it (or hand-edit `enabled.toml`), `make build-base`
-      to regenerate `Dockerfile.base`, verify in a container with
-      `docker exec aio-app-1 bash -lc '<tool> --version'`.
+- [ ] Hand-edit `enabled.toml` (or tick it in the mgr-web wizard) to enable it,
+      `make build-base` to regenerate `Dockerfile.base`, verify in a container
+      with `docker exec aio-app-1 bash -lc '<tool> --version'`.
 - [ ] If the scenario ships a representative CLI: consider adding it to the
       full-variant probe list in `.github/workflows/images.yml` (`bash -lc` +
       `command -v` — Rule 2 is exactly what makes the probe pass). A new

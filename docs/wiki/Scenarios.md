@@ -2,7 +2,7 @@
 
 [← 返回首页](Home)
 
-本页描述构建期场景预置系统:分层模型如何组织场景、如何用 TUI 勾选工具链、
+本页描述构建期场景预置系统:分层模型如何组织场景、如何在 mgr-web 向导里勾选工具链、
 版本化运行时的选择方式,以及预设与通配符的用法。
 
 ## 分层模型(L1–L5)
@@ -116,18 +116,19 @@ L3 曾有 5 个手写场景(rust / go / nvm / uv / python-dev),后来全量收�
 
 离线补装仍走整目录搬迁配方(`docs/offline-tool-install.md` §14)。
 
-## TUI 勾选工作流
+## 场景选择工作流
+
+在 mgr-web 创建/编辑向导(EnvPicker)里勾选场景、选 L1 版本;选择写入
+`.aio/enabled.toml`(gitignored,本机私有)。然后:
 
 ```sh
-make config      # TUI:aio-config(ratatui)
 make build       # gen 生成 Dockerfile.base → 构建 sandbox-base
 make up          # 重建业务容器(会用新镜像)
 ```
 
-- TUI 里场景按层分组,**空格**勾选;`always_on` 场景是锁定行 `[*]`——
-  Node / Python 用**左/右方向键**切版本,pi / pi-web 无版本下拉、纯锁定;
-- 结果写入 `.aio/enabled.toml`(gitignored,本机私有);版本清单记在
-  `[[versions]]` 段;
+- 向导里场景按层分组;`always_on` 场景是锁定行——Node / Python 有版本
+  下拉,pi / pi-web 纯锁定;
+- 版本清单记在 `.aio/enabled.toml` 的 `[[versions]]` 段;
 - 改完必须 `make build` 重建 `sandbox-base`,再 `make up` 让业务容器用上新
   镜像——**改场景不重建 = 白改**。
 

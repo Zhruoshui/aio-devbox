@@ -12,7 +12,7 @@
 
 - `make up`(起栈)
 - `make up PROFILES="code-server vnc"`(浏览器 IDE / Chromium)
-- `make config` → `make build`(改场景)
+- 改 `.aio/enabled.toml` → `make build`(改场景)
 - `make save` / `make load`(离线分发)
 - `make mgr-up` / `make mgr-down`(多沙箱管理)
 

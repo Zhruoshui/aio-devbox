@@ -16,7 +16,7 @@
 ## 页面导航
 
 - [架构总览](Architecture) —— 容器拓扑、镜像派生、网络与卷
-- [场景配置](Scenarios) —— 分层模型、mise 场景、TUI 勾选、版本化运行时
+- [场景配置](Scenarios) —— 分层模型、mise 场景、向导勾选、版本化运行时
 - [离线分发](Offline-Bundle) —— `make save` / `make load` 与离线补装工具
 - [常见问题](FAQ) —— 安装、启动、排错
 
@@ -31,7 +31,7 @@ make up PROFILES="code-server vnc"   # 需要浏览器 IDE / Chromium 时
 
 - 侧边栏按钮分三类(`web` / `agent` / `page`),全部自动探测,**没有死面板**;
 - 工具链不写各容器的 Dockerfile,而是在 `scenarios/` 里声明**场景**,
-  `make config` 勾选后由 `make build` 烘进共享的 `sandbox-base` 镜像;
+  在 mgr-web 向导里勾选后由 `make build` 烘进共享的 `sandbox-base` 镜像;
 - 工作区是挂在 `/root` 的命名卷,项目 / 配置 / `~/.local/bin` 工具扛过重建;
 - 联网机 `make save` 打包,离线机 `make load` 恢复,断网也能跑。
 

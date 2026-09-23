@@ -71,8 +71,9 @@ impl Enabled {
 }
 
 /// Load the manifest. A missing file = no scenarios enabled (default), NOT an
-/// error: a fresh checkout has no `.aio/enabled.toml` until `make config` runs,
-/// and `gen` must still produce a valid (scenario-less) Dockerfile.base.
+/// error: a fresh checkout has no `.aio/enabled.toml` until the mgr-web wizard
+/// (or a hand edit) writes one, and `gen` must still produce a valid
+/// (scenario-less) Dockerfile.base.
 pub fn load(path: &Path) -> Result<Enabled> {
     match fs::read_to_string(path) {
         Ok(raw) => {
@@ -86,7 +87,7 @@ pub fn load(path: &Path) -> Result<Enabled> {
 }
 
 /// Save the manifest as pretty TOML, creating the parent dir if needed (so
-/// `aio-config tui` works even if `.aio/` does not yet exist).
+/// the mgr-web wizard or a hand edit works even if `.aio/` does not yet exist).
 pub fn save(path: &Path, enabled: &Enabled) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;

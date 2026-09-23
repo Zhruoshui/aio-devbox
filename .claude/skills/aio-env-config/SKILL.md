@@ -1,6 +1,6 @@
 ---
 name: aio-env-config
-description: Configure the AIO dev-sandbox environment (this repo) — authoring scenario files, enabling profiles, registering UI buttons, and planning a layered config across the build-time Dockerfile.base scenario system. Use whenever the user wants to add/change/remove installed dev tools, language runtimes, version managers, shell utilities, AI agents, or containerized web services in this sandbox. Trigger phrases: "add a scenario", "install X in the sandbox", "add a new language/runtime", "pin a version of node/python/go", "make X available in code-server", "add a web service / a button / a pane", "enable vnc/code-server", "which layer does X go in", or any question about .aio/enabled.toml / make config / make build-base / scenarios/ / Dockerfile.base. Also use it for a "comprehensive environment config plan" that touches multiple layers at once — that is exactly the whole-system planning this skill exists for.
+description: Configure the AIO dev-sandbox environment (this repo) — authoring scenario files, enabling profiles, registering UI buttons, and planning a layered config across the build-time Dockerfile.base scenario system. Use whenever the user wants to add/change/remove installed dev tools, language runtimes, version managers, shell utilities, AI agents, or containerized web services in this sandbox. Trigger phrases: "add a scenario", "install X in the sandbox", "add a new language/runtime", "pin a version of node/python/go", "make X available in code-server", "add a web service / a button / a pane", "enable vnc/code-server", "which layer does X go in", or any question about .aio/enabled.toml / make build-base / scenarios/ / Dockerfile.base. Also use it for a "comprehensive environment config plan" that touches multiple layers at once — that is exactly the whole-system planning this skill exists for.
 ---
 
 # AIO 环境配置
@@ -11,8 +11,10 @@ description: Configure the AIO dev-sandbox environment (this repo) — authoring
 > running the app or writing app features.
 >
 > The repo has a layered "scenario preset" system: `scenarios/<id>/` files are
-> assembled by a Rust TUI/configurator (`aio-config`) into `Dockerfile.base`,
+> assembled by a Rust configurator (`aio-config gen`) into `Dockerfile.base`,
 > which builds the `sandbox-base` image every derived container inherits.
+> Scenario selection is done in the mgr-web create/edit wizard (EnvPicker),
+> which writes `.aio/enabled.toml` for `gen` to read.
 > Adding an environment piece = mostly adding a scenario; sometimes also a
 > compose service + gateway route + services.toml entry. This skill knows the
 > whole map.
@@ -30,14 +32,14 @@ Use it when the user wants to **change what's in the sandbox environment**:
 - "我想要 node + python + rust + go + 一套 web 预览,整体给我规划一下" → **comprehensive multi-layer plan** (the headline use case)
 
 Do **not** use it for: writing the React frontend, the axum app routes, the
-gateway auth, or the TUI ratatui code — those are app/feature work, not
+gateway auth, or the mgr-web wizard code — those are app/feature work, not
 environment configuration. (If a request is both, the env-config parts belong
 here; the app-feature parts do not.)
 
 ## The whole system in one screen
 
 ```
-                    make config  (TUI writes selection)
+            mgr-web EnvPicker (create/edit wizard)
                           │
                           ▼
                  .aio/enabled.toml   ← scenarios[] + [[versions]]
@@ -97,7 +99,7 @@ Is X a runtime/tool that needs to exist at build time and survive container recr
          - which to choose". (Also the right answer for "just let me try X once
          without rebuilding".)
 
-What layer does the scenario belong to? (category in scenario.toml; sets TUI group + sort)
+What layer does the scenario belong to? (category in scenario.toml; sets wizard group + sort)
 ├─ "os"     (L1) foundational runtime, always present. Use `always_on = true` if it
 │            MUST be in every image (node is, because app/code-server build on it;
 │            python ships alongside as the default runtime; `mise` is the toolchain
@@ -121,7 +123,7 @@ Is it a mise-managed tool? (default answer for L2/L3/L4 since the 2026-09-22 ref
 │        NO aggregation step is needed: `mise use -g` merges across fragments.
 └─ NO  → system/apt school (template: scenarios/c23).
 
-Does it need version selection in the TUI?
+Does it need version selection in the wizard?
 ├─ YES → add `[[versions]]` (label + template vars) + `default_version`; use
 │        `{{version}}`/`{{tag}}` placeholders in fragment.Dockerfile. gen substitutes them.
 └─ NO  → plain fragment; version pinned by an ARG inside the fragment (e.g. ARG X_VERSION=…).
@@ -162,10 +164,11 @@ list each piece and its layer — that list IS the plan.
 - **New web service / button**: see `references/compose-registry.md`.
 
 ### 3. Enable it
-- Scenarios: run `make config` (interactive TUI) and tick it, **or** hand-edit
-  `.aio/enabled.toml` (add the id to `scenarios = [...]`; for a versioned
-  scenario add a `[[versions]]` block with id+label). always_on scenarios are
-  never listed in `scenarios` — only their version selection lives in `[[versions]]`.
+- Scenarios: tick it in the mgr-web create/edit wizard (EnvPicker), **or**
+  hand-edit `.aio/enabled.toml` (add the id to `scenarios = [...]`; for a
+  versioned scenario add a `[[versions]]` block with id+label). always_on
+  scenarios are never listed in `scenarios` — only their version selection
+  lives in `[[versions]]`.
 - Web services: add the `--profile <name>` to your `make up` invocations (or
   set `PROFILES=` in the Makefile call). The profile gates the *container*;
   `services.toml` + caddy gate the *button/pane*.
@@ -176,7 +179,8 @@ builds themselves — do NOT run `make build` / `docker` from this skill). Tailo
 to what changed:
 
 - Scenario changed →
-  `make config` (if not already), then `make build-base` (runs `gen` + `docker
+  hand-edit `.aio/enabled.toml` (or use the mgr-web wizard), then
+  `make build-base` (runs `gen` + `docker
   build -t sandbox-base`). Then `make up` (rebuilds the base-derived services in
   the current run and starts the stack). Note: `make up` only carries the
   services whose profiles you pass — `make up PROFILES=code-server,vnc` for
@@ -221,7 +225,8 @@ reset, volume masking /root), call it out — the user will hit it otherwise.
    PATH) or add a `/etc/profile.d/<x>.sh` that exports PATH. See rust/go scenarios.
 3. **always_on scenarios never appear in `enabled.toml` `scenarios = [...]`.**
    They're baked unconditionally; only their version selection goes in
-   `[[versions]]`. The TUI renders them as locked `[*]` rows.
+   `[[versions]]`. The wizard renders them as locked rows with a version
+   dropdown.
 4. **id == directory name.** `scenario.toml`'s `id` field must equal the
    `scenarios/<id>/` directory name, or `aio-config gen` bails.
 5. **Versioned fragments need `[[versions]]` with all placeholder vars.** A

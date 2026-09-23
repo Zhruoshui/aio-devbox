@@ -51,11 +51,12 @@ app/
 but built STANDALONE into the `aio-config` image with `config/` as its own
 context + its own `config/Cargo.lock`). It carries a lib target
 (`aio_config`: `scenario` / `manifest` / `gen` — reusable by `mgr`) plus the
-`aio-config` bin (`tui` scenario picker is bin-only + `gen` assembles
-`Dockerfile.base` from `Dockerfile.base.head` + enabled
-`scenarios/<id>/fragment.Dockerfile` + `Dockerfile.base.tail`). Run via
-`docker run` from the Makefile. See
-`.trellis/tasks/08-03-scenario-preset-profiles/`.
+`aio-config` bin (`gen` assembles `Dockerfile.base` from
+`Dockerfile.base.head` + enabled `scenarios/<id>/fragment.Dockerfile` +
+`Dockerfile.base.tail`). Run via `docker run` from the Makefile.
+The retired `tui` subcommand (ratatui interactive picker) was removed;
+scenario selection now happens in the mgr-web EnvPicker, which writes
+`.aio/enabled.toml` for `gen` to read.
 
 **Scenario fragment rules (must follow when adding `scenarios/<id>/`)**:
 - Fragments run as root (inserted before the tail's `USER gem`).

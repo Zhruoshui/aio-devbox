@@ -1,7 +1,7 @@
 # Sandbox-mgr 控制平面运维契约
 
 > **Purpose**: sandbox-mgr(aio-mgr)在 DooD 形态下驱动宿主 docker 的硬约束。
-> 来源任务: 09-08-sandbox-mgr-tui Phase 2(2026-09-08)+ 09-09-sandbox-mgr-
+> 来源任务: 09-08-sandbox-mgr(Phase 2,2026-09-08)+ 09-09-sandbox-mgr-
 > unified(契约 4 改写/契约 7 多 profile/契约 9 第四处/契约 10 新增,2026-09-10)
 > + 09-10-mgr-subdomain-port-follow(契约 3 改写: Host 透传禁改写,2026-09-10)。
 > 这些是实测踩坑沉淀的可执行契约,不是建议——违反任何一条都会以"看起来

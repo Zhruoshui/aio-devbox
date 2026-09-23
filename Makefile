@@ -4,11 +4,11 @@
 # `sandbox-base` image must be built and tagged before `app` builds.
 # `make up` / `make build` handle this for you.
 #
-# Scenario presets: `make config` (TUI) writes `.aio/enabled.toml`; `make
-# build-base` runs `aio-config gen` to assemble `Dockerfile.base` from
-# `Dockerfile.base.head` + enabled `scenarios/<id>/fragment.Dockerfile` +
-# `Dockerfile.base.tail`, then builds. See
-# .trellis/tasks/08-03-scenario-preset-profiles/{prd,design}.md.
+# Scenario presets: `make build-base` runs `aio-config gen` to assemble
+# `Dockerfile.base` from `Dockerfile.base.head` + enabled
+# `scenarios/<id>/fragment.Dockerfile` + `Dockerfile.base.tail`, then builds.
+# Scenario selection is done via the mgr-web create/edit wizard (EnvPicker),
+# which writes `.aio/enabled.toml` for gen to read.
 #
 # Profiles: pass space-separated profiles via PROFILES to enable optional
 # services (code-server, vnc, ...). E.g. `make up PROFILES=code-server`.
@@ -36,17 +36,11 @@ AIO_CONFIG_IMAGE := aio-config
 UID := $(shell id -u)
 GID := $(shell id -g)
 
-.PHONY: build-base build build-config config gen up down restart logs save load pull clean mgr-up mgr-down
+.PHONY: build-base build build-config gen up down restart logs save load pull clean mgr-up mgr-down
 
 # Build & tag the aio-config configurator image (online: fetches crates).
 build-config:
 	docker build -t $(AIO_CONFIG_IMAGE) -f config/Dockerfile config/
-
-# Interactive scenario picker -> writes .aio/enabled.toml.
-config: build-config
-	docker run --rm -it --user $(UID):$(GID) \
-	  -v $(PWD):/repo \
-	  $(AIO_CONFIG_IMAGE) tui --repo /repo
 
 # Assemble Dockerfile.base from head + enabled scenario fragments + tail.
 # Internal target, run automatically by build-base.

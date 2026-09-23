@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# aio-config image: the build/host-side scenario configurator (TUI + gen). NOT
+# aio-config image: the build/host-side scenario configurator (gen only). NOT
 # part of the running sandbox stack - it runs via `docker run` from the Makefile
-# (`make config`, `make build-base`'s gen step). Multi-stage: build the Rust
+# (`make build-base`'s gen step). Multi-stage: build the Rust
 # binary in a rust:1-bookworm stage, copy into a slim runtime image.
 #
 # This build fetches crates from crates.io, so it must run on an ONLINE build
@@ -20,7 +20,7 @@ COPY src ./src
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
-# Minimal runtime: the tool only does file IO (gen) and terminal IO (tui). No
-# network, no locale niceties needed - crossterm raw-mode TTY works as-is.
+# Minimal runtime: the tool only does file IO (gen). No network, no locale
+# niceties needed.
 COPY --from=build /src/target/release/aio-config /usr/local/bin/aio-config
 ENTRYPOINT ["aio-config"]
