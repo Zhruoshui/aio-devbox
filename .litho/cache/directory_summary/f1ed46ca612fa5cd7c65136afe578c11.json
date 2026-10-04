@@ -1,0 +1,81 @@
+{
+  "data": {
+    "summary": "The `delta` directory is a scenario definition for installing the `delta` Git diff syntax-highlighting pager into a container image. It pairs a `scenario.toml` metadata file (consumed by `aio-config gen`) with a `fragment.Dockerfile` that performs the actual idempotent `mise use -g` installation and verifies the binary is reachable in both login and non-login shells. The directory contains no business logic; it is purely declarative infrastructure/configuration for reproducible tool provisioning.",
+    "importance_score": 0.3,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata describing the `delta` tool package, its category, installer backend, and pinned version for `aio-config gen` fragment resolution.",
+        "code_purpose": "config",
+        "source_summary": "Contains a header comment explaining that it is consumed by `aio-config gen`, then defines `id`, `name`, `description`, `category`, `installer`, and a single `[[versions]]` table pinning label and version to `0.19.2`.",
+        "detailed_description": "This TOML file is the declarative metadata entry that the `aio-config gen` tool reads to resolve and assemble container fragments. It identifies the scenario as `delta`, places it in the `shell` category, declares `mise` as the installer, and pins the version to 0.19.2. It is the source of truth for generating the corresponding fragment.Dockerfile step.",
+        "responsibilities": [
+          "Declare scenario identity (id, name, description) for fragment resolution",
+          "Classify the scenario under the `shell` category",
+          "Specify `mise` as the installation backend",
+          "Pin the installed version of delta to 0.19.2"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.3
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs `delta` via `mise use -g` and verifies the binary is available in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "The file starts with a scenario marker comment and documentation about `delta` being the canonical binary name. It declares `ARG DELTA_VERSION={{version}}`, then runs `mise use -g \"delta@${DELTA_VERSION}\"`, lists the installed delta via `mise ls delta`, and performs two `command -v delta` checks under login and non-login shells, exiting with an error if the binary is missing.",
+        "detailed_description": "This fragment is a reusable container build layer that installs the `delta` Git diff pager at a version supplied through the `DELTA_VERSION` build argument. It leverages `mise use -g`'s read-modify-write semantics so the fragment composes idempotently with other mise-based tool fragments without requiring an aggregation step. It also asserts that the `delta` binary resolves on PATH under both `bash -lc` and `bash -c` invocations to catch environment-layer discrepancies early.",
+        "responsibilities": [
+          "Accept the target delta version through the `DELTA_VERSION` build argument",
+          "Install the pinned delta version globally using the mise version manager",
+          "Verify the installed package is registered with mise via `mise ls`",
+          "Assert the `delta` binary is resolvable in both login and non-login shell environments"
+        ],
+        "interfaces": [
+          {
+            "name": "DELTA_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "delta",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      }
+    ]
+  },
+  "timestamp": 1790131082,
+  "prompt_hash": "f1ed46ca612fa5cd7c65136afe578c11",
+  "token_usage": {
+    "input_tokens": 992,
+    "output_tokens": 943,
+    "total_tokens": 1935
+  },
+  "model_name": null
+}

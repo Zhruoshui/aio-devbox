@@ -1,0 +1,172 @@
+{
+  "data": {
+    "summary": "The \"c23\" directory defines a single AIO scenario that provisions a C23 development environment: a clang-22 toolchain from apt.llvm.org plus reused gcc-12 and supporting C tools (gdb/cmake/ninja/valgrind/cppcheck/strace). It is a declarative config/infrastructure layer consisting of a scenario metadata file (scenario.toml) consumed by `aio-config gen` and the Dockerfile fragment that performs the actual installation. No application business logic lives here; its value is in reproducible environment provisioning.",
+    "importance_score": 0.45,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata describing the \"c23\" C23 development environment entry, consumed by the `aio-config gen` fragment-resolution tool.",
+        "code_purpose": "config",
+        "source_summary": "A short TOML document with five top-level keys: id = \"c23\", name = \"C23 开发环境\", description (clang-22 full C23 toolchain via apt.llvm.org plus gcc-12 reuse and C tooling installed to system paths), category = \"lang\", and installer = \"apt\". Comments explain that the fragment.Dockerfile next to it holds the install steps.",
+        "detailed_description": "This file is the registry/manifest entry for the c23 scenario; the generator reads it to discover and resolve the adjacent Dockerfile fragment. It declares identity (id, name), a human-readable description, a category of \"lang\", and the installer type \"apt\". Without it the fragment would not be discoverable or selectable by the build tooling.",
+        "responsibilities": [
+          "Declare the unique scenario id and display name",
+          "Expose a human-readable description of the environment",
+          "Classify the scenario (category=lang) and installer (apt) for the generator",
+          "Point the generator at the sibling fragment.Dockerfile for resolution"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "name",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "description",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "category",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the clang-22 full C23 toolchain (apt.llvm.org bookworm repo), reuses gcc-12 from build-essential, and adds C companion tools to system paths.",
+        "code_purpose": "config",
+        "source_summary": "A shell/Dockerfile instruction fragment (truncated in the provided excerpt) consisting mainly of explanatory comments plus apt repository setup and package install steps: adding the apt.llvm.org bookworm source and keys, installing clang-22/clang++/clang-format/clang-tidy/clangd and C tooling such as gdb, cmake, ninja, valgrind, cppcheck and strace, while relying on the head image's build-essential for gcc-12 instead of reinstalling it.",
+        "detailed_description": "This is the executable payload of the c23 scenario: a build fragment concatenated into a larger generated image definition. Its comments explain the design constraint that bookworm apt only ships gcc-12 (partial C23, -std=c2x) and that pulling newer gcc from other suites would upgrade libc6 and break the image, so full C23 support is delegated to clang-22 from the official apt.llvm.org bookworm repository (which requires libc6 >= 2.34, satisfied by bookworm's 2.36). All binaries are installed to system paths (/usr/bin, /usr/local/bin) so they are not shadowed by the shared aio_workspace volume, and it provides unsuffixed commands (clang, clang++, clang-format, clang-tidy, clangd, ...).",
+        "responsibilities": [
+          "Add the official apt.llvm.org bookworm repository and signing keys",
+          "Install clang-22 and the full C23 toolchain plus clang-format/clang-tidy/clangd",
+          "Install companion C tooling (gdb, cmake, ninja, valgrind, cppcheck, strace)",
+          "Reuse gcc-12 from the base image's build-essential rather than reinstalling",
+          "Place all tools on system paths and expose versionless command names"
+        ],
+        "interfaces": [
+          {
+            "name": "clang",
+            "interface_type": "cli_command",
+            "parameters": [],
+            "return_type": "C23 compiler"
+          },
+          {
+            "name": "clang++",
+            "interface_type": "cli_command",
+            "parameters": [],
+            "return_type": "C++ compiler driver"
+          },
+          {
+            "name": "clang-format",
+            "interface_type": "cli_command",
+            "parameters": [],
+            "return_type": "formatter"
+          },
+          {
+            "name": "clang-tidy",
+            "interface_type": "cli_command",
+            "parameters": [],
+            "return_type": "static analyzer"
+          },
+          {
+            "name": "clangd",
+            "interface_type": "cli_command",
+            "parameters": [],
+            "return_type": "language server"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "apt.llvm.org bookworm repository",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "gcc-12 / build-essential",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "libc6 >= 2.34",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "gdb",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "cmake",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "ninja",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "valgrind",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "cppcheck",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "strace",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      }
+    ]
+  },
+  "timestamp": 1790131053,
+  "prompt_hash": "d3a64d965f31d47bd9edc3d1b6a021a5",
+  "token_usage": {
+    "input_tokens": 1010,
+    "output_tokens": 1414,
+    "total_tokens": 2424
+  },
+  "model_name": null
+}

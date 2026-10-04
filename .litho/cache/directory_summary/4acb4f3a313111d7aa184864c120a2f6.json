@@ -1,0 +1,125 @@
+{
+  "data": {
+    "summary": "The `claude-code` directory is a self-contained scenario definition unit in an image-building system (`aio-config gen`), pairing a metadata descriptor (`scenario.toml`) with its Docker build fragment (`fragment.Dockerfile`). Together they declare and install the Claude Code CLI (installed binary name `claude`) into a layer image via mise's aqua backend, pinned to version 2.1.278. It is configuration/infrastructure packaging rather than application business logic.",
+    "importance_score": 0.35,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that installs the Claude Code CLI (anthropics/claude-code) globally through mise's aqua backend, pinned by an ARG version.",
+        "code_purpose": "config",
+        "source_summary": "A short Dockerfile fragment containing `ARG CLAUDE_CODE_VERSION={{version}}` and a RUN step that globally installs claude-code via mise, lists it with `mise ls`, and runs a bash-based self-check. The remainder of the file is Chinese-language commentary on binary naming, backend selection, and licensing constraints.",
+        "detailed_description": "This fragment is consumed by the `aio-config gen` fragment-resolution pipeline to bake the Claude Code layer image. It declares a CLAUDE_CODE_VERSION build arg (templated from the scenario version) and runs `mise use -g claude-code@${CLAUDE_CODE_VERSION}` plus a `mise ls` verification and shell self-check. Comments document two key gotchas: the scenario id is `claude-code` but the installed binary is `claude`, and the aqua backend is preferred over `http:claude` for checksum verification, along with a licensing warning since Claude Code is closed-source commercial software.",
+        "responsibilities": [
+          "Declare the pinned Claude Code version as a build argument",
+          "Install claude-code globally via the mise aqua backend",
+          "Verify the installation (binary is `claude`, not `claude-code`)",
+          "Flag licensing constraints for redistributed images"
+        ],
+        "interfaces": [
+          {
+            "name": "CLAUDE_CODE_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "build argument value"
+          },
+          {
+            "name": "mise use -g claude-code@${CLAUDE_CODE_VERSION}",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "CLAUDE_CODE_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "aqua:anthropics/claude-code",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata file declaring the id, display name, description, category, installer, and version list for the Claude Code layer, consumed by `aio-config gen`.",
+        "code_purpose": "config",
+        "source_summary": "TOML configuration with top-level keys id, name, description, category (\"app\"), installer (\"mise\"), and a `[[versions]]` table listing label 2.1.278 with version 2.1.278. All content is declarative metadata with no executable logic.",
+        "detailed_description": "This TOML file is the declarative entry point for the claude-code scenario: it identifies the scenario (`id = \"claude-code\"`, which must match the directory name), describes it, marks it as category `app` with installer `mise`, and pins version 2.1.278. The description also carries the licensing warning about distributing closed-source binaries via `make save`, plus notes on install location (/opt/mise/installs) and image size (~224MB).",
+        "responsibilities": [
+          "Declare the scenario identifier matching the directory name",
+          "Specify installer backend (mise) and category (app)",
+          "Pin the Claude Code version for reproducible builds",
+          "Surface licensing, install path, and image-size notes to users"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "toml_table_array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array of version entries"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.35
+      }
+    ]
+  },
+  "timestamp": 1790131065,
+  "prompt_hash": "4acb4f3a313111d7aa184864c120a2f6",
+  "token_usage": {
+    "input_tokens": 1028,
+    "output_tokens": 1123,
+    "total_tokens": 2151
+  },
+  "model_name": null
+}

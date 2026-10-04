@@ -1,0 +1,118 @@
+{
+  "data": {
+    "summary": "The `starship` scenario directory is a declarative installation fragment for the `aio-config gen` toolchain, describing how to install the starship cross-shell prompt via mise's aqua backend. It pairs a `scenario.toml` metadata descriptor with a `fragment.Dockerfile` that performs the idempotent `mise use -g` install and login/non-login shell verification. This is an infrastructure/config layer leaf node with no business logic, but it is a functional building block of the image-generation pipeline.",
+    "importance_score": 0.32,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` for fragment resolution, declaring the starship id, name, description, category, installer (mise), and pinned version 1.26.0.",
+        "code_purpose": "config",
+        "source_summary": "Contains a comment header explaining that scenario.toml is metadata consumed by `aio-config gen` while the adjacent fragment.Dockerfile holds the actual install steps. Defines keys: id=\"starship\", name=\"starship\", description=\"跨 shell 提示符(prompt)定制(mise aqua 后端,装 /opt/mise/installs)\", category=\"shell\", installer=\"mise\", and a single [[versions]] table with label=\"1.26.0\" and version=\"1.26.0\".",
+        "detailed_description": "This TOML file is the declarative registry entry that the aio-config generator reads to discover and resolve the starship scenario. It binds the scenario to its installer backend (mise, aqua backend into /opt/mise/installs) and pins the exact version label/version pair used for reproducible image builds. It has no executable logic; its value is as a machine-readable contract between the scenario directory and the build pipeline.",
+        "responsibilities": [
+          "Declare the unique scenario id and display name for fragment resolution",
+          "Specify installer backend (mise) and installation target path",
+          "Pin the exact tool version (1.26.0) for reproducible builds",
+          "Categorize the scenario as 'shell' for grouping/filtering during generation"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "name",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "description",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "category",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_table_array",
+            "parameters": [],
+            "return_type": "array<{label, version}>"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.35
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker fragment that installs starship via `mise use -g starship@${STARSHIP_VERSION}` and verifies the binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "Starts with a scenario marker comment and an explanatory header describing starship as an L2 shell-layer cross-shell prompt customizer whose binary name matches the canonical upstream name (no Debian-style renaming like batcat/fdfind). Defines `ARG STARSHIP_VERSION={{version}}`, then runs `mise use -g \"starship@${STARSHIP_VERSION}\"`, `mise ls starship`, and two command-existence checks — `bash -lc 'command -v starship >/dev/null || { echo \"MISSING(login): starship\" >&2; exit 1; }'` and a corresponding `bash -c` non-login check.",
+        "detailed_description": "This fragment is a composable Docker layer executed by the aio-config generation pipeline. It takes a build ARG STARSHIP_VERSION, performs an idempotent read-modify-write of the global mise config via `mise use -g`, lists the installed tool, and then asserts the `starship` binary is on PATH under both `bash -lc` (login) and `bash -c` (non-login) invocations. Because `mise use -g` merges the [tools] table, the fragment composes safely with other mise tool fragments without requiring aggregation.",
+        "responsibilities": [
+          "Install starship at a pinned version through mise's global config",
+          "Merge the tool entry into the existing global mise configuration idempotently",
+          "Verify the installed binary is discoverable in a login shell",
+          "Verify the installed binary is discoverable in a non-login shell",
+          "Fail the image build loudly if installation or PATH resolution breaks"
+        ],
+        "interfaces": [
+          {
+            "name": "STARSHIP_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [
+              {
+                "name": "STARSHIP_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "starship",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790131255,
+  "prompt_hash": "b3d205497865f4b0b4fdf980012079d7",
+  "token_usage": {
+    "input_tokens": 996,
+    "output_tokens": 1230,
+    "total_tokens": 2226
+  },
+  "model_name": null
+}

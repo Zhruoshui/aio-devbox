@@ -1,0 +1,309 @@
+{
+  "data": {
+    "scores": [
+      {
+        "path": "aio-models",
+        "score": 0.75,
+        "reasoning": "Rust library crate root (Cargo.toml + src) that encapsulates core model storage logic used by backend services, making it a key shared package."
+      },
+      {
+        "path": "aio-models/src",
+        "score": 0.8,
+        "reasoning": "Contains lib.rs and store.rs implementing core model storage/persistence logic — high business value backend Rust code with concentrated logic."
+      },
+      {
+        "path": "app",
+        "score": 0.8,
+        "reasoning": "Backend application root housing the main Rust service, Dockerfile, entrypoint and services config; the primary runtime artifact of the project."
+      },
+      {
+        "path": "app/redirect",
+        "score": 0.1,
+        "reasoning": "Single static index.html redirect page; negligible business logic."
+      },
+      {
+        "path": "app/src",
+        "score": 0.9,
+        "reasoning": "Core backend entrypoint: main.rs, state.rs, pty.rs, config.rs, mgr_sync.rs plus routes — the heart of the application logic and HTTP surface."
+      },
+      {
+        "path": "app/src/routes",
+        "score": 0.9,
+        "reasoning": "API route layer (seam, manifest, terminal, stats, preview) defining the service's external interface — high business value and import hub."
+      },
+      {
+        "path": "app/src/routes/models",
+        "score": 0.85,
+        "reasoning": "Model catalog, discovery, usage and render dispatch logic — core domain business logic for the models feature."
+      },
+      {
+        "path": "app/src/routes/models/render",
+        "score": 0.75,
+        "reasoning": "Per-provider renderers (claude, codex, opencode, pi) encoding provider-specific transformations — meaningful business logic, moderately concentrated."
+      },
+      {
+        "path": "code-server",
+        "score": 0.25,
+        "reasoning": "Only a Dockerfile for the code-server image; infrastructure packaging with no business logic."
+      },
+      {
+        "path": "config",
+        "score": 0.7,
+        "reasoning": "Rust config-generation crate root with Cargo.toml and Dockerfile; core infra component producing scenario configuration."
+      },
+      {
+        "path": "config/src",
+        "score": 0.75,
+        "reasoning": "Backend Rust sources for scenario parsing, manifest and generation (gen.rs) — central config business logic."
+      },
+      {
+        "path": "docs",
+        "score": 0.3,
+        "reasoning": "Documentation hub with subdirectories and guides; valuable for knowledge transfer but no runtime business logic."
+      },
+      {
+        "path": "docs/Web-Prototype",
+        "score": 0.15,
+        "reasoning": "Static HTML/JS/CSS mockups of the UI — design artifacts, not production code."
+      },
+      {
+        "path": "docs/open-design",
+        "score": 0.1,
+        "reasoning": "Design markdown and screen prototypes; low business value."
+      },
+      {
+        "path": "docs/wiki",
+        "score": 0.2,
+        "reasoning": "Wiki pages describing architecture, scenarios and FAQ; documentation only."
+      },
+      {
+        "path": "gateway",
+        "score": 0.35,
+        "reasoning": "Single Caddyfile defining reverse-proxy routing — infrastructure config with some operational importance."
+      },
+      {
+        "path": "mgr",
+        "score": 0.8,
+        "reasoning": "Manager service root with Dockerfile, compose.yml and Rust src; the orchestration control plane of the system."
+      },
+      {
+        "path": "mgr/src",
+        "score": 0.95,
+        "reasoning": "Twelve Rust modules implementing the manager core: state, proxy, caddy, composegen, db, routes, jobs, docker — the highest-concentration backend business logic hub."
+      },
+      {
+        "path": "mgr-data",
+        "score": 0.4,
+        "reasoning": "Runtime data directory (state.db, caddy configs, instances); operationally important state but not source logic."
+      },
+      {
+        "path": "mgr-data/caddy",
+        "score": 0.2,
+        "reasoning": "Generated Caddyfile and backup — runtime config artifacts."
+      },
+      {
+        "path": "mgr-data/instances",
+        "score": 0.2,
+        "reasoning": "Instances directory holding per-sandbox runtime definitions; data rather than code."
+      },
+      {
+        "path": "mgr-data/instances/sbx-devvv",
+        "score": 0.15,
+        "reasoning": "A single generated sandbox instance with base Dockerfile and compose; runtime artifact."
+      },
+      {
+        "path": "mgr-data/instances/sbx-devvv/gateway",
+        "score": 0.1,
+        "reasoning": "Generated per-instance Caddyfile; trivial runtime config."
+      },
+      {
+        "path": "mgr-web",
+        "score": 0.5,
+        "reasoning": "Frontend application root (Vite/React) with build config; important UI entry but frontend tier."
+      },
+      {
+        "path": "mgr-web/src",
+        "score": 0.55,
+        "reasoning": "Frontend entrypoint with App, api client, i18n, themes and pages/components — main UI code hub, though frontend."
+      },
+      {
+        "path": "mgr-web/src/components",
+        "score": 0.45,
+        "reasoning": "Shared React components (dialogs, agent controls); reusable UI logic of moderate value."
+      },
+      {
+        "path": "mgr-web/src/pages",
+        "score": 0.5,
+        "reasoning": "Feature pages (sandbox list, create, edit, usage, images) forming the primary UI surface — concentrated frontend business logic."
+      },
+      {
+        "path": "mgr-web/src/pages/models",
+        "score": 0.45,
+        "reasoning": "Model provider UI components and charts; domain-specific frontend logic but still presentation tier."
+      },
+      {
+        "path": "mgr-web/src/pages/workspace",
+        "score": 0.4,
+        "reasoning": "Workspace UI (sandbox tree, node menu, panes registration) — relevant frontend features."
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/panes",
+        "score": 0.35,
+        "reasoning": "Iframe/CodeServer/Xterm pane components; focused frontend integration code."
+      },
+      {
+        "path": "mise-poc",
+        "score": 0.15,
+        "reasoning": "Proof-of-concept Dockerfile with findings notes; experimental artifact."
+      },
+      {
+        "path": "scenarios",
+        "score": 0.6,
+        "reasoning": "Hub of 25 scenario definitions (toolchains/agents) that drive image generation — central content/config layer, though each entry is declarative."
+      },
+      {
+        "path": "scenarios/bat",
+        "score": 0.25,
+        "reasoning": "Fragmented Dockerfile and scenario.toml for the bat tool; declarative package definition."
+      },
+      {
+        "path": "scenarios/c23",
+        "score": 0.25,
+        "reasoning": "Scenario definition fragment for c23 toolchain; simple declarative config."
+      },
+      {
+        "path": "scenarios/claude-code",
+        "score": 0.3,
+        "reasoning": "Scenario for the claude-code agent, a key supported AI tool; declarative but business-relevant."
+      },
+      {
+        "path": "scenarios/codex",
+        "score": 0.3,
+        "reasoning": "Scenario for the codex agent integration; relevant declarative config for a core supported agent."
+      },
+      {
+        "path": "scenarios/delta",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for delta pager tool; low-complexity declarative definition."
+      },
+      {
+        "path": "scenarios/eza",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for eza; simple tool packaging config."
+      },
+      {
+        "path": "scenarios/fd",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for fd; declarative tool install config."
+      },
+      {
+        "path": "scenarios/fzf",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for fzf; declarative tool install config."
+      },
+      {
+        "path": "scenarios/go",
+        "score": 0.3,
+        "reasoning": "Scenario for Go toolchain; widely used language environment definition."
+      },
+      {
+        "path": "scenarios/jq",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for jq; simple tool packaging config."
+      },
+      {
+        "path": "scenarios/mise",
+        "score": 0.3,
+        "reasoning": "Scenario for mise version manager, a core dependency of the sandbox tooling; declarative config."
+      },
+      {
+        "path": "scenarios/node",
+        "score": 0.3,
+        "reasoning": "Scenario for Node.js toolchain; commonly used language environment."
+      },
+      {
+        "path": "scenarios/opencode",
+        "score": 0.3,
+        "reasoning": "Scenario for the opencode agent integration; relevant declarative definition for supported agent."
+      },
+      {
+        "path": "scenarios/pi",
+        "score": 0.35,
+        "reasoning": "Richest scenario: includes extension and browser-wrapper shell scripts alongside Dockerfile, giving moderate functional logic."
+      },
+      {
+        "path": "scenarios/pi/pi-packages",
+        "score": 0.2,
+        "reasoning": "Single package.json declaring pi agent packages; minimal declarative manifest."
+      },
+      {
+        "path": "scenarios/pi-web",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for pi web interface; simple declarative config."
+      },
+      {
+        "path": "scenarios/python",
+        "score": 0.3,
+        "reasoning": "Scenario for Python toolchain; core language environment definition."
+      },
+      {
+        "path": "scenarios/ripgrep",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for ripgrep; simple tool packaging config."
+      },
+      {
+        "path": "scenarios/ruff",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for ruff linter; declarative tool config."
+      },
+      {
+        "path": "scenarios/rust",
+        "score": 0.3,
+        "reasoning": "Scenario for Rust toolchain; core language environment used by the project itself."
+      },
+      {
+        "path": "scenarios/shell-tools",
+        "score": 0.25,
+        "reasoning": "Scenario bundle of shell utilities; declarative install config."
+      },
+      {
+        "path": "scenarios/starship",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for starship prompt; simple declarative config."
+      },
+      {
+        "path": "scenarios/user-tools",
+        "score": 0.25,
+        "reasoning": "Scenario for user tooling bundle; declarative config."
+      },
+      {
+        "path": "scenarios/uv",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for uv Python package manager; declarative config."
+      },
+      {
+        "path": "scenarios/yq",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for yq; simple tool packaging config."
+      },
+      {
+        "path": "scenarios/zoxide",
+        "score": 0.25,
+        "reasoning": "Scenario fragment for zoxide; simple declarative tool config."
+      },
+      {
+        "path": "vnc",
+        "score": 0.3,
+        "reasoning": "Dockerfile and entrypoint for VNC desktop support with design notes; moderate infrastructure component enabling a feature."
+      }
+    ]
+  },
+  "timestamp": 1790130631,
+  "prompt_hash": "5f541892e16b78174c4f24fc7561216f",
+  "token_usage": {
+    "input_tokens": 2028,
+    "output_tokens": 2195,
+    "total_tokens": 4223
+  },
+  "model_name": null
+}

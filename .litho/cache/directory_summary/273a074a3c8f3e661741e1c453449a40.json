@@ -1,0 +1,621 @@
+{
+  "data": {
+    "summary": "The src directory is the frontend source for the mgr-web sandbox management SPA. It contains the application bootstrap, root shell, typed API client, backend payload contracts, i18n strings, icon sprite, theme registry, and CSS token/component layers. The files work together so main.tsx mounts App.tsx, App orchestrates views and consumes api.ts/types.ts/i18n.ts/themes.ts/icons.tsx, while the CSS files provide the multi-theme token and component styling.",
+    "importance_score": 0.82,
+    "key_files": [
+      "App.tsx",
+      "api.ts",
+      "types.ts",
+      "main.tsx",
+      "styles.css"
+    ],
+    "file_insights": [
+      {
+        "name": "App.tsx",
+        "summary": "Root application shell for mgr-web. Owns sidebar navigation, theme/language persistence, sandbox sub-view state, and top-level layout.",
+        "code_purpose": "page",
+        "source_summary": "The file defines Page and SbxView type aliases and exports the App function component returning JSX.Element. It implements sidebar navigation, theme scheme and language state, and local sub-view state for the sandboxes page.",
+        "detailed_description": "App.tsx is the main React component for the mgr-web management UI. It defines the page/view discriminated unions, manages workspace/sandboxes/images/models/usage navigation, and coordinates theme and language state with localStorage. It also renders the current sandboxes sub-view without using a router library.",
+        "responsibilities": [
+          "Render the mgr-web application shell and sidebar navigation",
+          "Persist and apply theme scheme and language preferences",
+          "Manage the current sandboxes sub-view state",
+          "Compose page-level views for workspace, sandboxes, images, models, and usage"
+        ],
+        "interfaces": [
+          {
+            "name": "Page",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "SbxView",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "App",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./api",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./i18n",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./icons",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./themes",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./styles.css",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "api.ts",
+        "summary": "Typed API client and single fetch/JSON boundary for mgr-web. Exposes functions for scenarios, sandboxes, images, jobs, and model profiles.",
+        "code_purpose": "api",
+        "source_summary": "The file imports shared types and apiError from ./types, then implements typed functions such as listScenarios, listSandboxes, getSandbox, createSandbox, adoptSandbox, putSandbox, deleteSandbox, image operations, job lookup, and model profile/config operations. It also defines ModelProfile and ModelProfileList interfaces.",
+        "detailed_description": "api.ts centralizes all HTTP calls to the backend /api endpoints for mgr-web. Each function checks response.ok and surfaces the backend {error: \"...\"} message as a thrown Error, so callers only handle exceptions. It wraps scenarios, sandboxes, images, jobs, and model-profile operations.",
+        "responsibilities": [
+          "Perform fetch/JSON decoding for mgr-web API endpoints",
+          "Validate response status and surface backend errors",
+          "Expose typed operations for scenarios, sandboxes, images, jobs, and models",
+          "Provide model profile and catalog API bindings"
+        ],
+        "interfaces": [
+          {
+            "name": "listScenarios",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<ScenarioList>"
+          },
+          {
+            "name": "listSandboxes",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<SandboxList>"
+          },
+          {
+            "name": "getSandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<Sandbox>"
+          },
+          {
+            "name": "createSandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "body",
+                "param_type": "CreateBody"
+              }
+            ],
+            "return_type": "Promise<JobReply>"
+          },
+          {
+            "name": "adoptSandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "body",
+                "param_type": "AdoptBody"
+              }
+            ],
+            "return_type": "Promise<AdoptReply>"
+          },
+          {
+            "name": "putSandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "string"
+              },
+              {
+                "name": "body",
+                "param_type": "PutBody"
+              }
+            ],
+            "return_type": "Promise<JobReply>"
+          },
+          {
+            "name": "deleteSandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "string"
+              },
+              {
+                "name": "volumes",
+                "param_type": "boolean"
+              }
+            ],
+            "return_type": "Promise<DeleteReply>"
+          },
+          {
+            "name": "listImages",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<ImageList>"
+          },
+          {
+            "name": "deleteImage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "envHash",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<unknown>"
+          },
+          {
+            "name": "cleanupImages",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<unknown>"
+          },
+          {
+            "name": "getJob",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "id",
+                "param_type": "number"
+              }
+            ],
+            "return_type": "Promise<Job>"
+          },
+          {
+            "name": "getModelsConfig",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "profile",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<CanonicalConfig>"
+          },
+          {
+            "name": "importPiModels",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "profile",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<ImportResponse>"
+          },
+          {
+            "name": "getModelsCatalog",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<CatalogResponse>"
+          },
+          {
+            "name": "listModelProfiles",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Promise<ModelProfileList>"
+          },
+          {
+            "name": "createModelProfile",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<unknown>"
+          },
+          {
+            "name": "renameModelProfile",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "id",
+                "param_type": "string"
+              },
+              {
+                "name": "name",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<PutResponse>"
+          },
+          {
+            "name": "deleteModelProfile",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "id",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Promise<unknown>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "components.css",
+        "summary": "Shared component CSS layer for mgr-web, ported from the designer prototype. Provides reusable component styles driven by CSS tokens.",
+        "code_purpose": "config",
+        "source_summary": "The file is a CSS component layer ported from docs/Web-Prototype/mgr-web.css. Its comments explain the division of responsibility with styles.css: styles.css owns tokens and page classes, while components.css owns shared components and consumes CSS variables.",
+        "detailed_description": "components.css defines the shared component layer for the mgr-web UI. It relies on var(--*) tokens from styles.css and contains no manual dark-mode variants, leaving theme switching to [data-mode] token overrides. It is imported after styles.css to win the cascade.",
+        "responsibilities": [
+          "Define shared component styles for mgr-web",
+          "Consume theme tokens via var(--*)",
+          "Remain mode-agnostic and rely on token overrides for dark/light"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "./styles.css",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "gl-kumo.css",
+        "summary": "Golden Layout theme overrides for the Kumo-style theme system. Used by the workspace page.",
+        "code_purpose": "config",
+        "source_summary": "The CSS file contains golden-layout -> Kumo theme overrides ported from web/src/gl-kumo.css. It references mgr-web's styles.css token layer and targets the workspace root under .ws-main > .gl-root.",
+        "detailed_description": "gl-kumo.css ports golden-layout styling into mgr-web's Kumo theme token system. It overrides Golden Layout's default theme and consumes tokens such as canvas, surface, foreground, border, accent, and motion. It is imported by the workspace page alongside goldenlayout-base.css.",
+        "responsibilities": [
+          "Override Golden Layout default styling with Kumo tokens",
+          "Integrate the workspace tab layout with mgr-web themes",
+          "Ensure workspace layout consumes shared radius, spacing, color, and motion tokens"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "goldenlayout-base.css",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "i18n.ts",
+        "summary": "Minimal i18n string table and lookup helpers for zh-CN and en. Provides t and fmt functions.",
+        "code_purpose": "util",
+        "source_summary": "The file exports Lang, LANGS, StringKey, and a STRINGS object for zh-CN and en. It provides t(lang, key) for string lookup and fmt(lang, key, n) for filling {n} placeholders.",
+        "detailed_description": "i18n.ts implements a flat per-language string table plus a t lookup and fmt placeholder formatter. It deliberately avoids an i18n framework and keeps UI chrome strings local while server-authored scenario text remains server-side.",
+        "responsibilities": [
+          "Define supported languages and language type",
+          "Store flat UI string tables for zh-CN and en",
+          "Provide t() lookup by language and key",
+          "Provide fmt() placeholder substitution for numeric values"
+        ],
+        "interfaces": [
+          {
+            "name": "t",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              },
+              {
+                "name": "key",
+                "param_type": "keyof Strings"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "fmt",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              },
+              {
+                "name": "key",
+                "param_type": "keyof Strings"
+              },
+              {
+                "name": "n",
+                "param_type": "number"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.65
+      },
+      {
+        "name": "icons.tsx",
+        "summary": "Inline SVG icon sprite and Icon component for mgr-web. Provides a shared glyph set with currentColor inheritance.",
+        "code_purpose": "widget",
+        "source_summary": "The file exports IconName, IconSprite, and Icon. PATHS maps icon names to inner SVG markup, IconSprite renders the symbols, and Icon renders a referencing <use> element with optional large sizing.",
+        "detailed_description": "icons.tsx defines an SVG symbol sprite rendered once at the app root. The Icon component references symbols via <use href=\"#i-...\"> and inherits currentColor so CSS controls per-state coloring.",
+        "responsibilities": [
+          "Define the inline SVG symbol sprite",
+          "Expose typed icon names",
+          "Render icon references that inherit currentColor",
+          "Support a large icon variant"
+        ],
+        "interfaces": [
+          {
+            "name": "IconSprite",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "Icon",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "IconName"
+              },
+              {
+                "name": "large",
+                "param_type": "boolean"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.55
+      },
+      {
+        "name": "main.tsx",
+        "summary": "React entry point for mgr-web. Mounts the App component into #root and imports the shared component CSS layer.",
+        "code_purpose": "entry",
+        "source_summary": "The file imports createRoot from react-dom/client, App from ./App, and ./components.css. It locates #root, throws if missing, and calls createRoot(el).render(<App />).",
+        "detailed_description": "main.tsx is the frontend bootstrap file. It creates a React root on the #root element, renders App, and imports components.css after App so the shared component layer cascades correctly. It intentionally omits StrictMode because golden-layout is imperative and owns DOM containers.",
+        "responsibilities": [
+          "Bootstrap the React application",
+          "Mount App into the root DOM element",
+          "Import shared component CSS after the token layer",
+          "Avoid StrictMode for golden-layout compatibility"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "react-dom/client",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./App",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./components.css",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.95
+      },
+      {
+        "name": "styles.css",
+        "summary": "Multi-theme token layer and shared control styles for mgr-web. Defines Omarchy color schemes and page-specific classes.",
+        "code_purpose": "config",
+        "source_summary": "The file defines the theme token layer descended from the Cloudflare Kumo port and updated to 8 Omarchy themes. It includes :root primitives, data-theme/data-mode token overrides, base app skeleton styles, and page classes such as .scn-*, .ml-*, .job-*, .img-*, and .sbx-* scheduled to retire as pages are refactored.",
+        "detailed_description": "styles.css is the primary CSS token layer for the mgr-web UI. It contains mode-independent primitives on :root and one [data-theme=\"<key>\"] block per Omarchy color scheme, plus app skeleton base and page-specific classes. It is the single source of truth for color values while themes.ts holds registry metadata.",
+        "responsibilities": [
+          "Define global CSS custom properties and mode-independent primitives",
+          "Provide one token block per supported Omarchy theme",
+          "Style app skeleton and shared base controls",
+          "Host page-specific classes during gradual migration"
+        ],
+        "interfaces": [],
+        "dependencies": [],
+        "importance_score": 0.75
+      },
+      {
+        "name": "themes.ts",
+        "summary": "Theme registry for mgr-web. Lists available color schemes and resolves a saved theme key to a ThemeDef.",
+        "code_purpose": "config",
+        "source_summary": "The file exports ThemeMode, ThemeDef, and resolveThemeKey. It intentionally keeps color values in styles.css and only maintains registry metadata here.",
+        "detailed_description": "themes.ts is the single registry of color schemes offered by the UI. It defines ThemeDef and ThemeMode, and resolveThemeKey maps a saved localStorage value to a valid theme definition. App.tsx uses it for data-theme/data-mode attributes and the theme picker.",
+        "responsibilities": [
+          "Define the theme registry and ThemeDef shape",
+          "Expose supported theme modes",
+          "Resolve a saved theme key to a ThemeDef",
+          "Support App.tsx theme picker and HTML attribute application"
+        ],
+        "interfaces": [
+          {
+            "name": "ThemeDef",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "resolveThemeKey",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "saved",
+                "param_type": "string | null"
+              }
+            ],
+            "return_type": "ThemeDef"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.65
+      },
+      {
+        "name": "types.ts",
+        "summary": "Frontend API payload contract for mgr-web. Mirrors backend /api shapes and includes shared type guards and error parsing.",
+        "code_purpose": "types",
+        "source_summary": "The file defines interfaces for Scenario, ScenarioList, SandboxEnv, SandboxService, Sandbox, ServicesInput, SandboxList, CreateBody, PutBody, JobReply, AdoptBody, AdoptReply, DeleteReply, Image, ImageList, Job, and more. It exports type guards and an async apiError function for extracting backend error messages.",
+        "detailed_description": "types.ts is the single owner of /api/* payload shapes on the frontend. It mirrors the Rust backend config and route response types exactly, following a decode-once-at-the-boundary convention. It also provides helpers such as isJobReply and apiError for response handling.",
+        "responsibilities": [
+          "Define TypeScript contracts for all mgr-web API payloads",
+          "Mirror backend Rust response shapes exactly",
+          "Provide type guards for discriminated API replies",
+          "Parse backend error responses into strings"
+        ],
+        "interfaces": [
+          {
+            "name": "Scenario",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "Sandbox",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "SandboxList",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "CreateBody",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "PutBody",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "JobReply",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "AdoptBody",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "AdoptReply",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "DeleteReply",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "isJobReply",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "r",
+                "param_type": "DeleteReply"
+              }
+            ],
+            "return_type": "r is JobReply"
+          },
+          {
+            "name": "Image",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "ImageList",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "Job",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "apiError",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "r",
+                "param_type": "Response"
+              }
+            ],
+            "return_type": "Promise<string>"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.85
+      }
+    ]
+  },
+  "timestamp": 1790130927,
+  "prompt_hash": "273a074a3c8f3e661741e1c453449a40",
+  "token_usage": {
+    "input_tokens": 3074,
+    "output_tokens": 4102,
+    "total_tokens": 7176
+  },
+  "model_name": null
+}

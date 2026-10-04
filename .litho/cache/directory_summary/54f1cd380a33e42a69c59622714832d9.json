@@ -1,0 +1,632 @@
+{
+  "data": {
+    "summary": "This is the page-level UI layer of the mgr-web frontend, containing the React route components for the sandbox management console (sandbox list, create/edit/adopt wizards, workspace, images, usage, and job progress). The pages orchestrate business flows by composing shared components (EnvPicker, ServicesPicker) and calling the mgr backend REST API, with SandboxListPage and WorkspacePage serving as the primary hubs. Working together they deliver the full sandbox lifecycle: discovery, creation, configuration, live workspace, resource monitoring, and image/job management.",
+    "importance_score": 0.72,
+    "key_files": [
+      "WorkspacePage.tsx",
+      "SandboxListPage.tsx",
+      "CreatePage.tsx",
+      "EditPage.tsx",
+      "UsagePage.tsx"
+    ],
+    "file_insights": [
+      {
+        "name": "WorkspacePage.tsx",
+        "summary": "Golden-layout live workspace page that renders sandbox-bound panes (terminals, apps) in a flexible tiling layout. It is the largest and most complex file, porting the layout logic from the deprecated workbench SPA.",
+        "code_purpose": "page",
+        "source_summary": "Defines the WorkspacePage component and helper functions seqKey, getSeqPool, collectInUseSeq, syntheticTerminal plus a Boot type and consumeSubWindowLayout layout-consumption logic. It wires a GoldenLayout instance into a React ref and reconciles pane state across sandboxes.",
+        "detailed_description": "WorkspacePage is the interactive workbench where users view and control containerized sandboxes through tabbed panes bound to specific services. It maintains a single GoldenLayout instance in a ref, tracks per-pane component state ({service, sandbox, seq}) and mixes tabs from multiple sandboxes in one layout. It includes sequence-pool bookkeeping helpers (seqKey, getSeqPool, collectInUseSeq) and synthetic terminal fallbacks.",
+        "responsibilities": [
+          "Mount and manage a single GoldenLayout instance for the workspace",
+          "Bind each pane to a sandbox/service with sequence numbering",
+          "Mix tabs from multiple sandboxes in one layout",
+          "Provide synthetic terminal panes and sub-window layout handling",
+          "Support editing sandbox from the workspace (onEditSandbox)"
+        ],
+        "interfaces": [
+          {
+            "name": "WorkspacePage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onEditSandbox",
+                "param_type": "function"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "seqKey",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sandbox",
+                "param_type": "string"
+              },
+              {
+                "name": "serviceId",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "getSeqPool",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "seq",
+                "param_type": "Record<string>"
+              },
+              {
+                "name": "key",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "Set<number>"
+          },
+          {
+            "name": "collectInUseSeq",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "node",
+                "param_type": "LayoutConfig[\"root\"]"
+              },
+              {
+                "name": "seq",
+                "param_type": "Record<string>"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "syntheticTerminal",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "ServiceEntry"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "golden-layout",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "shared sandbox/service components",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.92
+      },
+      {
+        "name": "SandboxListPage.tsx",
+        "summary": "The main sandboxes admin page showing a filterable card grid of all sandboxes with status badges, entry URLs, resource facts, and per-card actions.",
+        "code_purpose": "page",
+        "source_summary": "Defines SandboxListPage, StatusBadges, matchesFilter, and related Filter/StatusKey types. It fetches and renders the sandbox list, applies status/name filtering, and delegates job-producing operations to a callback.",
+        "detailed_description": "SandboxListPage implements the primary landing view of the console, designed after the sandbox-list prototype. It provides a toolbar with a segmented status filter and name search over a card grid, with each card representing a sandbox (native or adopted) including live status, entry URL, image/resources, installed services, and runtime containers. It subscribes to the sandbox list and routes long-running actions into the job system via the onJob callback.",
+        "responsibilities": [
+          "Render the sandbox list as a filterable card grid",
+          "Filter by status and name search",
+          "Display live status badges, entry URLs, facts and service chips",
+          "Trigger sandbox actions that dispatch mgr jobs",
+          "Support both native and adopted sandbox rows"
+        ],
+        "interfaces": [
+          {
+            "name": "SandboxListPage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onJob",
+                "param_type": "function"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "matchesFilter",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sb",
+                "param_type": "Sandbox"
+              },
+              {
+                "name": "f",
+                "param_type": "Filter"
+              }
+            ],
+            "return_type": "boolean"
+          },
+          {
+            "name": "StatusBadges",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sb",
+                "param_type": "Sandbox"
+              },
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr sandbox API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "shared UI components",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.88
+      },
+      {
+        "name": "CreatePage.tsx",
+        "summary": "The four-section sandbox creation wizard (name, services, scenarios, resources) with a sticky summary sidebar driven by live selections.",
+        "code_purpose": "page",
+        "source_summary": "Defines CreatePage alongside helper functions foldServices, envKey, comboKey, and errText. It manages wizard state and renders the sectioned form, live summary, and step navigation around the picker sub-components.",
+        "detailed_description": "CreatePage is the redesigned sandbox creation wizard consisting of four numbered sections (name, services, scenarios, resources) and a sticky right-hand summary card plus step navigation. The summary renders live details such as entry subdomain, service chips, scenarios/versions, resources, and image-reuse hints, while IntersectionObserver highlights the active step. It composes the EnvPicker and ServicesPicker widgets into the full create flow.",
+        "responsibilities": [
+          "Drive the multi-section sandbox creation wizard",
+          "Compose EnvPicker and ServicesPicker into the form",
+          "Render a live summary card and step navigation",
+          "Transform selected services/scenarios into the create payload",
+          "Submit the create request and surface errors"
+        ],
+        "interfaces": [
+          {
+            "name": "CreatePage",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "foldServices",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "env",
+                "param_type": "SandboxEnv"
+              },
+              {
+                "name": "services",
+                "param_type": "{ pi: boolean; pi_web: boolean }"
+              }
+            ],
+            "return_type": "SandboxEnv"
+          },
+          {
+            "name": "envKey",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "env",
+                "param_type": "SandboxEnv"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "comboKey",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "combo",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string | null"
+          },
+          {
+            "name": "errText",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "e",
+                "param_type": "unknown"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "EnvPicker",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "ServicesPicker",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "mgr sandbox API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "EditPage.tsx",
+        "summary": "Environment-configuration editor for a single sandbox, including resource limits and model-profile assignment.",
+        "code_purpose": "page",
+        "source_summary": "Defines EditPage and helpers setCpus, setMemMb, and sortEnv. It fetches the target sandbox, renders the config form seeded by EnvPicker, and persists the edited environment and model profile.",
+        "detailed_description": "EditPage loads an individual sandbox via GET /api/sandboxes/:name and presents an editor for its environment configuration, seeding the shared EnvPicker with the current selection. It also exposes the model-profile assignment select (unified Phase 4). Following the S7 prototype redesign it uses the .page-head, .input/.field and .ml-loading component conventions.",
+        "responsibilities": [
+          "Load one sandbox's current configuration",
+          "Edit CPU/memory resource limits",
+          "Reuse EnvPicker for scenario/version editing",
+          "Assign a model profile",
+          "Persist configuration changes to the backend"
+        ],
+        "interfaces": [
+          {
+            "name": "EditPage",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "setCpus",
+            "interface_type": "method",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "setMemMb",
+            "interface_type": "method",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "sortEnv",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "env",
+                "param_type": "SandboxEnv"
+              }
+            ],
+            "return_type": "SandboxEnv"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "EnvPicker",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "mgr sandbox API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "UsagePage.tsx",
+        "summary": "Multi-sandbox usage monitoring view that visualizes per-sandbox model usage over selectable windows and day filters.",
+        "code_purpose": "page",
+        "source_summary": "Defines UsagePage, a card helper, and UsageWindow/TaggedRow types. It fetches the aggregated usage fan-out, normalizes it, and renders charts and stat cards per selected window and sandbox.",
+        "detailed_description": "UsagePage renders metrics aggregated across many sandboxes by consuming GET /api/usage, which returns a fan-out of each sandbox app's /api/models/usage payload. It offers a segmented time-window switch, sandbox selector chips with error indicators, and a day filter, feeding shared chart/stat styling classes. It is a pure read/visualization page.",
+        "responsibilities": [
+          "Fetch and aggregate multi-sandbox usage data",
+          "Render time-window and sandbox selection controls",
+          "Surface per-sandbox error states",
+          "Display usage charts and stat cards"
+        ],
+        "interfaces": [
+          {
+            "name": "UsagePage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "card",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "value",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr usage API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "shared chart/stat styles",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.66
+      },
+      {
+        "name": "EnvPicker.tsx",
+        "summary": "Shared scenario + version selection widget reused by the create wizard and the edit page.",
+        "code_purpose": "widget",
+        "source_summary": "Defines EnvPicker, defaultEnv, and a Props interface. It renders layer headings over scenario rows with version selects and computes the default environment from provided scenarios.",
+        "detailed_description": "EnvPicker provides the per-layer scenario selection UI with a version dropdown per scenario, mirroring the config TUI semantics (always_on/locked rows, defaults, dependency resolution). It is a controlled component (onChange) shared between CreatePage and EditPage, ensuring consistent environment selection across creation and editing. Locked rows render a 必装 chip and disabled check, and unchecked rows dim via .off.",
+        "responsibilities": [
+          "Render scenario rows grouped by layer with version selects",
+          "Enforce locked (always_on) semantics",
+          "Emit environment changes via onChange",
+          "Compute default environment from scenarios"
+        ],
+        "interfaces": [
+          {
+            "name": "EnvPicker",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onChange",
+                "param_type": "function"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "defaultEnv",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "scenarios",
+                "param_type": "Scenario[]"
+              }
+            ],
+            "return_type": "SandboxEnv"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "scenario types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.64
+      },
+      {
+        "name": "ServicesPicker.tsx",
+        "summary": "Four-switch services selector (code-server, vnc, pi, pi-web) used in the create wizard.",
+        "code_purpose": "widget",
+        "source_summary": "Defines ServicesPicker, defaultServices, a Props interface, ServiceKey/ServiceDef types. It renders grouped service rows with switch toggles and produces the ServicesInput payload.",
+        "detailed_description": "ServicesPicker renders the S1 four-switch services area of the create wizard as distinct from scenario selection, exposing toggles for code-server, vnc, pi, and pi-web. It follows the 09-20 grouped layout with rows containing name, description, and a switch toggle. It is a controlled/readonly-aware component that emits the services input object.",
+        "responsibilities": [
+          "Render the four service toggles with descriptions",
+          "Produce a ServicesInput object",
+          "Support grouped services layout",
+          "Provide default service selection"
+        ],
+        "interfaces": [
+          {
+            "name": "ServicesPicker",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "readonly",
+                "param_type": "boolean"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "defaultServices",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "ServicesInput"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "service types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "ImagesPage.tsx",
+        "summary": "Image registry page listing env-hash images with combo descriptions, sizes, refcounts, build-log tails, and management actions.",
+        "code_purpose": "page",
+        "source_summary": "Defines ImagesPage, an OpenPanel type, and helper logic to list images and run delete/cleanup jobs. It renders the image table with expandable logs and inline job polling.",
+        "detailed_description": "ImagesPage is the env-hash image registry (design §4 page 5), rendering one row per recorded image with combo description, live size, build time, referring-sandbox refcount, and an expandable build-log tail. S3 adds per-row deletion of unreferenced tag groups (base/app/code-server) and a one-shot cleanup of unreferenced groups plus builder cache. Both operations run as mgr jobs and are polled via GET /api/jobs/:id.",
+        "responsibilities": [
+          "List env-hash images with metadata and refcounts",
+          "Show expandable build-log tails",
+          "Delete unreferenced image tag groups",
+          "Run one-shot image + builder-cache cleanup as jobs",
+          "Poll job progress inline"
+        ],
+        "interfaces": [
+          {
+            "name": "ImagesPage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr images/jobs API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "AdoptPage.tsx",
+        "summary": "Wizard to import/register an existing external compose stack under mgr without recreating containers, with read-only management.",
+        "code_purpose": "page",
+        "source_summary": "Defines AdoptPage and its Props interface, rendering the adopt-stack form and calling the backend adopt endpoint on submission.",
+        "detailed_description": "AdoptPage implements the import-an-existing-stack wizard (design §3.8), registering an external compose stack (e.g. the repo's docker-compose.yml) under mgr. The backend connects the stack's containers to aio-mgr-net with sbx-<name> aliases and adds subdomain routes, while management remains read-only (status/start/stop/routes) since the compose file is external. It is a smaller, focused wizard page.",
+        "responsibilities": [
+          "Provide the adopt-existing-stack wizard form",
+          "Submit the adopt request to register an external stack",
+          "Present read-only management semantics for adopted stacks"
+        ],
+        "interfaces": [
+          {
+            "name": "AdoptPage",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onAdopted",
+                "param_type": "function"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr adopt API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.58
+      },
+      {
+        "name": "JobView.tsx",
+        "summary": "Long-job progress page polling GET /api/jobs/:id and showing a live log tail with completion/error banner.",
+        "code_purpose": "page",
+        "source_summary": "Defines JobView, Icon14, and a Props interface. It polls the job API, renders the auto-scrolling log panel, and handles the ok/error terminal states.",
+        "detailed_description": "JobView is the generic long-job progress page displayed while mgr operations run, polling the job endpoint every 1.5 seconds while active. It renders the job's log tail (backend-capped at 8KB via jobs.rs LOG_TAIL) with auto-scroll, and once the job succeeds or fails it stops polling and shows a done banner plus a back-to-list action. It refreshes the sandbox list on return.",
+        "responsibilities": [
+          "Poll job status/log at fixed interval",
+          "Display and auto-scroll the log tail",
+          "Show done/error banner on completion",
+          "Navigate back and refresh the list"
+        ],
+        "interfaces": [
+          {
+            "name": "JobView",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onBack",
+                "param_type": "function"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "Icon14",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "\"chev-l\""
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr jobs API client",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790130959,
+  "prompt_hash": "54f1cd380a33e42a69c59622714832d9",
+  "token_usage": {
+    "input_tokens": 3617,
+    "output_tokens": 4382,
+    "total_tokens": 7999
+  },
+  "model_name": null
+}

@@ -1,0 +1,461 @@
+{
+  "data": {
+    "summary": "The `src` directory is the Rust backend core of an axum-based 'AIO-style' dev sandbox server. It contains the application entry point (main.rs), the data-driven service/button registry and manifest builder (config.rs), the shared application state (state.rs), the websocket terminal pty bridge (pty.rs), and the background model-config sync task from sandbox-mgr (mgr_sync.rs). Together these files wire up the HTTP router, static SPA serving, dynamic service manifest API, terminal session bridging, and configuration synchronization.",
+    "importance_score": 0.93,
+    "key_files": [
+      "main.rs",
+      "config.rs",
+      "mgr_sync.rs",
+      "state.rs",
+      "pty.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "main.rs",
+        "summary": "Application entry point that builds the axum router, wires shared state, serves the static SPA, and spawns background tasks.",
+        "code_purpose": "entry",
+        "source_summary": "Defines a single async `main` function using tokio and axum. It documents Phase B/E features (data-driven service manifest, terminal WebSocket bridge via terminal.rs + pty.rs) and sets up static file serving plus the HTTP/WebSocket surface for the sandbox.",
+        "detailed_description": "main.rs is the binary entry point of the server: it initializes AppState, mounts the /api (manifest, models, terminal ws), /v1 and /mcp route seams, serves the built SPA via ServeDir, and starts the mgr_sync background task. It is the composition root that pulls together config, state, pty, routes and mgr_sync modules.",
+        "responsibilities": [
+          "Initialize shared AppState at startup",
+          "Compose and launch the axum router with /api, /v1, /mcp seams",
+          "Serve the static frontend build via ServeDir",
+          "Spawn background tasks such as mgr_sync"
+        ],
+        "interfaces": [
+          {
+            "name": "main",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "async () / Result<(), Box<dyn Error>>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum (ServeDir)",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio / PathBuf",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "config",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "mgr_sync",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "pty",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "routes",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "state::AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.96
+      },
+      {
+        "name": "config.rs",
+        "summary": "Service registry and manifest builder that merges compile-time built-in services with runtime user-registered buttons and resolves executable paths.",
+        "code_purpose": "service",
+        "source_summary": "Defines structs ServicesFile, ButtonsFile, ButtonDef, Service, ServiceType, ManifestEntry, Manifest and PathCache, plus functions load_services, load_buttons, parse_button_defs, merge_services, build_manifest, resolve_path_dirs, resolve_login_path, expand_one and humanize_id. Uses include_str! for the baked-in services.toml and supports async, TTL-cached PATH resolution.",
+        "detailed_description": "config.rs is the largest module (810 lines, 42 functions) and implements the data-driven service model: it parses services.toml baked into the binary and /root/.aio/buttons.toml from the persistent workspace volume, merges them, and builds a manifest consumed by the frontend. It also resolves PATH/login-shell directories with caching and expands command tokens, forming the core business logic for discovering what buttons/agents a sandbox exposes.",
+        "responsibilities": [
+          "Parse baked-in services.toml and runtime buttons.toml into Service records",
+          "Merge built-in and user services with override semantics",
+          "Resolve login-shell PATH directories with an async TTL cache",
+          "Expand command tokens and humanize service IDs",
+          "Build the Manifest served to the frontend"
+        ],
+        "interfaces": [
+          {
+            "name": "load_services",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Vec<Service>"
+          },
+          {
+            "name": "load_buttons",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Vec<Service>"
+          },
+          {
+            "name": "parse_button_defs",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Vec<ButtonDef>"
+          },
+          {
+            "name": "merge_services",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "builtin",
+                "param_type": "&[Service]"
+              },
+              {
+                "name": "user",
+                "param_type": "Vec<Service>"
+              }
+            ],
+            "return_type": "Vec<Service>"
+          },
+          {
+            "name": "build_manifest",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "services",
+                "param_type": "&[Service]"
+              },
+              {
+                "name": "dirs",
+                "param_type": "&[PathBuf]"
+              }
+            ],
+            "return_type": "Manifest"
+          },
+          {
+            "name": "resolve_path_dirs",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "cache",
+                "param_type": "&Arc<RwLock<PathCache>>"
+              }
+            ],
+            "return_type": "Vec<PathBuf>"
+          },
+          {
+            "name": "resolve_login_path",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "Vec<PathBuf>"
+          },
+          {
+            "name": "expand_one",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "candidate",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "humanize_id",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "id",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "serde::Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio::sync::RwLock",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::sync::atomic::AtomicU32",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::os::unix::fs::PermissionsExt",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "mgr_sync.rs",
+        "summary": "Background task that polls sandbox-mgr for the assigned model config and agent subset, diffing and rendering it into the local store.",
+        "code_purpose": "service",
+        "source_summary": "Defines SyncPayload and Fetched types, spawn_mgr_sync, agent_name, sync_url, fetch, urlencode, temp_dir, sample_config and config_json_equal. Tests validate config diffing, sync URL construction, payload decoding and per-agent subset rendering behavior.",
+        "detailed_description": "mgr_sync.rs implements the Phase 4b/D8 config pull: when MGR_URL is set, it periodically (every 60s plus at startup) GETs /api/models/sync?name=<sandbox> to fetch the sandbox's assigned profile/agents, diffs against the current config, and writes/renders the canonical model config via apply_selected_agents. It includes substantial unit tests covering diffing, wire-shape decoding and subset rendering.",
+        "responsibilities": [
+          "Spawn and drive the periodic 60s mgr config pull loop",
+          "Fetch and decode the mgr sync wire payload for this sandbox",
+          "Diff remote canonical config against local state",
+          "Write the model store and render assigned agent subsets",
+          "Provide unit tests for diff/render/URL behavior"
+        ],
+        "interfaces": [
+          {
+            "name": "spawn_mgr_sync",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "AppState"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "fetch",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&AppState"
+              }
+            ],
+            "return_type": "Result<Fetched, String>"
+          },
+          {
+            "name": "sync_url",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "mgr_url",
+                "param_type": "&str"
+              },
+              {
+                "name": "name",
+                "param_type": "Option<&str>"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "agent_name",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "a",
+                "param_type": "&Agent"
+              }
+            ],
+            "return_type": "&'static str"
+          },
+          {
+            "name": "urlencode",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "s",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "config_json_equal",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "a",
+                "param_type": "&CanonicalConfig"
+              },
+              {
+                "name": "b",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "bool"
+          },
+          {
+            "name": "sample_config",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "api_key",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "CanonicalConfig"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "serde::Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "dirs::home_dir",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::{Path, PathBuf}",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "read_config",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "apply_selected_agents",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AgentAssignment",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "state.rs",
+        "summary": "Defines AppState, the shared immutable-plus-locked context passed to all axum handlers.",
+        "code_purpose": "context",
+        "source_summary": "Declares the AppState struct and its implementation (constructor/accessors), storing builtin services, the buttons file path, models file path, PathCache and StatsSnapshot behind Arc/Mutex. It documents env-driven paths such as AIO_BUTTONS_FILE and AIO_MODELS_FILE.",
+        "detailed_description": "state.rs holds AppState, which bundles the parsed built-in services, file paths for runtime buttons.toml and the canonical models file, a PathCache, and a stats snapshot behind synchronization primitives. It is built once at startup and shared via axum::State, acting as the central dependency-injection context for route handlers.",
+        "responsibilities": [
+          "Hold immutable built-in service registry",
+          "Expose paths to runtime buttons/models config files",
+          "Provide shared PathCache and StatsSnapshot behind locks",
+          "Serve as the axum State context for handlers"
+        ],
+        "interfaces": [
+          {
+            "name": "AppState",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": "AppState"
+          },
+          {
+            "name": "AppState::new",
+            "interface_type": "implementation",
+            "parameters": [],
+            "return_type": "AppState"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::PathBuf",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::sync::{Arc, Mutex}",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "config::PathCache",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "StatsSnapshot",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.75
+      },
+      {
+        "name": "pty.rs",
+        "summary": "Portable-pty bridge that spawns a login shell (or a command under it) and returns reader/writer/child handles for the terminal WebSocket.",
+        "code_purpose": "tool",
+        "source_summary": "Defines the PtySession struct and the spawn_pty function that creates a pty pair via native_pty_system, inherits the root environment (so /usr/local/bin such as opencode is on PATH), and returns io::Result<PtySession>.",
+        "detailed_description": "pty.rs wraps portable-pty to spawn a login shell as root with HOME=/root and TERM=xterm-256color, optionally running a ?cmd= under it, in a given cwd. It returns a PtySession with the read/write ends and child process handle, which the terminal WebSocket route bridges to xterm.js.",
+        "responsibilities": [
+          "Create a portable-pty session pair",
+          "Spawn a login shell as root with the inherited environment",
+          "Support optional ?cmd= execution under the login shell",
+          "Return reader/writer/child handles for the WS bridge"
+        ],
+        "interfaces": [
+          {
+            "name": "spawn_pty",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "cmd",
+                "param_type": "Option<String>"
+              },
+              {
+                "name": "cwd",
+                "param_type": "Option<&str>"
+              }
+            ],
+            "return_type": "io::Result<PtySession>"
+          },
+          {
+            "name": "PtySession",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": "PtySession"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "portable_pty::native_pty_system",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::io",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.7
+      }
+    ]
+  },
+  "timestamp": 1790130698,
+  "prompt_hash": "e87a09f97217de5ba0e98ce78bc9e432",
+  "token_usage": {
+    "input_tokens": 2267,
+    "output_tokens": 2846,
+    "total_tokens": 5113
+  },
+  "model_name": null
+}

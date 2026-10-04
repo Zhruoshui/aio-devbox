@@ -1,0 +1,183 @@
+{
+  "data": {
+    "summary": "This `src` directory is the root of the `aio-models` Rust library crate, which owns the canonical model-config store extracted from the larger app. `lib.rs` exposes the `store` module, while `store.rs` implements the complete models.json schema, persistence, masking/merging, validation, and preset logic used by both the sandbox app and mgr control plane. It is a high-value backend/data-layer directory because it defines the single source of truth for provider and agent model configuration.",
+    "importance_score": 0.9,
+    "key_files": [
+      "store.rs",
+      "lib.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "lib.rs",
+        "summary": "Crate root for the `aio-models` library, publicly exposing the canonical model-config store module.",
+        "code_purpose": "lib",
+        "source_summary": "Contains only a `pub mod store;` declaration with a comment explaining that the canonical model-config store was moved here from the app crate. The file establishes the crate's sole public module.",
+        "detailed_description": "Defines the library boundary for `aio-models` and publishes `store.rs` as the crate's public API. It contains no business logic itself but is the entry point that lets both the sandbox app and mgr control plane share the same canonical models.json contract.",
+        "responsibilities": [
+          "Expose the `store` module as public crate API",
+          "Define the `aio-models` library crate boundary",
+          "Document the extraction and shared-ownership rationale for the store"
+        ],
+        "interfaces": [
+          {
+            "name": "store",
+            "interface_type": "module",
+            "parameters": [],
+            "return_type": ""
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.75
+      },
+      {
+        "name": "store.rs",
+        "summary": "Implements the canonical `~/.aio/models.json` store with schema, atomic read/write, masking, merging, validation, and Claude/Codex preset logic.",
+        "code_purpose": "dao",
+        "source_summary": "Defines structs such as `CanonicalConfig`, `AgentsConfig`, `AgentAssignment`, `ClaudePresets`, `ClaudePreset`, `CodexPresets`, and `CodexPreset`, along with default/from/current_preset implementations. The module implements atomic 0600 writes, reads, masking, merging, and validation for the canonical config with zero axum/http dependency.",
+        "detailed_description": "This is the core library module for `aio-models`, holding the canonical model-config schema and all persistence operations. It provides the single source of truth for providers, endpoints/keys/protocols/models, per-agent assignments, and Claude/Codex presets consumed by both the sandbox app and mgr control plane. All functions take an injectable `&Path` so tests can use temp dirs and routes can use `state.models_file` without global mutable state.",
+        "responsibilities": [
+          "Own the canonical models.json schema and contract",
+          "Read and write config atomically with 0600 permissions",
+          "Mask sensitive provider keys and merge config updates",
+          "Validate model configuration and per-agent assignments",
+          "Manage Claude and Codex preset selection"
+        ],
+        "interfaces": [
+          {
+            "name": "CanonicalConfig",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "default_version",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "u32"
+          },
+          {
+            "name": "AgentsConfig",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "AgentAssignment",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "ClaudePresets",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "current_preset",
+            "interface_type": "method",
+            "parameters": [],
+            "return_type": "Option<&ClaudePreset>"
+          },
+          {
+            "name": "ClaudePreset",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "ClaudePresetsShadow",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "From::from",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "s",
+                "param_type": "ClaudePresetsShadow"
+              }
+            ],
+            "return_type": "Self"
+          },
+          {
+            "name": "CodexPresets",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          },
+          {
+            "name": "current_preset",
+            "interface_type": "method",
+            "parameters": [],
+            "return_type": "Option<&CodexPreset>"
+          },
+          {
+            "name": "CodexPreset",
+            "interface_type": "struct",
+            "parameters": [],
+            "return_type": ""
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "BTreeMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "HashSet",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Value",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AtomicU64",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "PermissionsExt",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "*",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AtomicU32",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.96
+      }
+    ]
+  },
+  "timestamp": 1790130658,
+  "prompt_hash": "6edc89d68b256d142a0b93ed62a59b1c",
+  "token_usage": {
+    "input_tokens": 1248,
+    "output_tokens": 1203,
+    "total_tokens": 2451
+  },
+  "model_name": null
+}

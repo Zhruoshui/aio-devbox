@@ -1,0 +1,657 @@
+{
+  "data": {
+    "summary": "The `render` module is the core write-path of the AIO models router: it takes a canonical configuration and materializes it into the native config files of four agent CLIs (Claude, Codex, OpenCode, pi). Each renderer follows a common flow implemented in `common.rs` — read existing file, back it up (rolling `.aio-bak-<ISO>`), merge only owned keys, atomically write with correct permissions, and report per-file outcomes via `ApplyResult`. `mod.rs` simply declares the submodules and documents the locking/contract shared by all renderers.",
+    "importance_score": 0.87,
+    "key_files": [
+      "common.rs",
+      "codex.rs",
+      "pi.rs",
+      "opencode.rs",
+      "claude.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "common.rs",
+        "summary": "Shared renderer infrastructure: ApplyResult reporting, JSON reading, backup/atomic-write/verify, and date helpers used by every per-agent renderer.",
+        "code_purpose": "util",
+        "source_summary": "Defines ApplyResult, FileWritten, FileError and ReadError types plus helper functions: read_json_object, backup_file, prune_backups, atomic_write, read_back_verify_json, restore_backup_or_remove, home_dir, format_timestamp_utc, days_to_ymd and is_leap. The file is the single place where backup/atomic-write/verification semantics live.",
+        "detailed_description": "common.rs implements the common write pipeline described in design §4 that all agent renderers depend on: reading target JSON objects, creating rolling backups (newest 3, `.aio-bak-<ISO>`), atomic writes with 0600/0644 permissions, read-back verification, and rollback/restore on failure. It also defines the ApplyResult/FileWritten/FileError result types through which every renderer reports which files were written or failed. Because it is the shared foundation, changes here affect all four renderers.",
+        "responsibilities": [
+          "Define ApplyResult/FileWritten/FileError result structures for per-file apply reporting",
+          "Read existing JSON target files tolerantly (ReadError handling)",
+          "Create and prune rolling backups of target files",
+          "Atomically write files with mode 0600/0644 and read-back verify",
+          "Restore backups or remove files on rollback"
+        ],
+        "interfaces": [
+          {
+            "name": "ApplyResult::new",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Self"
+          },
+          {
+            "name": "ApplyResult::push_ok",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "PathBuf"
+              },
+              {
+                "name": "backup",
+                "param_type": "Option<String>"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "ApplyResult::push_err",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "PathBuf"
+              },
+              {
+                "name": "message",
+                "param_type": "String"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "ApplyResult::remove_written",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "bool"
+          },
+          {
+            "name": "read_json_object",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Option<Value>, ReadError>"
+          },
+          {
+            "name": "backup_file",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "std::io::Result<Option<String>>"
+          },
+          {
+            "name": "prune_backups",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "atomic_write",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "bytes",
+                "param_type": "&[u8]"
+              },
+              {
+                "name": "mode",
+                "param_type": "u32"
+              }
+            ],
+            "return_type": "std::io::Result<()>"
+          },
+          {
+            "name": "read_back_verify_json",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<(), String>"
+          },
+          {
+            "name": "restore_backup_or_remove",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "backup",
+                "param_type": "Option<&str>"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "home_dir",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "PathBuf"
+          },
+          {
+            "name": "format_timestamp_utc",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "String"
+          },
+          {
+            "name": "days_to_ymd",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "days",
+                "param_type": "i64"
+              }
+            ],
+            "return_type": "(i64, u32, u32)"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde::Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::Value",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::os::unix::fs::PermissionsExt",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "codex.rs",
+        "summary": "Codex renderer that writes ~/.codex/auth.json and ~/.codex/config.toml for the current preset, with base-URL normalization, wire-API derivation and auth rollback.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Contains apply_codex, the AuthWriteOutcome enum, rollback_auth, normalize_codex_base_url, wire_api_for, plus helpers (temp_home, sample_config) and a comprehensive test suite covering normalization, wire-api derivation, preservation of other keys/MCP servers, empty API key handling, and corrupt-file abort/rollback behavior.",
+        "detailed_description": "codex.rs implements the codex agent's apply path: it resolves the current codex preset and writes OPENAI_API_KEY into auth.json (preserving other keys) and model_provider/model/base_url/wire_api into config.toml while preserving every other table. It includes domain-specific normalization (appending /v1 to origin-only base URLs), wire_api derivation from the provider protocol, and a rollback of auth.json when config.toml fails to parse. The file is the largest of the two-file renderers and has the second-highest test count.",
+        "responsibilities": [
+          "Apply the current codex preset to ~/.codex/auth.json and ~/.codex/config.toml",
+          "Normalize base URLs to include /v1 when only an origin is given",
+          "Derive wire_api from the provider API protocol or explicit override",
+          "Preserve unrelated auth.json/config.toml keys and MCP server tables",
+          "Roll back auth.json when config.toml write/parse fails",
+          "Report per-file success/failure via ApplyResult"
+        ],
+        "interfaces": [
+          {
+            "name": "apply_codex",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "normalize_codex_base_url",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "base",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "wire_api_for",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "wire_api",
+                "param_type": "&str"
+              },
+              {
+                "name": "provider_api",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "rollback_auth",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "auth_path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "backup",
+                "param_type": "Option<&str>"
+              },
+              {
+                "name": "result",
+                "param_type": "&mut ApplyResult"
+              }
+            ],
+            "return_type": "()"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::Value",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CanonicalConfig",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "common",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "pi.rs",
+        "summary": "Largest renderer: applies the pi agent preset into ~/.pi/agent/models.json (provider-node merge) and settings.json (defaultProvider/defaultModel).",
+        "code_purpose": "specificfeature",
+        "source_summary": "Provides apply_pi, write_pi_settings, edit_pi_provider, delete_pi_provider, render_pi_provider, render_pi_model and render_pi_cost, plus an extensive test suite verifying omission of empty fields, camelCase cost rendering, preservation of other providers, backup creation/pruning, and partial failure semantics.",
+        "detailed_description": "pi.rs renders the pi agent's native models.json shape, merging a provider node for the assigned provider while preserving all other providers and unknown keys, and separately writes defaultProvider/defaultModel into settings.json. It offers additional provider-level editing entry points (edit_pi_provider, delete_pi_provider) and fine-grained rendering functions for providers, models and cost objects with camelCase conversion and required-field defaults. A corrupt models.json aborts only that file's write while settings.json still succeeds, matching design §4.",
+        "responsibilities": [
+          "Merge the assigned provider node into ~/.pi/agent/models.json",
+          "Write defaultProvider/defaultModel keys into ~/.pi/agent/settings.json",
+          "Render provider/model/cost entries matching pi-web's native schema",
+          "Support provider-level edit and delete operations",
+          "Preserve other providers and unknown keys",
+          "Isolate corrupt-file failures to a single file"
+        ],
+        "interfaces": [
+          {
+            "name": "apply_pi",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "write_pi_settings",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "assignment",
+                "param_type": "&AgentAssignment"
+              },
+              {
+                "name": "result",
+                "param_type": "&mut ApplyResult"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "edit_pi_provider",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "provider_id",
+                "param_type": "&str"
+              },
+              {
+                "name": "patch",
+                "param_type": "&ProviderPatch"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "delete_pi_provider",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "provider_id",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "render_pi_provider",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "provider",
+                "param_type": "&ProviderEntry"
+              }
+            ],
+            "return_type": "Value"
+          },
+          {
+            "name": "render_pi_model",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "m",
+                "param_type": "&ModelEntry"
+              }
+            ],
+            "return_type": "Value"
+          },
+          {
+            "name": "render_pi_cost",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "cost",
+                "param_type": "&CostEntry"
+              }
+            ],
+            "return_type": "serde_json::Map<String, Value>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::Value",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AgentAssignment",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "common",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "opencode.rs",
+        "summary": "OpenCode renderer writing ~/.config/opencode/opencode.jsonc via a tolerant json5 read and JSONC-to-JSON rewrite, plus provider deletion support.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Defines apply_opencode, read_opencode_root, delete_opencode_provider, read_live_root and helper v_type, with tests covering merge/preserve semantics, anthropic npm selection, empty API key omission, corrupt-file abort, creation when missing, missing assignment errors, and JSON5/JSONC comment loss with backup preservation.",
+        "detailed_description": "opencode.rs merges a provider fragment under `provider[<id>]` and sets the top-level `model` key in opencode.jsonc, choosing the anthropic npm plugin when the provider speaks the anthropic protocol and omitting empty API keys. It reads the file with json5 to tolerate comments (which are documented as lost on rewrite, with backups preserving them) and writes pretty JSON. It also exposes delete_opencode_provider for removing a provider node during edit flows.",
+        "responsibilities": [
+          "Apply the current opencode preset to ~/.config/opencode/opencode.jsonc",
+          "Parse tolerant JSON5/JSONC input and rewrite as pretty JSON",
+          "Merge provider fragment and set top-level model key",
+          "Select the anthropic npm plugin when the provider protocol is anthropic",
+          "Preserve all other keys and omit empty API keys",
+          "Support provider deletion for edit flows"
+        ],
+        "interfaces": [
+          {
+            "name": "apply_opencode",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "delete_opencode_provider",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "provider_id",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "read_opencode_root",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Option<Value>, String>"
+          },
+          {
+            "name": "read_live_root",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "result",
+                "param_type": "&mut ApplyResult"
+              }
+            ],
+            "return_type": "Option<Value>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "backup_write_verify_json",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CanonicalConfig",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AgentAssignment",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.8
+      },
+      {
+        "name": "claude.rs",
+        "summary": "Claude renderer writing ~/.claude/settings.json with only the ANTHROPIC_* env keys for the current preset, preserving hooks and unrelated env.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Exposes apply_claude plus test helpers temp_home and sample_config, with tests verifying permission/hook/unrelated-env preservation, API key vs auth token selection, empty API key omission, 0600 creation, corrupt-file abort, missing/unset/dangling current errors, multi-preset current selection, and stale default-model deletion.",
+        "detailed_description": "claude.rs applies the current claude preset by writing only the env keys ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY (per the preset's authField) and ANTHROPIC_MODE into ~/.claude/settings.json. It preserves existing permissions, hooks and unrelated env vars, deletes stale default-model keys when the preset sets null, and creates the file with 0600 permissions. It is the switch-style agent whose env-merge semantics make it the simplest of the four renderers.",
+        "responsibilities": [
+          "Apply the current claude preset env keys to ~/.claude/settings.json",
+          "Choose ANTHROPIC_API_KEY vs ANTHROPIC_AUTH_TOKEN based on the preset authField",
+          "Preserve existing permissions, hooks and unrelated env vars",
+          "Delete stale default-model keys when the preset value is null",
+          "Create the file with 0600 permissions and abort on corrupt input"
+        ],
+        "interfaces": [
+          {
+            "name": "apply_claude",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "ApplyResult"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json::json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CanonicalConfig",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "common",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.78
+      },
+      {
+        "name": "mod.rs",
+        "summary": "Module declaration file that exposes the per-agent renderers and documents their shared contract and locking assumptions.",
+        "code_purpose": "module",
+        "source_summary": "Only module declarations (`pub mod claude; pub mod codex; pub mod common; pub mod opencode; pub mod pi;`) preceded by a documentation comment describing the renderer contract and locking model.",
+        "detailed_description": "mod.rs declares the claude, codex, common, opencode and pi submodules and serves as the public entry surface of the render package. Its doc comment states that every renderer takes an injectable home path plus the canonical config and returns an ApplyResult, and that all apply paths run under the process-wide models_lock held by routes/models/mod.rs apply_agent. It contains no logic of its own.",
+        "responsibilities": [
+          "Declare and export the render submodules",
+          "Document the renderer input/output contract (home path + CanonicalConfig -> ApplyResult)",
+          "Document the process-wide models_lock serialization assumption"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "claude",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "codex",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "common",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "opencode",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "pi",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790130741,
+  "prompt_hash": "088da07989abe2f728a2d39abcfbddd6",
+  "token_usage": {
+    "input_tokens": 3188,
+    "output_tokens": 4068,
+    "total_tokens": 7256
+  },
+  "model_name": null
+}

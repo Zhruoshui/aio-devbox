@@ -1,0 +1,176 @@
+{
+  "data": {
+    "summary": "The Web-Prototype directory contains static HTML mockups and shared assets for a redesign of the Sandbox manager's web interface. It includes five page prototypes (overview, create, models, list, workspace) alongside a shared stylesheet and a JavaScript shell that together demonstrate the new design system, theming, and iconography.",
+    "importance_score": 0.6,
+    "key_files": [
+      "mgr-web.css",
+      "mgr-shell.js",
+      "index.html",
+      "workspace.html",
+      "sandbox-list.html"
+    ],
+    "file_insights": [
+      {
+        "name": "index.html",
+        "summary": "Prototype overview page linking to all redesigned screens of the Sandbox manager.",
+        "code_purpose": "page",
+        "source_summary": "Contains HTML structure with a header, lede paragraph, and a grid of screen preview cards. Inline styles define the .lede and .screens layout using CSS variables from mgr-web.css.",
+        "detailed_description": "Serves as the entry point for the Web-Prototype directory, presenting a grid of links to the individual HTML mockups (create-sandbox, models, sandbox-list, workspace). It sets the visual theme from localStorage and loads the shared stylesheet.",
+        "responsibilities": [
+          "Provide navigation to all prototype screens",
+          "Apply theme mode from localStorage",
+          "Define overview layout styles"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web.css",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "create-sandbox.html",
+        "summary": "Prototype page for creating a new sandbox with form and side panel.",
+        "code_purpose": "page",
+        "source_summary": "HTML skeleton with a .wz grid container, form fields, and aside content. Inline <style> block defines .wz and .wz-form display properties.",
+        "detailed_description": "Mockup of the sandbox creation workflow, featuring a two-column layout (.wz) with a form area and a 312px sidebar. It includes inline styles for layout and likely form controls defined in the shared CSS.",
+        "responsibilities": [
+          "Render sandbox creation form UI",
+          "Show side panel with guidance or summary",
+          "Inherit theme and design tokens"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web.css",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "models.html",
+        "summary": "Prototype page for configuring model parameters and profiles.",
+        "code_purpose": "page",
+        "source_summary": "HTML structure with a profile bar section and other configuration panels. Inline <style> defines .profile-bar flex layout and spacing.",
+        "detailed_description": "Displays a profile bar and likely model-specific settings. Uses inline styles for .profile-bar layout and relies on shared styles for form controls and cards.",
+        "responsibilities": [
+          "Render model configuration interface",
+          "Allow selection of profiles",
+          "Maintain theme consistency"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web.css",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "sandbox-list.html",
+        "summary": "Prototype page listing all sandboxes with toolbar and filtering controls.",
+        "code_purpose": "page",
+        "source_summary": "HTML with a toolbar section containing inputs and buttons, followed by a list of sandbox items. Inline <style> block styles .toolbar and its child elements.",
+        "detailed_description": "Shows a list view of sandboxes with a toolbar for search, filtering, and actions. Inline styles define .toolbar layout and input sizing.",
+        "responsibilities": [
+          "Display sandbox list",
+          "Provide search and filter controls",
+          "Enable navigation to sandbox details"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web.css",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.65
+      },
+      {
+        "name": "workspace.html",
+        "summary": "Prototype page for the sandbox workspace, likely the main interaction area.",
+        "code_purpose": "page",
+        "source_summary": "HTML with a workspace search section and a grid area. Inline <style> block includes .ws-search padding and .gl-empty styling.",
+        "detailed_description": "The workspace page where users interact with a sandbox, containing a search pane and a grid layout. Inline styles define .ws-search and .gl-empty for specific workspace components.",
+        "responsibilities": [
+          "Render workspace layout",
+          "Show file tree or search",
+          "Provide main sandbox interaction area"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web.css",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "mgr-web.css",
+        "summary": "Shared stylesheet defining design tokens and component styles for the prototype.",
+        "code_purpose": "config",
+        "source_summary": "CSS with :root token definitions, an @import for Inter font, and component rules. Tokens include --bg, --surface, --fg, --muted, --border, etc. Dark mode overrides are likely under [data-mode='light'] or similar.",
+        "detailed_description": "Contains Cloudflare Kumo semantic design tokens (colors, spacing, typography) as CSS custom properties, imported from the real mgr-web app. Component classes for the redesign are defined, all using var(--*) for theming, with dark mode via [data-mode] overrides.",
+        "responsibilities": [
+          "Define global design tokens",
+          "Provide component styles for all prototype pages",
+          "Enable theme switching via data-mode attribute"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "Google Fonts Inter",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.75
+      },
+      {
+        "name": "mgr-shell.js",
+        "summary": "Shared JavaScript that injects SVG icon sprites, renders the icon rail, and manages theme persistence.",
+        "code_purpose": "module",
+        "source_summary": "Contains a P helper for path elements, an ICONS object with cube, grid, etc., and logic to create the sprite and rail. Uses localStorage for theme persistence.",
+        "detailed_description": "An IIFE that defines an ICONS object mapping icon names to SVG paths, injects an SVG sprite into the DOM, renders a 48px icon rail matching the app's sidebar, and reads/writes the theme to localStorage under 'mgr.theme' setting data-mode on <html>.",
+        "responsibilities": [
+          "Inject SVG icon sprite",
+          "Render sidebar rail",
+          "Persist and apply theme preference"
+        ],
+        "interfaces": [
+          {
+            "name": "P",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "d",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.7
+      }
+    ]
+  },
+  "timestamp": 1790130783,
+  "prompt_hash": "be6dc94dfc0b9eb11323090e9fc80bca",
+  "token_usage": {
+    "input_tokens": 1766,
+    "output_tokens": 1580,
+    "total_tokens": 3346
+  },
+  "model_name": null
+}

@@ -1,0 +1,101 @@
+{
+  "data": {
+    "summary": "The components directory contains two shared React/TypeScript UI components for the mgr-web frontend: AgentAssignControl, a specialized widget for selecting sandbox agent subsets, and Dialogs, a reusable modal dialog kit. Both are leaf-level presentation components consumed by multiple pages (EditPage, SandboxListPage, workspace pages) rather than containing business logic or data-layer code. They act as a small shared UI hub but carry no backend or API responsibilities.",
+    "importance_score": 0.4,
+    "key_files": [
+      "Dialogs.tsx",
+      "AgentAssignControl.tsx"
+    ],
+    "file_insights": [
+      {
+        "name": "Dialogs.tsx",
+        "summary": "Provides shared in-app ConfirmDialog and PromptDialog components that replace the browser-native confirm() and prompt() calls. Both implement the project's overlay contract with Escape/scrim closing and focus management.",
+        "code_purpose": "widget",
+        "source_summary": "Defines two React components and their prop interfaces: ConfirmDialogProps and PromptDialogProps. ConfirmDialog replaces native confirm() with an accessible modal overlay supporting Escape and scrim-click dismissal, while PromptDialog replaces native prompt() with a focus-managed input dialog. Focus moves to the first control on open and returns to the opener on close.",
+        "detailed_description": "Dialogs.tsx is a reusable UI infrastructure component exporting ConfirmDialog and PromptDialog, used across the app for destructive confirmations and text prompts. It encapsulates accessibility behavior (role=alertdialog, focus trapping and restoration to the opener) and the .overlay.open > .dialog CSS contract defined by SandboxListPage and RegisterDialog. Because it is imported in multiple pages, it functions as a central shared presentation primitive, though it contains no business or data logic.",
+        "responsibilities": [
+          "Render accessible confirmation modals replacing native confirm()",
+          "Render prompt input modals replacing native prompt()",
+          "Manage overlay open/close, Escape key and scrim-click dismissal",
+          "Handle focus movement on open and restoration on close",
+          "Expose typed prop interfaces for consumers"
+        ],
+        "interfaces": [
+          {
+            "name": "ConfirmDialogProps",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "interface"
+          },
+          {
+            "name": "PromptDialogProps",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "interface"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "./mgr-web/src/components/Dialogs.tsx",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "AgentAssignControl.tsx",
+        "summary": "Renders the S2 agent-subset checkboxes (pi/claude/codex/opencode) shared by EditPage and the SandboxListPage profile popover. Encodes the null/[]/[...] wire shape semantics for agent selection.",
+        "code_purpose": "widget",
+        "source_summary": "Exports a React component plus helper functions agentLabel and agentSubsetSummary, which format agent identifiers and summarize selected subsets for display. The component manages the fixed-order agent checkbox list and translates between UI state and the verbatim wire shape (null, empty array, or explicit subset).",
+        "detailed_description": "AgentAssignControl is a domain-specific but presentation-focused widget implementing design §4.2, letting users pick a subset of agents for a sandbox profile. It maps the wire-format value (null = all agents, [] = zero agents, [...] = explicit subset) to checkbox state and back, never emitting null when the last box is unchecked. It is shared between EditPage and SandboxListPage, making it a small but reused feature component.",
+        "responsibilities": [
+          "Render fixed-order agent subset checkboxes (pi/claude/codex/opencode)",
+          "Translate between null/[]/[...] wire values and checkbox state",
+          "Provide agent label formatting and subset summary helpers",
+          "Emit empty array (never null) when the last checkbox is unchecked"
+        ],
+        "interfaces": [
+          {
+            "name": "agentLabel",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agent",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "agentSubsetSummary",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agents",
+                "param_type": "string[] | null"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "./mgr-web/src/components/AgentAssignControl.tsx",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790130939,
+  "prompt_hash": "0f960be5c851fee54aa89d8632dd3172",
+  "token_usage": {
+    "input_tokens": 1158,
+    "output_tokens": 1107,
+    "total_tokens": 2265
+  },
+  "model_name": null
+}

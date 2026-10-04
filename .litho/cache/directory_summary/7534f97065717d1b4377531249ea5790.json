@@ -1,0 +1,79 @@
+{
+  "data": {
+    "summary": "The gateway directory contains a single Caddyfile that defines the reverse-proxy network edge for the deployment, forwarding incoming requests to the axum backend application and to pluggable web services such as code-server and VNC. It is a pure configuration/infrastructure layer rather than a holder of business logic, and it explicitly documents the deliberate absence of authentication because the trust boundary is the host/LAN.",
+    "importance_score": 0.42,
+    "key_files": [
+      "Caddyfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Caddyfile",
+        "summary": "Caddy web-server configuration that reverse-proxies incoming traffic to the axum app and to pluggable web services (code-server, VNC) via per-prefix handle_path blocks.",
+        "code_purpose": "config",
+        "source_summary": "The file consists of Caddy comments and directives only — no executable code. Comments describe the reverse-proxy design, the extension pattern of adding one `handle_path <prefix>/*` block per new web service before the catch-all, references to design sections §3 / §14B, and the explicit no-auth security boundary.",
+        "detailed_description": "This is the single configuration artifact of the 'gateway' layer (Phase D/G). It defines how the host-facing HTTP entry point routes traffic: prefix-scoped `handle_path <prefix>/*` blocks dispatch to auxiliary web services while a catch-all forwards to the core axum application. It also documents the security model (no authentication, single trusted user on a trusted machine/LAN, D9 design decision), making it both a routing spec and an architectural note.",
+        "responsibilities": [
+          "Reverse-proxy client requests to the axum backend application",
+          "Route prefix-based traffic to pluggable web services such as code-server and VNC",
+          "Document the extension pattern for adding new web services via additional handle_path blocks",
+          "Document the no-authentication security boundary and trusted-host assumption"
+        ],
+        "interfaces": [
+          {
+            "name": "handle_path <prefix>/*",
+            "interface_type": "route",
+            "parameters": [
+              {
+                "name": "prefix",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "proxy_handler"
+          },
+          {
+            "name": "catch-all reverse_proxy",
+            "interface_type": "route",
+            "parameters": [
+              {
+                "name": "upstream",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "proxy_handler"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "caddy",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "axum",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "code-server",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "vnc",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.45
+      }
+    ]
+  },
+  "timestamp": 1790130799,
+  "prompt_hash": "7534f97065717d1b4377531249ea5790",
+  "token_usage": {
+    "input_tokens": 871,
+    "output_tokens": 675,
+    "total_tokens": 1546
+  },
+  "model_name": null
+}

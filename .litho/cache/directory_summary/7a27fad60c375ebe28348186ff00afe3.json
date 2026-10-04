@@ -1,0 +1,144 @@
+{
+  "data": {
+    "summary": "The panes directory contains the three core React pane components that render individual workspace service panes in the mgr-web workbench: IframePane (generic web panes), XtermPane (terminal/agent panes), and CodeServerPane (code-server with a start state machine). Together they form the presentation layer that maps a service's type to the appropriate UI artifact (iframe, xterm.js terminal, or reverse-proxied code-server) and bind each pane to its own sandbox through paneUrl resolution.",
+    "importance_score": 0.6,
+    "key_files": [
+      "XtermPane.tsx",
+      "CodeServerPane.tsx",
+      "IframePane.tsx"
+    ],
+    "file_insights": [
+      {
+        "name": "XtermPane.tsx",
+        "summary": "Generic pane for type === \"agent\" services that opens an xterm.js terminal backed by a WebSocket pty bridge to the pane's sandbox via mgr's proxy.",
+        "code_purpose": "widget",
+        "source_summary": "Defines the XtermPane component plus helpers readTermFont, readTermTheme, and safeFit. It opens an xterm.js Terminal and a WebSocket pty bridge to the bound sandbox, forwarding command/cwd from the service definition, and guards fit/resize operations against disposed or zero-size terminals. The pane contracts follow the frontend/xterm-pane.md spec verbatim.",
+        "detailed_description": "XtermPane is the most substantial pane in this directory, implementing the full terminal lifecycle: it constructs the same-origin WS URL /api/sbx/<sandbox>/api/term/ws?cmd=<service.cmd>[&cwd=...], opens an xterm.js Terminal, attaches a fit addon, wires resize/message handlers, and cleans up the socket and terminal on unmount. It also centralizes terminal display concerns through small helpers that read the effective font and theme from CSS/DOM so the embedded terminal visually matches the surrounding app. Ported from web/src/panes/XtermPane.tsx (Phase 2) with only WS URL construction changed.",
+        "responsibilities": [
+          "Open and manage an xterm.js Terminal instance for agent-type services",
+          "Build the sandbox-scoped WebSocket pty URL through mgr's proxy",
+          "Forward pty input/output between the terminal and the WebSocket bridge",
+          "Fit and resize the terminal safely against the container",
+          "Resolve terminal font and theme so the pane matches app styling",
+          "Tear down socket and terminal resources on unmount"
+        ],
+        "interfaces": [
+          {
+            "name": "readTermFont",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "safeFit",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "fitAddon",
+                "param_type": "FitAddon"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "readTermTheme",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "ITheme"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "xterm",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "@xterm/addon-fit",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./mgr-web/src/pages/workspace/panes/XtermPane.tsx",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.8
+      },
+      {
+        "name": "CodeServerPane.tsx",
+        "summary": "Code-server pane that probes the code-server proxy endpoint and, if unreachable, drives a start state machine before showing the standard gateway-path iframe.",
+        "code_purpose": "widget",
+        "source_summary": "Implements the CodeServerPane component with a probe-then-iframe start state machine, plus the Phase type alias describing the component's states. It relies on the sandbox gateway reverse-proxy for the actual iframe content and never double-guesses an already-running code-server instance.",
+        "detailed_description": "CodeServerPane wraps the standard gateway-path web iframe (where the sandbox's gateway strips /code-server/ and reverse-proxies) with a start state machine. It first probes app:8200 through the mgr proxy; if code-server is already reachable (adopted/stock stacks) it renders the iframe immediately per design §2.5, otherwise it enters a start/loading phase and only mounts the iframe once the service is up. The Phase type alias models the probe/start/reachable states of this flow.",
+        "responsibilities": [
+          "Probe the code-server endpoint through the mgr proxy before rendering",
+          "Model probe/start/reachable states via the Phase type",
+          "Render the gateway-path iframe once code-server is reachable",
+          "Drive the on-demand start flow when code-server is not yet running"
+        ],
+        "interfaces": [
+          {
+            "name": "Phase",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "Phase"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./mgr-web/src/pages/workspace/panes/CodeServerPane.tsx",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.65
+      },
+      {
+        "name": "IframePane.tsx",
+        "summary": "Generic pane component for type === \"web\" services that renders a sandbox-scoped iframe with a transparent drag-capture overlay.",
+        "code_purpose": "widget",
+        "source_summary": "Defines the IframePane component class that computes the iframe src via paneUrl.urlFor for the bound sandbox and renders an iframe with a transparent drag overlay. Ported from web/src/panes/IframePane.tsx (Phase 2) with only the src resolution changed.",
+        "detailed_description": "IframePane is a small, generic component responsible for rendering any web-type service (code-server, VNC, piWeb, user web buttons) inside an iframe. Its only meaningful change from the original workbench version is the src computation, which now resolves through paneUrl.urlFor against the pane's bound sandbox so each pane can embed a different sandbox rather than assuming same-origin gateway paths. A transparent .drag-overlay is layered over the iframe to capture drag interactions.",
+        "responsibilities": [
+          "Render web-type service content in an iframe",
+          "Resolve the iframe src per-pane against the bound sandbox via paneUrl.urlFor",
+          "Provide a transparent drag-capture overlay over the iframe"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./mgr-web/src/pages/workspace/panes/IframePane.tsx",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790131031,
+  "prompt_hash": "7a27fad60c375ebe28348186ff00afe3",
+  "token_usage": {
+    "input_tokens": 1584,
+    "output_tokens": 1544,
+    "total_tokens": 3128
+  },
+  "model_name": null
+}

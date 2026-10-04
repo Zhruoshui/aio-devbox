@@ -1,0 +1,194 @@
+{
+  "data": {
+    "summary": "The mgr directory is the packaging and deployment shell for `aio-mgr`, the sandbox-mgr control plane that manages multi-sandbox lifecycle from a single axum server. It contains the crate manifest (Cargo.toml), the container build recipe (Dockerfile), and the independent Docker Compose stack (compose.yml) that runs the control plane either bare-metal or containerized against the host Docker daemon. Together these files define how the control-plane binary is declared, built, and launched; the actual Rust service logic lives in the sibling source subdirectory.",
+    "importance_score": 0.62,
+    "key_files": [
+      "Cargo.toml",
+      "compose.yml",
+      "Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Cargo.toml",
+        "summary": "Cargo manifest for the `aio-mgr` crate, declaring it as a member of the root workspace and pulling in the aio-config and aio-models path crates plus the axum/tokio web stack. The comments document that the same binary runs in two forms (bare-metal host process or containerized stack) and that all Docker interaction happens through the CLI, never the Docker API.",
+        "code_purpose": "config",
+        "source_summary": "A standard Cargo package section declaring name = \"aio-mgr\", version 0.1.0, edition 2021, and a description of the multi-sandbox lifecycle manager. The body is largely design commentary: it explains the two execution forms (bare-metal vs containerized), the requirement that all Docker interaction goes through the `docker` / `docker compose` CLI, and the workspace/path-crate relationship with aio-config and aio-models.",
+        "detailed_description": "This is the build and dependency contract for the sandbox-mgr control plane. It fixes the crate name (`aio-mgr`), edition, and description, and records the Phase 1 design decision that the mgr-api axum server must be runnable both as a bare-metal `cargo run -p aio-mgr` process and as a container in the mgr compose stack, with all docker/compose interaction going through the CLI usable from either context. Because it is a workspace member resolved from the repo root, it anchors the cross-crate dependency edges that the Dockerfile then has to preserve at build time.",
+        "responsibilities": [
+          "Declare the aio-mgr crate identity, version, and edition",
+          "Pin the third-party runtime dependencies (axum server, async runtime) for the control plane",
+          "Declare workspace-relative dependencies on the aio-config and aio-models path crates",
+          "Document the dual bare-metal/container execution requirement and CLI-only Docker access policy"
+        ],
+        "interfaces": [
+          {
+            "name": "aio-mgr (package)",
+            "interface_type": "package",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "String"
+              },
+              {
+                "name": "version",
+                "param_type": "String"
+              },
+              {
+                "name": "edition",
+                "param_type": "String"
+              },
+              {
+                "name": "description",
+                "param_type": "String"
+              }
+            ],
+            "return_type": "CargoPackage"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "aio-config",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "aio-models",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "docker CLI",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.72
+      },
+      {
+        "name": "Dockerfile",
+        "summary": "Multi-stage container build recipe for the aio-mgr axum server, using the official Rust image as both builder and runtime since mgr has no scenario-derived base image. The build context is the repo root (mirroring app/Dockerfile) so the root cargo workspace and the aio-config/aio-models path crates resolve correctly.",
+        "code_purpose": "config",
+        "source_summary": "Begins with the `# syntax=docker/dockerfile:1` directive, followed by comments explaining that the build context is the repository root, that mgr depends on the aio-config and aio-models path crates as a workspace member, and that unlike app there is no scenario-derived base image. The stages then build the Rust workspace and produce a self-contained axum server image capable of running against a mounted Docker socket.",
+        "detailed_description": "The Dockerfile packages the plain, self-contained control-plane server into an image that the mgr compose stack can run. It intentionally uses the repo root as build context (`context: ..` with `dockerfile: mgr/Dockerfile`) because mgr is a cargo workspace member that depends on path crates, and it is explicitly contrasted with app/Dockerfile, which does have a scenario-derived base image. Since the mgr runtime shells out to `docker` / `docker compose`, the resulting image must be built so it can be paired with a mounted host Docker socket at runtime.",
+        "responsibilities": [
+          "Build the aio-mgr crate from the repo-root cargo workspace context",
+          "Resolve workspace path dependencies (aio-config, aio-models) during the image build",
+          "Produce a self-contained runtime image for the axum control-plane server",
+          "Keep the image compatible with the DooD (Docker-out-of-Docker) socket-mount deployment model"
+        ],
+        "interfaces": [
+          {
+            "name": "docker build",
+            "interface_type": "build_target",
+            "parameters": [
+              {
+                "name": "context",
+                "param_type": "path"
+              },
+              {
+                "name": "dockerfile",
+                "param_type": "path"
+              }
+            ],
+            "return_type": "ContainerImage"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "docker/dockerfile:1",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "official Rust image",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "aio-config",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "aio-models",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.58
+      },
+      {
+        "name": "compose.yml",
+        "summary": "Defines the independent `aio-mgr` Compose project that brings up the sandbox-mgr control plane alongside the existing sandbox stacks. It mounts the host Docker socket and stresses path identity because mgr-api invokes `docker compose` and `docker build` as subprocesses with relative paths resolved against the host.",
+        "code_purpose": "config",
+        "source_summary": "Comment headers describe the sandbox-mgr control-plane stack, the `aio-mgr` project name, the `make mgr-up` entry point from the repo root, and the guarantee that it is a pure addition to the existing sandbox stacks. Service definitions run the mgr-api container with the host Docker socket mounted (DooD) and build from the repo root using mgr/Dockerfile, with comments warning that path identity is load-bearing for the relative paths inside the sandbox compose files it drives.",
+        "detailed_description": "This is the Phase 2 deployment descriptor for the control-plane stack, deliberately isolated as its own Compose project (started via `make mgr-up` with an explicit `-p` project name and file path) so it never interferes with the existing sandbox stacks. The load-bearing detail is path identity: mgr-api runs `docker compose` and `docker build` against the host daemon through the mounted `/var/run/docker.sock`, so the sandbox compose files it drives must contain relative paths that resolve correctly from the host filesystem. It also declares the build context as the repo root with `dockerfile: mgr/Dockerfile`, tying the runtime stack back to the workspace-aware image build.",
+        "responsibilities": [
+          "Declare the standalone `aio-mgr` Compose project for the control plane",
+          "Wire the mgr-api service to the host Docker daemon via the mounted /var/run/docker.sock (DooD)",
+          "Set the build context to the repo root with `dockerfile: mgr/Dockerfile`",
+          "Preserve host path identity so relative paths in the driven sandbox compose files resolve correctly",
+          "Provide the `make mgr-up` startup path without touching existing sandbox stacks"
+        ],
+        "interfaces": [
+          {
+            "name": "make mgr-up",
+            "interface_type": "command",
+            "parameters": [
+              {
+                "name": "project",
+                "param_type": "string"
+              },
+              {
+                "name": "file",
+                "param_type": "path"
+              }
+            ],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "docker compose",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "/var/run/docker.sock",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "mgr/Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "sandbox compose files",
+            "is_external": false,
+            "dependency_type": "require"
+          }
+        ],
+        "importance_score": 0.65
+      }
+    ]
+  },
+  "timestamp": 1790130809,
+  "prompt_hash": "dff708ebdcd641e96054ce0edc01af33",
+  "token_usage": {
+    "input_tokens": 1132,
+    "output_tokens": 2043,
+    "total_tokens": 3175
+  },
+  "model_name": null
+}

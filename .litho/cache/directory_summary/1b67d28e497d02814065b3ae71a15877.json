@@ -1,0 +1,46 @@
+{
+  "data": {
+    "summary": "aio-models is a pure Rust data crate that owns the canonical models.json schema, providing schema definition plus read/write and mask/merge/validate operations for model configuration. It is intentionally shared across layers (the sandbox axum `app` server and, later, the `mgr` control plane) so the config schema has exactly one owner. At this directory level only the Cargo.toml manifest is present, with the actual implementation living in the child source subdirectory.",
+    "importance_score": 0.78,
+    "key_files": [
+      "Cargo.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "Cargo.toml",
+        "summary": "Cargo manifest defining the `aio-models` crate, a pure data/serde crate holding the canonical model-config schema. It declares no HTTP/axum dependencies, keeping the crate limited to IO + serde responsibilities.",
+        "code_purpose": "config",
+        "source_summary": "Cargo package metadata for `aio-models` version 0.1.0, edition 2021. The description and comments document it as a pure data crate providing the canonical models.json schema with read/write, mask, merge and validation logic, with no axum/http dependency and file IO done through an injectable &Path plus JSON serialization.",
+        "detailed_description": "This manifest declares the `aio-models` library crate (edition 2021) whose stated purpose is to be the canonical model-config store: schema plus read/write plus mask/merge/validate. The inline comments emphasize architectural intent — exactly one owner for the models.json schema, shared between the `app` sandbox server and the future `mgr` control plane. It deliberately avoids axum/http dependencies, since routing lives in `app` and this crate is IO + serde only with file access via an injectable &Path.",
+        "responsibilities": [
+          "Declare the `aio-models` library package identity and version",
+          "Establish the crate as the single owner of the models.json schema",
+          "Enforce a dependency boundary (IO + serde only, no axum/http)",
+          "Declare manifest metadata and dependencies used for schema read/write/serde"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "serde",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.7
+      }
+    ]
+  },
+  "timestamp": 1790130639,
+  "prompt_hash": "1b67d28e497d02814065b3ae71a15877",
+  "token_usage": {
+    "input_tokens": 873,
+    "output_tokens": 596,
+    "total_tokens": 1469
+  },
+  "model_name": null
+}

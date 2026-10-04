@@ -1,0 +1,124 @@
+{
+  "data": {
+    "summary": "This directory is a declarative installation fragment for the `zoxide` shell tool (a smart `cd` replacement) within a larger aio-config / devcontainer image-generation setup. It pairs a `scenario.toml` metadata file that declares the scenario id, category, installer (mise) and pinned version with a `fragment.Dockerfile` that performs the actual idempotent mise-based install and verification. Together they let the generator resolve, order and compose this tool layer with other mise fragments in the Docker build.",
+    "importance_score": 0.28,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that installs zoxide via `mise use -g` at a templated version and verifies the binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "A single ARG + RUN pair. ARG ZOXIDE_VERSION={{version}} parameterizes the version; the RUN chains `mise use -g \"zoxide@${ZOXIDE_VERSION}\"`, `mise ls zoxide`, and two `bash` login/non-login existence checks that echo MISSING and exit 1 on failure. Comments explain that zoxide's binary keeps its canonical name (unlike Debian batcat/fdfind renames) and why per-fragment mise config merging is order-independent.",
+        "detailed_description": "This is a small, self-contained Dockerfile layer emitted into the final image build. It takes the version from the `{{version}}` placeholder (filled in by the aio-config generator from scenario.toml), runs `mise use -g zoxide@<version>`, lists installed tools, and then asserts that `command -v zoxide` succeeds under both `bash -lc` and `bash -c` to catch PATH problems in interactive vs non-interactive shells. Because `mise use -g` reads/merges/writes the config, the fragment is idempotent and can be composed with other mise tool fragments in any Docker layer order without an aggregation step.",
+        "responsibilities": [
+          "Parameterize the zoxide version via build ARG",
+          "Install zoxide globally through the mise aqua backend",
+          "Verify installation by listing mise tools",
+          "Assert the `zoxide` binary is on PATH for both login and non-login bash shells"
+        ],
+        "interfaces": [
+          {
+            "name": "RUN mise use -g zoxide@${ZOXIDE_VERSION}",
+            "interface_type": "docker_build_step",
+            "parameters": [
+              {
+                "name": "ZOXIDE_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          },
+          {
+            "name": "bash -lc 'command -v zoxide'",
+            "interface_type": "shell_verification",
+            "parameters": [
+              {
+                "name": "command",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "zoxide",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.3
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` that declares the zoxide scenario id, description, shell category, mise installer and the single pinned version 0.10.0.",
+        "code_purpose": "config",
+        "source_summary": "Declarative TOML only: an id/name/description/category/installer header plus a single `[[versions]]` table with label and version both set to \"0.10.0\". No executable logic; comments point at the sibling fragment.Dockerfile as the file holding the install steps.",
+        "detailed_description": "This TOML file is the machine-readable contract between the scenario and the aio-config fragment resolver. It identifies the scenario (`id = \"zoxide\"`), gives human-facing metadata (name, Chinese description of the smart-cd behavior), classifies it under `category = \"shell\"`, and states that installation is performed by `installer = \"mise\"` using the aqua backend into /opt/mise/installs. Its `[[versions]]` array supplies the version values that get substituted into the neighboring fragment.Dockerfile placeholder.",
+        "responsibilities": [
+          "Declare the unique scenario id and display metadata",
+          "Specify the installer (mise) and shell category for resolution/ordering",
+          "Provide the pinned version list (0.10.0) used to fill the Dockerfile ARG placeholder"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "[[versions]]",
+            "interface_type": "config_table_array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.25
+      }
+    ]
+  },
+  "timestamp": 1790131286,
+  "prompt_hash": "d8cf310437310c4de6e5a9eae75c7229",
+  "token_usage": {
+    "input_tokens": 996,
+    "output_tokens": 1178,
+    "total_tokens": 2174
+  },
+  "model_name": null
+}

@@ -1,0 +1,557 @@
+{
+  "data": {
+    "summary": "This directory is the complete frontend feature module for the mgr (manager) model-configuration page, a React/TypeScript UI that lets operators manage a shared catalog of LLM providers, models, and agent presets and assign them to sandboxes. types.ts owns the API contract (CanonicalConfig and friends) and all JSON decoding, ModelsPage.tsx orchestrates the tabs and data flow, and the remaining components (AgentTabs, PresetList, ProviderGrid, ProviderEditor, ModelRow, SandboxTable, MgrNotice) render the individual panels, drawers, and tables, while charts.tsx serves the related usage page. Together they form a self-contained page bundle that consumes the /api/models/* and /api/usage endpoints.",
+    "importance_score": 0.62,
+    "key_files": [
+      "ModelsPage.tsx",
+      "types.ts",
+      "ProviderEditor.tsx",
+      "AgentTabs.tsx",
+      "PresetList.tsx"
+    ],
+    "file_insights": [
+      {
+        "name": "AgentTabs.tsx",
+        "summary": "Renders the incremental agent tabs (pi and opencode) with a paradigm strip, a single-select list of all provider/model pairs, and a sandbox assignment table.",
+        "code_purpose": "widget",
+        "source_summary": "Exports the IncrementalAgent type and a component that composes MgrNotice, the model-option radio rows, a save/discard savebar, and SandboxTable, wiring edits back through ModelsPage callbacks and the canonical config state.",
+        "detailed_description": "AgentTabs implements the left/right grid layout from the models.html prototype for the incremental agents pi and opencode. The left card lets the operator pick a single current (provider, model) pair as radio rows with cost and reasoning metadata plus a dirty-state savebar, while the right column embeds SandboxTable for per-sandbox age and assignment state.",
+        "responsibilities": [
+          "Render single-select provider/model assignment UI for pi/opencode",
+          "Show dirty state with save/discard controls",
+          "Embed per-sandbox assignment table",
+          "Display strip explainer and MgrNotice"
+        ],
+        "interfaces": [
+          {
+            "name": "IncrementalAgent",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./SandboxTable",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./MgrNotice",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "MgrNotice.tsx",
+        "summary": "A strip component shown at the top of every agent tab explaining that mgr edits the shared canonical model library for the selected profile.",
+        "code_purpose": "widget",
+        "source_summary": "Defines a SandboxLink interface and a component that renders an Icon plus explanatory copy describing shared library semantics and linking to running sandboxes via workspace navigation.",
+        "detailed_description": "MgrNotice is a small informational banner placed atop each agent tab. It clarifies that mgr edits the shared canonical library of the selected profile and points at each running sandbox in the workspace using the unified Phase 4 navigation model instead of the old per-sandbox workbench links.",
+        "responsibilities": [
+          "Render informational strip about shared canonical library",
+          "Link to running sandboxes via workspace navigation"
+        ],
+        "interfaces": [
+          {
+            "name": "SandboxLink",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "../../icons",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "ModelRow.tsx",
+        "summary": "A single-model row that collapses to a chevron plus editable id/name and expands to a full field editor with catalog fill.",
+        "code_purpose": "widget",
+        "source_summary": "Exports the CatalogFillState type and a component using useState and a suite of controlled inputs to edit model entries, calling callbacks for field updates, deletion, and catalog fill against the shared types from ./types.",
+        "detailed_description": "ModelRow was ported nearly verbatim from the web panes module during Phase 4c. In its collapsed state it shows a chevron, editable mono id, name, test pill, and delete action; expanded it reveals a full editor for the model fields and a catalog fill action, patching canonical state through ModelsPage callbacks.",
+        "responsibilities": [
+          "Render collapsed model summary with test status",
+          "Provide expanded full field editor",
+          "Emit edits to canonical state via ModelsPage callbacks",
+          "Support deletion and catalog fill"
+        ],
+        "interfaces": [
+          {
+            "name": "CatalogFillState",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "../../icons",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "../../i18n",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "ModelsPage.tsx",
+        "summary": "The main container page orchestrating the profile bar, tablist, and all per-tab panels, handling API fetches and canonical config mutations.",
+        "code_purpose": "page",
+        "source_summary": "Defines TabKey and ProfileDialog types plus sixteen functions including async handlers for provider/model edits, agent assignment, preset activation, and profile management, all driven by state loaded from the models API.",
+        "detailed_description": "ModelsPage is the 1220-line centerpiece of the models feature. It renders the page head, profile bar with per-profile sandbox counts and rename/delete/new controls, and a tablist switching between providers, pi, opencode, claude, and codex panels, coordinating all the child components and performing the async API calls to mutate canonical config.",
+        "responsibilities": [
+          "Own page layout and profile picker",
+          "Manage tab state and panel routing",
+          "Execute async API mutations for providers, models, presets, and assignments",
+          "Coordinate child components and share canonical config state"
+        ],
+        "interfaces": [
+          {
+            "name": "TabKey",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "ProfileDialog",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "tabLabel",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "lang",
+                "param_type": "Lang"
+              },
+              {
+                "name": "key",
+                "param_type": "TabKey"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./AgentTabs",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./PresetList",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./ProviderGrid",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./ProviderEditor",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "PresetList.tsx",
+        "summary": "Renders the switch-style agent tabs for claude and codex with preset cards and a sandbox table column.",
+        "code_purpose": "widget",
+        "source_summary": "Exports EditTarget type and a presetExtras helper alongside a component that renders the preset section head, new-preset button, and per-preset cards with their actions and extras.",
+        "detailed_description": "PresetList implements the claude and codex tabs following the prototype. Its left column lists preset cards showing the current badge with a key-value definition of agent-specific extras and copy/edit/delete/activate actions, while the right column hosts the sandbox assignment table.",
+        "responsibilities": [
+          "Render preset cards for switch-style agents",
+          "Surface current preset badge and extras",
+          "Provide create/edit/copy/delete/activate actions",
+          "Host the sandbox assignment column"
+        ],
+        "interfaces": [
+          {
+            "name": "EditTarget",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "presetExtras",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agent",
+                "param_type": "PresetAgent"
+              },
+              {
+                "name": "preset",
+                "param_type": "AnyPreset"
+              }
+            ],
+            "return_type": "JSX.Element[]"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./SandboxTable",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.65
+      },
+      {
+        "name": "ProviderEditor.tsx",
+        "summary": "A right-side sheet drawer for editing a single provider including URL, API key, model library, and binding overview.",
+        "code_purpose": "widget",
+        "source_summary": "Renders a viewport-fixed drawer with scrim and dialog sheet, wiring provider field edits, discovery, model testing, and save/delete actions back to the page through callback props.",
+        "detailed_description": "ProviderEditor is the drawer used from the providers tab. It contains a head with title and close, a body with name/protocol row, base URL, masked API key, collapsible advanced JSON, a model library with discover and per-model test pills plus catalog fill, and a binding overview, and a foot with delete, dirty message, cancel, and save actions.",
+        "responsibilities": [
+          "Edit provider fields (name, protocol, URL, key, advanced JSON)",
+          "Discover and test provider models",
+          "Show binding overview across agents and profiles",
+          "Handle save, cancel, and delete with dirty state"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./ModelRow",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "ProviderGrid.tsx",
+        "summary": "The providers tab card wall showing each provider as a clickable card with protocol badge, base URL, model chips, and a used-by footer.",
+        "code_purpose": "widget",
+        "source_summary": "Exports a component that maps providers to card buttons, computing usedBy information by walking every profile assignment and listing model id chips, plus an add-provider card.",
+        "detailed_description": "ProviderGrid renders the pv-grid card wall from the prototype. Each provider is a button card with a head containing name and protocol badge, a mono base URL line, model id chips, and a footer summarizing key state and which agent/profile pairs bind the provider across all profiles.",
+        "responsibilities": [
+          "Render provider cards in a grid",
+          "Show protocol, base URL, and model chips",
+          "Compute and display cross-profile used-by information",
+          "Provide add-provider entry point"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "../../icons",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.45
+      },
+      {
+        "name": "SandboxTable.tsx",
+        "summary": "The right column table listing every sandbox against the selected profile and currently edited agent with immediate assignment toggles.",
+        "code_purpose": "widget",
+        "source_summary": "Exports the runningLinks helper and a component that decodes null model_agents as all four agents and renders switch rows that call the assignment update callback on change.",
+        "detailed_description": "SandboxTable corresponds to the prototype sandboxTable helper. For each sandbox it renders a row state based on whether the sandbox model profile matches the selected profile, including a switch for this agents membership in the assignment subset, and toggling immediately persists via a PUT to the sandboxes model_profile endpoint.",
+        "responsibilities": [
+          "List sandboxes for the selected profile",
+          "Render per-agent membership switches",
+          "Persist assignment changes via immediate API PUT",
+          "Expose running sandbox links"
+        ],
+        "interfaces": [
+          {
+            "name": "runningLinks",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sandboxList",
+                "param_type": "Sandbox[] | null"
+              }
+            ],
+            "return_type": "SandboxLink[]"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.55
+      },
+      {
+        "name": "charts.tsx",
+        "summary": "Recharts-based chart components (TokenBars, SandboxBars, CostDonut, DayTrend) used by the usage page with a stable export surface.",
+        "code_purpose": "widget",
+        "source_summary": "Exports TokenBars, SandboxBars, CostDonut, DayTrend, the ChartItem, SandboxBarItem, and DayTrendItem interfaces, the KUMO_CATEGORICAL palette, and a useThemeFlip hook driving re-renders on theme changes.",
+        "detailed_description": "charts.tsx replaces earlier hand-rolled div/SVG charts with Recharts implementations while keeping the export surface unchanged so UsagePage needs no edits. Colors are drawn exclusively from the --chart-N categorical tokens defined per light/dark surface, and animation durations follow the motion tokens.",
+        "responsibilities": [
+          "Provide Recharts-based usage visualizations",
+          "Maintain stable export surface for UsagePage",
+          "Enforce chart color token style contract",
+          "Track theme flips for redraws"
+        ],
+        "interfaces": [
+          {
+            "name": "ChartItem",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "useThemeFlip",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "number"
+          },
+          {
+            "name": "SandboxBarItem",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "DayTrendItem",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "recharts",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "type_import"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "types.ts",
+        "summary": "The single source of truth for models page types and JSON decoders, mirroring the aio-models Rust crate contract for all API responses.",
+        "code_purpose": "types",
+        "source_summary": "Declares interfaces such as CanonicalConfig, ProviderEntry, ModelEntry, CostEntry, ClaudePreset, CodexPreset, AgentAssignment, and DiscoveredModel plus decoder functions and result types like PutResponse, ImportResponse, DiscoverResponse, and TestResponse.",
+        "detailed_description": "types.ts is the boundary owner for the models feature: every /api/models/* and /api/usage response is decoded exactly once here so all rendering consumes typed CanonicalConfig, CatalogResponse, and UsageFanout structures rather than raw JSON. It mirrors the aio-models crate shapes that mgr/src/models.rs contract-locks to the app routes.",
+        "responsibilities": [
+          "Define canonical config and catalog data types",
+          "Decode all models and usage API responses once",
+          "Mirror the backend aio-models crate contract",
+          "Expose test and discover state maps to the UI"
+        ],
+        "interfaces": [
+          {
+            "name": "CanonicalConfig",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "ProviderEntry",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "ModelEntry",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "CostEntry",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "ClaudePreset",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "CodexPreset",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "AgentAssignment",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "AgentsConfig",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "PresetAgent",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "AnyPreset",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "PutResponse",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "ImportResponse",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "DiscoveredModel",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "DiscoverResponse",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "TestResponse",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "TestStateEntry",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          },
+          {
+            "name": "TestStateMap",
+            "interface_type": "type_alias",
+            "parameters": [],
+            "return_type": "type"
+          },
+          {
+            "name": "DiscoverState",
+            "interface_type": "interface",
+            "parameters": [],
+            "return_type": "object"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.85
+      }
+    ]
+  },
+  "timestamp": 1790130998,
+  "prompt_hash": "d3f8eabc33f9cfebe4589cd73ae7363f",
+  "token_usage": {
+    "input_tokens": 3388,
+    "output_tokens": 4079,
+    "total_tokens": 7467
+  },
+  "model_name": null
+}

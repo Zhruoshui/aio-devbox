@@ -1,0 +1,108 @@
+{
+  "data": {
+    "summary": "The pi-web directory is a declarative scenario-definition bundle for the optional \"pi Web UI\" scenario inside the app (AIO) stack. It pairs a TOML scenario descriptor (id, installer, always_on flag) with a Dockerfile fragment that documents how the pi-web npm package is provisioned and exposed. Together they tell the platform manager how to optionally install and surface a Next.js-based pi browser UI via the app container's entrypoint on port 30141.",
+    "importance_score": 0.42,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "A comment-only Dockerfile fragment that documents the pi-web scenario: npm global install of pi-web into /usr/local/bin, auto-launch from app/entrypoint.sh on 0.0.0.0:30141, and iframe embedding rationale.",
+        "code_purpose": "config",
+        "source_summary": "The source is entirely comment lines prefixed with '#', describing the scenario: pi local browser UI (agegr/pi-web, Next.js), npm global install to /usr/local/bin/pi-web, service launched by app/entrypoint.sh on 0.0.0.0:30141 with auto-restart and logs at ~/.aio/pi-web.log, panel button declared as type=web iframe in app/services.toml, and compose publishing port 30141 directly to the app container because sub-path proxying is impossible.",
+        "detailed_description": "This fragment contains no executable build instructions; it is a documentation/annotation block consumed by the scenario build pipeline as the L4 (\"pi-web\") layer description. It records the design decision to skip an L5 compose service and instead install the pi-web npm package globally into the app container, with the app entrypoint auto-starting the service and the panel embedding it through a type=web iframe. It also explains why caddy sub-path proxying is not usable for pi-web (Next.js absolute /_next/ asset references and built-in /api/* routes).",
+        "responsibilities": [
+          "Document the pi-web scenario build layer and its rationale",
+          "Record the npm-global install location and launch contract (/usr/local/bin/pi-web, 0.0.0.0:30141)",
+          "Explain why the UI is served on a direct published port rather than behind a caddy sub-path",
+          "Note entrypoint auto-start behavior, crash restart, and log file location"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "agegr/pi-web",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "npm",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "app/entrypoint.sh",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "app/services.toml",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario manifest declaring the pi-web scenario metadata (id, name, description, category=app, installer=npm, always_on=false) for the manager's service toggle wizard.",
+        "code_purpose": "config",
+        "source_summary": "Defines keys: id=\"pi-web\", name=\"pi Web UI\", description (local browser UI for pi, @agegr/pi-web globally installed via npm to /usr/local/bin, requires node>=22.19, entrypoint auto-starts port 30141, panel iframe embedded, app publishes the port), category=\"app\", installer=\"npm\", always_on=false. Inline comments capture the S1 (2026-09-10) change from always_on to an optional scenario and the .aio/enabled.toml opt-in behavior.",
+        "detailed_description": "This TOML file is the machine-readable declaration of the pi Web UI scenario, consumed by the platform manager when rendering the creation wizard's service switches. It marks the scenario as optional (always_on = false) following the S1 decision that flipped it from always-on to an opt-in toggle named \"pi Web\", while noting the app entrypoint's `command -v pi-web` guard means absence of the package is handled gracefully (silent skip, iframe health-check failure hides the button). It specifies the npm installer and the runtime requirement of node >= 22.19.",
+        "responsibilities": [
+          "Declare scenario identity and human-readable metadata for the manager wizard",
+          "Specify installer type (npm) and the pi Web service toggle default",
+          "Mark the scenario as optional (always_on = false) rather than part of the main stack",
+          "Document node version requirement and entrypoint/iframe behavior"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "always_on",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "boolean"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "@agegr/pi-web",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "npm",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "node (>=22.19)",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      }
+    ]
+  },
+  "timestamp": 1790131195,
+  "prompt_hash": "3397af604ab0dca7985cb1c26edd8c7e",
+  "token_usage": {
+    "input_tokens": 1071,
+    "output_tokens": 1221,
+    "total_tokens": 2292
+  },
+  "model_name": null
+}

@@ -1,0 +1,124 @@
+{
+  "data": {
+    "summary": "The \"bat\" directory is a single scenario definition inside an aio-config/docker-fragment generation system, describing how to install the `bat` syntax-highlighting CLI via the mise version manager. It pairs a declarative `scenario.toml` metadata file with a `fragment.Dockerfile` that performs the idempotent install and verification steps, so the directory is pure infrastructure/config rather than business logic.",
+    "importance_score": 0.3,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that installs `bat` at a pinned version through `mise use -g` and verifies the binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "Contains a comment block explaining that the binary is installed under its canonical name `bat` (no Debian batcat renaming) and resides in /opt/mise/installs. The executable portion is `ARG BAT_VERSION={{version}}` followed by a single chained `RUN` that runs `mise use -g \"bat@${BAT_VERSION}\"`, `mise ls bat`, and two `command -v bat` guards emitting MISSING(login)/MISSING(non-login) errors and exiting non-zero.",
+        "detailed_description": "This fragment is an L2 \"shell layer\" piece of a composable Docker image build, run by the aio-config generator. It declares an ARG BAT_VERSION templated from the scenario's version list, then calls `mise use -g` to merge `bat@${BAT_VERSION}` into the global mise config (read-modify-write semantics, so ordering with other mise fragments is idempotent). It finishes with sanity checks (`mise ls bat`, `command -v bat`) under both login and non-login bash to catch PATH/installation failures at build time.",
+        "responsibilities": [
+          "Declare a templated BAT_VERSION build argument",
+          "Install/register bat in the global mise tool config",
+          "Verify installation via `mise ls bat`",
+          "Assert the bat binary is on PATH in login and non-login shells"
+        ],
+        "interfaces": [
+          {
+            "name": "BAT_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [
+              {
+                "name": "value",
+                "param_type": "string (version, default {{version}})"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "RUN (mise use -g bat@${BAT_VERSION} && mise ls bat && command -v bat checks)",
+            "interface_type": "docker_instruction",
+            "parameters": [
+              {
+                "name": "BAT_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "image layer / exit code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bat",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario metadata consumed by `aio-config gen` to resolve which fragment to apply and which version of bat to install.",
+        "code_purpose": "config",
+        "source_summary": "A short TOML document with comment headers explaining that it holds scenario metadata while the adjacent fragment.Dockerfile holds install steps. Fields: id = \"bat\", name = \"bat\", description describing a syntax-highlighted cat replacement with Git integration installed via the mise aqua backend into /opt/mise/installs, category = \"shell\", installer = \"mise\", and one [[versions]] entry labeling version 0.26.1.",
+        "detailed_description": "This TOML file is the entry contract for the bat scenario in the aio-config fragment resolver. It declares the scenario id/name, a human-readable description, the `shell` category, the `mise` installer backend, and a `[[versions]]` table pinning bat to 0.26.1. The generator reads it alongside `fragment.Dockerfile` to template the {{version}} placeholder and emit the correct Docker layer.",
+        "responsibilities": [
+          "Identify the scenario to the fragment resolver",
+          "Classify the scenario (shell category, mise installer)",
+          "Pin the installable version(s) of bat",
+          "Provide human-readable description for docs/listing"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_table_array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array of version entries"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.3
+      }
+    ]
+  },
+  "timestamp": 1790131046,
+  "prompt_hash": "d5fe0ee408f166849eac4b65e148209c",
+  "token_usage": {
+    "input_tokens": 995,
+    "output_tokens": 1130,
+    "total_tokens": 2125
+  },
+  "model_name": null
+}

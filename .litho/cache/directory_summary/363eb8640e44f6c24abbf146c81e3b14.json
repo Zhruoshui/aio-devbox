@@ -1,0 +1,41 @@
+{
+  "data": {
+    "summary": "The pi-packages directory contains a single package.json manifest that defines the aio-pi-extensions package, which declares the default set of pi extension packages (the pi scenario's 'subset config') for the AIO sandbox. This manifest is consumed at build time to bake extensions into /opt/pi-extensions and drives runtime registration into ~/.pi/agent/settings.json, functioning purely as an infrastructure/config layer.",
+    "importance_score": 0.45,
+    "key_files": [
+      "package.json"
+    ],
+    "file_insights": [
+      {
+        "name": "package.json",
+        "summary": "NPM manifest for the aio-pi-extensions package that pins the default pi extension dependency set, used to bake packages into the image and register them offline at runtime.",
+        "code_purpose": "config",
+        "source_summary": "A standard npm package manifest with fields name ('aio-pi-extensions'), version ('1.0.0'), private (true), and a description describing the packaging/registration workflow. The dependencies block (truncated in the provided content) enumerates the pi extension packages that constitute the default subset, and the description documents the build-time npm install and runtime settings.json registration flow.",
+        "detailed_description": "This package.json declares a private npm package named aio-pi-extensions whose dependencies define which pi extensions ship with the AIO sandbox. It is the single source of truth for the pi scenario's 'subset config', installed verbatim via `npm install --omit=dev` into /opt/pi-extensions during `make build-base`, then registered into ~/.pi/agent/settings.json by the aio-pi-extensions runtime using local paths so it works on offline docker-load machines. Adding, removing, or bumping an extension requires only editing the dependencies block here and rebuilding.",
+        "responsibilities": [
+          "Declare the private aio-pi-extensions package identity and version",
+          "Enumerate the default pi extension dependencies (the pi scenario subset config)",
+          "Serve as the single edit point for adding/removing/bumping extension packages",
+          "Support offline builds by enabling verbatim local installation into the image"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "npm",
+            "is_external": true,
+            "dependency_type": "require"
+          }
+        ],
+        "importance_score": 0.45
+      }
+    ]
+  },
+  "timestamp": 1790131186,
+  "prompt_hash": "363eb8640e44f6c24abbf146c81e3b14",
+  "token_usage": {
+    "input_tokens": 874,
+    "output_tokens": 603,
+    "total_tokens": 1477
+  },
+  "model_name": null
+}

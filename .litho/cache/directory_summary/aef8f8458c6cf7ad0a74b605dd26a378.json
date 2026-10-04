@@ -1,0 +1,161 @@
+{
+  "data": {
+    "summary": "The app directory is the main Rust application crate (aio-app) that implements the axum-based web server for the AIO sandbox workspace UI. It contains the Cargo manifest, container entrypoint, service registry configuration, and deployment assets, working together to build, configure, and run the core backend that serves APIs, the service manifest, and manages the pi-web integration.",
+    "importance_score": 0.92,
+    "key_files": [
+      "Cargo.toml",
+      "entrypoint.sh",
+      "services.toml",
+      "Dockerfile",
+      "aio-mise-volume.sh"
+    ],
+    "file_insights": [
+      {
+        "name": "Cargo.toml",
+        "summary": "Rust package manifest for the aio-app axum server, defining dependencies and binary target.",
+        "code_purpose": "config",
+        "source_summary": "Defines package aio-app version 0.1.0, edition 2021, with binary name aio-app and path src/main.rs. Dependencies include axum 0.7 with ws feature, aio-models path dependency, tokio full features, tracing 0.1, and tracing-subscriber (truncated).",
+        "detailed_description": "Cargo.toml declares the aio-app crate, which is the main axum-based web server for the AIO sandbox workspace UI. It specifies the binary entry point at src/main.rs and lists core dependencies including axum with WebSocket support, the shared aio-models crate for model configuration, tokio for async runtime, and tracing for logging.",
+        "responsibilities": [
+          "Declare package metadata and edition",
+          "Specify binary target and entry point",
+          "Manage dependencies for axum, tokio, tracing, and aio-models"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "aio-models",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "tokio",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "tracing",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "tracing-subscriber",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "Dockerfile",
+        "summary": "Multi-stage Docker build for the axum app server and static redirect page, using sandbox-base runtime.",
+        "code_purpose": "config",
+        "source_summary": "Specifies syntax docker/dockerfile:1, multi-stage build. Build context is repo root, COPY paths prefixed with app/. Runtime stage FROM sandbox-base. Requires sandbox-base built and tagged first.",
+        "detailed_description": "This Dockerfile builds the aio-app Rust server and a static redirect page. It uses a multi-stage build with the repository root as context, copying from app/ and Rust sources. The runtime stage is based on the sandbox-base image, requiring that image to be built first.",
+        "responsibilities": [
+          "Build Rust application and static assets",
+          "Package artifacts into a runtime image",
+          "Define build stages and context paths"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "sandbox-base",
+            "is_external": true,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.8
+      },
+      {
+        "name": "aio-mise-volume.sh",
+        "summary": "Shell script to seed the mise data directory on the shared workspace volume, ensuring runtime tools persist.",
+        "code_purpose": "tool",
+        "source_summary": "Shell script with comments explaining why it exists: baked toolchains in /opt/mise, volume mounts over /root, script seeds volume for mise data. Likely copies some files or sets up symlinks.",
+        "detailed_description": "This script initializes the mise data directory on the shared workspace volume. It addresses the issue where the workspace volume mounts over /root, masking mise's default data directory, so it makes the volume usable as the data dir without copying baked tools.",
+        "responsibilities": [
+          "Seed mise data directory on the workspace volume",
+          "Ensure persistence of runtime-installed tools",
+          "Avoid masking baked toolchains"
+        ],
+        "interfaces": [
+          {
+            "name": "aio-mise-volume.sh",
+            "interface_type": "script",
+            "parameters": [],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "entrypoint.sh",
+        "summary": "Container entrypoint that autostarts pi-web (if baked) and execs the main server.",
+        "code_purpose": "entry",
+        "source_summary": "Shell script with set -eu. Starts pi-web in a respawn loop, then execs the server. pi-web binds 0.0.0.0:30141 on app's netns (shared with code-server/vnc).",
+        "detailed_description": "The entrypoint script for the app container. It starts pi-web in a respawn loop if it is baked into the image, then execs the aio-app server. This ensures pi-web is listening before the UI's TCP probe runs, since pi-web is now a type=web iframe pane.",
+        "responsibilities": [
+          "Autostart pi-web service with respawn loop",
+          "Launch the main aio-app server via exec",
+          "Manage process lifecycle for container boot"
+        ],
+        "interfaces": [
+          {
+            "name": "entrypoint.sh",
+            "interface_type": "script",
+            "parameters": [],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "pi-web",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "aio-app",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "services.toml",
+        "summary": "Service registry configuration defining built-in buttons for the AIO sandbox workspace UI.",
+        "code_purpose": "config",
+        "source_summary": "TOML file with comments explaining service registry, parsed at build time, exposed via /api/manifest. Fields include type, etc. Adding a built-in service requires adding an entry and container/profile/caddy route.",
+        "detailed_description": "services.toml defines the built-in service buttons rendered by the React frontend. It is parsed by the axum app at build time via include_str! and exposed through GET /api/manifest. User-registered buttons are stored separately in /root/.aio/buttons.toml.",
+        "responsibilities": [
+          "Define built-in service buttons and their types",
+          "Serve as manifest source for GET /api/manifest",
+          "Distinguish built-in from user-registered buttons"
+        ],
+        "interfaces": [],
+        "dependencies": [],
+        "importance_score": 0.8
+      }
+    ]
+  },
+  "timestamp": 1790130673,
+  "prompt_hash": "aef8f8458c6cf7ad0a74b605dd26a378",
+  "token_usage": {
+    "input_tokens": 1397,
+    "output_tokens": 1487,
+    "total_tokens": 2884
+  },
+  "model_name": null
+}

@@ -1,0 +1,134 @@
+{
+  "data": {
+    "summary": "This directory defines the \"python\" scenario for a container/dev-environment provisioning system: it declares metadata for the CPython runtime (id, category, default version, always_on) and provides the Dockerfile fragment that installs Python. The two files work together as a declarative config pair — scenario.toml supplies the version/tag matrix and generation-time template variables, while fragment.Dockerfile consumes the injected {{version}}+{{tag}} to download and unpack the python-build-standalone tarball into /usr/local. It is a small, self-contained infrastructure/configuration unit rather than application business logic.",
+    "importance_score": 0.62,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario manifest for the Python (CPython) runtime, listing metadata, installer type, default version and a per-version table of python-build-standalone release tags.",
+        "code_purpose": "config",
+        "source_summary": "Defines the scenario id/name/description/category as \"python\"/\"Python\"/os, installer = \"tarball\", always_on = true and default_version = \"3.12.7\". Comments document the python-build-standalone asset naming convention (cpython-<ver>+<tag>-x86_64-unknown-linux-gnu-install_only.tar.gz) and the upstream repo migration from indygreg to astral-sh. A [[versions]] table supplies label/version/tag entries used for template injection.",
+        "detailed_description": "This TOML manifest registers the \"python\" scenario as an always-on, os-category runtime installed via a tarball. It carries the metadata consumed by the generator/TUI (id, name, description, category, installer, always_on, default_version) and a [[versions]] array where each entry pairs a label with the upstream version and release tag, since python-build-standalone tags are coupled to the CPython version. Version selection in the TUI flows from this file and the chosen entry is injected into the Dockerfile fragment as {{version}}+{{tag}}.",
+        "responsibilities": [
+          "Declare scenario identity and metadata for the Python runtime",
+          "Specify installer strategy (tarball) and always-on installation policy",
+          "Enumerate selectable CPython versions with their matching python-build-standalone release tags",
+          "Provide the {{version}} and {{tag}} values injected into the Dockerfile fragment at generation time"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "always_on",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "bool"
+          },
+          {
+            "name": "default_version",
+            "interface_type": "config_field",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_table",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              },
+              {
+                "name": "tag",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array<version_entry>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "astral-sh/python-build-standalone releases",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.65
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the selected CPython build by fetching and extracting a python-build-standalone tarball into /usr/local so python3/pip3 land on PATH.",
+        "code_purpose": "config",
+        "source_summary": "Contains header comments describing the always-on CPython strategy, version injection via {{version}}+{{tag}}, artifact naming, and the tag/version coupling risk with a link to the astral-sh/python-build-standalone releases. The body performs the tarball fetch and extraction into /usr/local, exposing python3 and pip3 on PATH.",
+        "detailed_description": "This fragment implements the L1 always-on Python layer for the container image. It downloads the pinned python-build-standalone artifact (cpython-<ver>+<tag>-x86_64-unknown-linux-gnu-install_only.tar.gz) and unpacks it to /usr/local, deliberately using system paths to avoid shared-volume interference so the interpreter remains available to all subsequent layers. Comments flag the operational risk that release tags must match upstream assets or the download 404s, and note the repository redirect from indygreg to astral-sh.",
+        "responsibilities": [
+          "Install the selected CPython build into the image at /usr/local",
+          "Download and extract the python-build-standalone install_only tarball",
+          "Ensure python3 and pip3 are available on PATH for later layers",
+          "Document the version/tag coupling risk and upstream repository migration"
+        ],
+        "interfaces": [
+          {
+            "name": "{{version}}+{{tag}}",
+            "interface_type": "template_variable",
+            "parameters": [
+              {
+                "name": "version",
+                "param_type": "string"
+              },
+              {
+                "name": "tag",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "asset_url_segment"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "astral-sh/python-build-standalone",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "scenario.toml",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      }
+    ]
+  },
+  "timestamp": 1790131202,
+  "prompt_hash": "81c546151e3d2796d276f71f9c2bd3a9",
+  "token_usage": {
+    "input_tokens": 1047,
+    "output_tokens": 1308,
+    "total_tokens": 2355
+  },
+  "model_name": null
+}

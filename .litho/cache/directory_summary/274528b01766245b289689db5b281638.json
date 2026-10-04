@@ -1,0 +1,307 @@
+{
+  "data": {
+    "summary": "The workspace directory is the frontend page layer for the sandbox-manager (mgr-web) 'workspace' screen — the UI that lists registered sandboxes, expands their manifest buttons, and opens panes, menus and dialogs. It combines presentational components (SandboxTree.tsx, NodeMenu.tsx, RegisterDialog.tsx) with shared type/decoder definitions (types.ts) and pure URL-resolution logic (paneUrl.ts) that bridges the legacy workbench SPA origin model to mgr's per-sandbox proxy/gateway topology. All data fetching and state live in the parent WorkspacePage; these files consume props and expose small, well-typed helpers.",
+    "importance_score": 0.56,
+    "key_files": [
+      "SandboxTree.tsx",
+      "paneUrl.ts",
+      "types.ts",
+      "RegisterDialog.tsx",
+      "NodeMenu.tsx"
+    ],
+    "file_insights": [
+      {
+        "name": "SandboxTree.tsx",
+        "summary": "Presentational left-rail tree component rendering one node per registered sandbox with live-state badges and lazily fetched manifest-button children.",
+        "code_purpose": "widget",
+        "source_summary": "Declares ManifestState and Props interfaces plus liveKey/liveCls helpers that translate live-status strings into 'stRunning' | 'stStopped' | 'stGone' | 'stUnknown' keys and class names. The main SandboxTree function renders sandbox nodes with status badges, inline start actions, and expandable manifest-button children driven entirely by props and callbacks.",
+        "detailed_description": "SandboxTree.tsx implements the workspace page's left navigation rail (design §2.2): a node per registered sandbox showing a live-state badge and an inline start button when stopped, with manifest buttons as lazily-expanded children fetched through mgr's per-sandbox proxy. It is strictly presentational — the sandbox list, manifest cache, expanded set and all fetches are owned by WorkspacePage and passed down as props, mirroring the App + Sidebar split in the legacy web/src SPA. It also exports small helpers (liveKey, liveCls) that map backend live-state strings to presentation keys and CSS classes.",
+        "responsibilities": [
+          "Render one tree node per registered sandbox with live-state badge",
+          "Expose inline start action for stopped sandboxes",
+          "Lazily render manifest buttons as children on expand/refresh",
+          "Map raw live-state values to presentation keys and CSS classes"
+        ],
+        "interfaces": [
+          {
+            "name": "SandboxTree",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "props",
+                "param_type": "Props"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "liveKey",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "live",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "\"stRunning\" | \"stStopped\" | \"stGone\" | \"stUnknown\""
+          },
+          {
+            "name": "liveCls",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "live",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./NodeMenu",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./paneUrl",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.72
+      },
+      {
+        "name": "paneUrl.ts",
+        "summary": "Pure utility module resolving per-sandbox pane URLs (code-server, VNC, preview ports, terminal WebSocket) against mgr's per-sandbox gateway origin.",
+        "code_purpose": "util",
+        "source_summary": "Exports browserPort() to read the current mgr port, withMgrPort(url) to rewrite a URL onto that port, sandboxGatewayOrigin(sandbox) to build the sbx-<name>.mgr.localhost origin, urlFor(service, sandbox) to resolve a ServiceEntry to a concrete pane URL (or undefined), and termWsUrl(sandbox, cmd, cwd) to build the terminal WebSocket URL.",
+        "detailed_description": "paneUrl.ts is the single place that decouples workbench pane URLs from the mgr.localhost origin the original workbench SPA assumed (web/src treated everything as same-origin). It encodes four routing rules: relative gateway paths (/code-server/, /vnc/...) become http://sbx-<name>.mgr.localhost + path so the sandbox's own gateway strips the prefix and reverse-proxies; /preview/<port>/ user web buttons are rewritten through mgr's /api/sbx/ proxy; and terminal connections get a WebSocket URL. It carries low complexity but high architectural leverage since all panes depend on its correctness.",
+        "responsibilities": [
+          "Derive the sandbox-specific gateway origin from a sandbox name",
+          "Map relative gateway service paths to per-sandbox hosts",
+          "Rewrite /preview/<port> button URLs through mgr's per-sandbox proxy",
+          "Construct terminal WebSocket URLs with command and cwd parameters"
+        ],
+        "interfaces": [
+          {
+            "name": "browserPort",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "withMgrPort",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "url",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "sandboxGatewayOrigin",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sandbox",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "urlFor",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "service",
+                "param_type": "ServiceEntry"
+              },
+              {
+                "name": "sandbox",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string | undefined"
+          },
+          {
+            "name": "termWsUrl",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "sandbox",
+                "param_type": "string"
+              },
+              {
+                "name": "cmd",
+                "param_type": "string"
+              },
+              {
+                "name": "cwd",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.68
+      },
+      {
+        "name": "types.ts",
+        "summary": "Shared type definitions and runtime decoders mirroring the sandbox backend's /api/manifest and /api/buttons payload contracts.",
+        "code_purpose": "types",
+        "source_summary": "Defines the ServiceType and RegisterButtonType aliases and the ServiceEntry, Manifest and RegisterButtonInput interfaces. Exports isServiceEntry(v) as a type-guard for individual service entries and decodeManifest(json) to validate and normalize an unknown JSON payload into a typed Manifest.",
+        "detailed_description": "types.ts is the boundary owner for the workspace page's manifest contract, ported from the deprecated web/src/types.ts workbench SPA. It declares ServiceEntry, Manifest, RegisterButtonInput and related aliases that mirror the sandbox app's Rust types (app/src/config.rs ManifestEntry, app/src/routes/buttons.rs ButtonInput/ButtonOut) exactly, reached through mgr's per-sandbox proxy /api/sbx/:name/*. It also provides defensive runtime validators (isServiceEntry, decodeManifest) so untrusted JSON from the proxy is narrowed safely before use.",
+        "responsibilities": [
+          "Define shared manifest/button data contracts for the workspace page",
+          "Provide a runtime type guard for ServiceEntry values",
+          "Decode and validate raw manifest JSON at the API boundary",
+          "Keep frontend types in sync with the Rust backend payload shapes"
+        ],
+        "interfaces": [
+          {
+            "name": "isServiceEntry",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "v",
+                "param_type": "unknown"
+              }
+            ],
+            "return_type": "v is ServiceEntry"
+          },
+          {
+            "name": "decodeManifest",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "json",
+                "param_type": "unknown"
+              }
+            ],
+            "return_type": "Manifest"
+          }
+        ],
+        "dependencies": [],
+        "importance_score": 0.66
+      },
+      {
+        "name": "RegisterDialog.tsx",
+        "summary": "Modal form component for registering custom user buttons against a selected sandbox via POST /api/buttons through mgr's per-sandbox proxy.",
+        "code_purpose": "widget",
+        "source_summary": "Declares the Props interface and exports the RegisterDialog function component (taking onRegister and returning JSX) plus a close() helper. The component renders the button-registration form fields, conditionally mounts the overlay, and dispatches the POST /api/buttons request through the per-sandbox proxy.",
+        "detailed_description": "RegisterDialog.tsx implements the modal form used to register custom buttons (design D7), ported from the Phase 2 web/src/RegisterDialog.tsx with two mgr-web adaptations: dialogs are conditionally rendered rather than mounted/unmounted with a CSS visibility transition, so fields reset naturally on each mount, and submission goes to POST /api/buttons on the selected sandbox through mgr's per-sandbox proxy. It validates user input, manages submit/error state, and closes via an onRegister callback upward.",
+        "responsibilities": [
+          "Render the user-registered button creation form",
+          "Submit registration payloads to POST /api/buttons via the sandbox proxy",
+          "Reset form fields on each conditional mount",
+          "Report success/closure upward through onRegister"
+        ],
+        "interfaces": [
+          {
+            "name": "RegisterDialog",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "onRegister",
+                "param_type": "Props['onRegister']"
+              }
+            ],
+            "return_type": "JSX.Element"
+          },
+          {
+            "name": "close",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "NodeMenu.tsx",
+        "summary": "Fixed-positioned 'more' menu for a sandbox tree node, offering terminal, manage, start/stop/restart, config edit and custom-button registration actions.",
+        "code_purpose": "widget",
+        "source_summary": "Defines the NodeMenuIcon type alias and a Props interface, then a single component function that renders the fixed-position dropdown menu with live-state-aware enabled/disabled actions wired to callback props. Includes a11y markup for the menu and its items.",
+        "detailed_description": "NodeMenu.tsx renders the per-node overflow menu for the sandbox tree (prototype workspace.html .menu), positioned fixed so the side panel cannot clip it. It exposes actions that are delegated upward: open a terminal (launches the sandbox terminal service), view the sandbox in the list (onManage), start/stop/restart (sandboxAction, owned by WorkspacePage), edit config (App-level navigation) and register a custom button (opens RegisterDialog). Disabled states track live sandbox state — a stopped sandbox cannot open panes or be stopped again — and accessibility attributes are included.",
+        "responsibilities": [
+          "Render the fixed-position node overflow menu",
+          "Dispatch terminal, manage, start/stop/restart, config and register actions",
+          "Compute disabled states from live sandbox state",
+          "Provide accessible menu semantics (aria roles/labels)"
+        ],
+        "interfaces": [
+          {
+            "name": "NodeMenu",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "props",
+                "param_type": "Props"
+              }
+            ],
+            "return_type": "JSX.Element"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./types",
+            "is_external": false,
+            "dependency_type": "import"
+          },
+          {
+            "name": "./RegisterDialog",
+            "is_external": false,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790131022,
+  "prompt_hash": "274528b01766245b289689db5b281638",
+  "token_usage": {
+    "input_tokens": 2009,
+    "output_tokens": 2669,
+    "total_tokens": 4678
+  },
+  "model_name": null
+}

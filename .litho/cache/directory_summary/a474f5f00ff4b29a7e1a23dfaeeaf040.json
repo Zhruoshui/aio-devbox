@@ -1,0 +1,152 @@
+{
+  "data": {
+    "summary": "The `go` directory is a single-purpose scenario definition used by the `aio-config gen` tooling to provision the Go toolchain inside a container image. It pairs a metadata descriptor (`scenario.toml`, consumed by the generator to build the TUI version selector) with an idempotent Docker build fragment (`fragment.Dockerfile`) that installs Go through mise's `core:go` backend. Together they form one composable L3 language layer rather than application code.",
+    "importance_score": 0.42,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that installs the Go toolchain via mise's core:go backend and verifies go/gofmt availability in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "The file contains an ARG GO_VERSION templated by the scenario generator, a RUN step executing `mise use -g \"go@${GO_VERSION}\"`, a `mise ls go` listing for diagnostics, and two verification loops that check `go`/`gofmt` resolve via `command -v` in login and non-login bash, finishing with a `go version` printout.",
+        "detailed_description": "This file is the executable half of the `go` scenario: it declares a GO_VERSION build ARG substituted by the generator, then runs `mise use -g` to register Go globally. Because `mise use -g` performs read-modify-write on the shared mise config, the fragment is designed to be idempotent and order-independent when composed with other language fragments. Post-install assertions validate the toolchain from both login and non-login shells, ensuring PATH exposure survives typical container shell contexts.",
+        "responsibilities": [
+          "Declare the parameterized Go version build argument",
+          "Install the Go toolchain through mise's core:go backend",
+          "Verify go and gofmt are on PATH in both login and non-login shells",
+          "Remain idempotent and composable with other mise tool fragments"
+        ],
+        "interfaces": [
+          {
+            "name": "GO_VERSION",
+            "interface_type": "build_argument",
+            "parameters": [
+              {
+                "name": "GO_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "mise use -g go@${GO_VERSION}",
+            "interface_type": "command",
+            "parameters": [
+              {
+                "name": "go@${GO_VERSION}",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "go version",
+            "interface_type": "command",
+            "parameters": [],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "go",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "gofmt",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` describing the Go language scenario, its category, installer, and selectable versions.",
+        "code_purpose": "config",
+        "source_summary": "A TOML document defining id = \"go\", name = \"Go\", a Chinese description noting the mise core:go backend installing into /opt/mise/installs with go/gofmt included, category = \"lang\", installer = \"mise\", and a single [[versions]] entry labeling 1.23.4.",
+        "detailed_description": "This file is the declarative descriptor that the `aio-config gen` fragment resolver reads to know that a `go` scenario exists, that it belongs to the `lang` category, and that it is installed by mise. It supplies the human-facing name/description shown in the TUI and enumerates the versions offered in the dropdown, which the generator substitutes into fragment.Dockerfile's GO_VERSION ARG. Without it, the sibling Dockerfile fragment would never be selected or parameterized.",
+        "responsibilities": [
+          "Identify the scenario with a stable id and display metadata",
+          "Classify the scenario (lang) and declare its installer (mise)",
+          "Enumerate selectable Go versions for the version dropdown",
+          "Provide the version values consumed when generating fragment.Dockerfile"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "category",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_table",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.45
+      }
+    ]
+  },
+  "timestamp": 1790131121,
+  "prompt_hash": "a474f5f00ff4b29a7e1a23dfaeeaf040",
+  "token_usage": {
+    "input_tokens": 988,
+    "output_tokens": 1184,
+    "total_tokens": 2172
+  },
+  "model_name": null
+}

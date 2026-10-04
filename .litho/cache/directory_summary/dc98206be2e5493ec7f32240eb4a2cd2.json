@@ -1,0 +1,95 @@
+{
+  "data": {
+    "summary": "The `mise` directory is a self-contained scenario definition for an image-building (aio-config gen) system: `scenario.toml` declares the metadata of the always-on L1 \"mise engine\" layer, while `fragment.Dockerfile` holds the concrete install steps that bake the mise toolchain manager into /opt/mise. Together they form the build-time contract that lets all other scenarios (L2 shell / L3 lang / L4 app) layer tools on top via idempotent `mise use -g` calls.",
+    "importance_score": 0.62,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative metadata for the mise engine scenario, consumed by the `aio-config gen` fragment resolver; it marks the scenario as category \"os\", tarball-installed, and `always_on = true`.",
+        "code_purpose": "config",
+        "source_summary": "A TOML document declaring `id = \"mise\"`, `name = \"mise engine\"`, a description explaining that the binary, shims and redirected home are baked into /opt/mise (system path to avoid volume shadowing), `category = \"os\"`, `installer = \"tarball\"`, and `always_on = true`.",
+        "detailed_description": "This is the machine-readable descriptor that the image generator reads to decide whether and how to include the mise engine fragment. Because `always_on = true` and category is `os`, mise is baked into the L1 base layer of every built image, providing the tool-installation capability without installing any tools itself. The file is purely declarative — installation logic lives in the sibling fragment.Dockerfile.",
+        "responsibilities": [
+          "Declare the scenario identity (id/name/description) for the generator",
+          "Specify the install mechanism via installer = \"tarball\"",
+          "Mark the scenario as always-on L1 OS-layer so it is included in every image",
+          "Document the design intent (capability-only engine, tools deferred to other layers)"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the mise toolchain manager itself (engine only, no tools) into /opt/mise on the L1 OS layer, with extensive comments explaining the engine/tool separation refactor.",
+        "code_purpose": "tool",
+        "source_summary": "Dockerfile instructions plus commentary. The visible portion consists of header comments explaining the L1 always-on engine role, the rationale for splitting engine from tools, and the idempotent composability argument based on `mise use -g` read-modify-write semantics over /opt/mise/config.toml; the remainder (truncated) contains the tarball download, extraction to /opt/mise, PATH/shim wiring and home-directory redirection steps.",
+        "detailed_description": "This fragment is concatenated into the generated Dockerfile by the scenario resolver and executes the actual mise installation: fetching the mise binary via tarball, placing it on a system path (/opt/mise) so that mounted volumes cannot shadow it, and setting up shims/home redirection. Its long comment block records the 2026-09-22 granularity refactor that split the former ~1.5GB all-or-nothing `scenarios/mise` bundle (which dragged in 1.4GB of Rust) into a ~30MB always-on engine plus independently selectable tool scenarios. It also documents why no aggregation mechanism is needed: `mise use -g <tool>` is read-modify-write, so multiple fragment RUN layers merge idempotently into /opt/mise/config.toml's [tools] table.",
+        "responsibilities": [
+          "Download and install the mise binary (tarball installer) into /opt/mise",
+          "Wire up shims, PATH and home-directory redirection so mise is usable system-wide",
+          "Ensure the install lives on a system path that container volume mounts cannot shadow",
+          "Remain tool-agnostic so downstream L2/L3/L4 scenarios can append tools idempotently to /opt/mise/config.toml"
+        ],
+        "interfaces": [
+          {
+            "name": "fragment.Dockerfile (build fragment)",
+            "interface_type": "dockerfile",
+            "parameters": [
+              {
+                "name": "target_path",
+                "param_type": "string"
+              },
+              {
+                "name": "installer",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "image layer"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "scenario.toml",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "/opt/mise/config.toml",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.65
+      }
+    ]
+  },
+  "timestamp": 1790131145,
+  "prompt_hash": "dc98206be2e5493ec7f32240eb4a2cd2",
+  "token_usage": {
+    "input_tokens": 1055,
+    "output_tokens": 1150,
+    "total_tokens": 2205
+  },
+  "model_name": null
+}

@@ -1,0 +1,2199 @@
+{
+  "data": {
+    "project_name": "",
+    "root_path": ".",
+    "directories": [
+      {
+        "path": "./aio-models",
+        "name": "aio-models",
+        "file_count": 1,
+        "subdirectory_count": 1,
+        "total_size": 683,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./aio-models/src",
+        "name": "src",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 64642,
+        "importance_score": 0.4
+      },
+      {
+        "path": "./app",
+        "name": "app",
+        "file_count": 5,
+        "subdirectory_count": 2,
+        "total_size": 23858,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./app/redirect",
+        "name": "redirect",
+        "file_count": 1,
+        "subdirectory_count": 0,
+        "total_size": 3881,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./app/src",
+        "name": "src",
+        "file_count": 5,
+        "subdirectory_count": 1,
+        "total_size": 75806,
+        "importance_score": 0.4
+      },
+      {
+        "path": "./app/src/routes",
+        "name": "routes",
+        "file_count": 7,
+        "subdirectory_count": 1,
+        "total_size": 44853,
+        "importance_score": 0.2
+      },
+      {
+        "path": "./app/src/routes/models",
+        "name": "models",
+        "file_count": 4,
+        "subdirectory_count": 1,
+        "total_size": 165504,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./app/src/routes/models/render",
+        "name": "render",
+        "file_count": 6,
+        "subdirectory_count": 0,
+        "total_size": 114912,
+        "importance_score": 0.2
+      },
+      {
+        "path": "./code-server",
+        "name": "code-server",
+        "file_count": 1,
+        "subdirectory_count": 0,
+        "total_size": 6143,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./config",
+        "name": "config",
+        "file_count": 2,
+        "subdirectory_count": 1,
+        "total_size": 1932,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./config/src",
+        "name": "src",
+        "file_count": 5,
+        "subdirectory_count": 0,
+        "total_size": 39083,
+        "importance_score": 0.4
+      },
+      {
+        "path": "./docs",
+        "name": "docs",
+        "file_count": 0,
+        "subdirectory_count": 3,
+        "total_size": 0,
+        "importance_score": 0.1
+      },
+      {
+        "path": "./docs/Web-Prototype",
+        "name": "Web-Prototype",
+        "file_count": 7,
+        "subdirectory_count": 0,
+        "total_size": 150461,
+        "importance_score": 0.2
+      },
+      {
+        "path": "./docs/open-design",
+        "name": "open-design",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 158708,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./docs/wiki",
+        "name": "wiki",
+        "file_count": 0,
+        "subdirectory_count": 0,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./gateway",
+        "name": "gateway",
+        "file_count": 1,
+        "subdirectory_count": 0,
+        "total_size": 2626,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr",
+        "name": "mgr",
+        "file_count": 3,
+        "subdirectory_count": 1,
+        "total_size": 12364,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr/src",
+        "name": "src",
+        "file_count": 12,
+        "subdirectory_count": 0,
+        "total_size": 352447,
+        "importance_score": 0.6000000000000001
+      },
+      {
+        "path": "./mgr-data",
+        "name": "mgr-data",
+        "file_count": 0,
+        "subdirectory_count": 2,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-data/caddy",
+        "name": "caddy",
+        "file_count": 0,
+        "subdirectory_count": 0,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-data/instances",
+        "name": "instances",
+        "file_count": 0,
+        "subdirectory_count": 1,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-data/instances/sbx-devvv",
+        "name": "sbx-devvv",
+        "file_count": 0,
+        "subdirectory_count": 1,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-data/instances/sbx-devvv/gateway",
+        "name": "gateway",
+        "file_count": 0,
+        "subdirectory_count": 0,
+        "total_size": 0,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-web",
+        "name": "mgr-web",
+        "file_count": 4,
+        "subdirectory_count": 1,
+        "total_size": 4450,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-web/src",
+        "name": "src",
+        "file_count": 10,
+        "subdirectory_count": 2,
+        "total_size": 213248,
+        "importance_score": 0.6000000000000001
+      },
+      {
+        "path": "./mgr-web/src/components",
+        "name": "components",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 9347,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-web/src/pages",
+        "name": "pages",
+        "file_count": 10,
+        "subdirectory_count": 2,
+        "total_size": 155433,
+        "importance_score": 0.2
+      },
+      {
+        "path": "./mgr-web/src/pages/models",
+        "name": "models",
+        "file_count": 10,
+        "subdirectory_count": 0,
+        "total_size": 148201,
+        "importance_score": 0.2
+      },
+      {
+        "path": "./mgr-web/src/pages/workspace",
+        "name": "workspace",
+        "file_count": 5,
+        "subdirectory_count": 1,
+        "total_size": 43880,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mgr-web/src/pages/workspace/panes",
+        "name": "panes",
+        "file_count": 3,
+        "subdirectory_count": 0,
+        "total_size": 27504,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./mise-poc",
+        "name": "mise-poc",
+        "file_count": 1,
+        "subdirectory_count": 0,
+        "total_size": 3062,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios",
+        "name": "scenarios",
+        "file_count": 0,
+        "subdirectory_count": 25,
+        "total_size": 0,
+        "importance_score": 0.1
+      },
+      {
+        "path": "./scenarios/bat",
+        "name": "bat",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1072,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/c23",
+        "name": "c23",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 3404,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/claude-code",
+        "name": "claude-code",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1392,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/codex",
+        "name": "codex",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1122,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/delta",
+        "name": "delta",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1072,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/eza",
+        "name": "eza",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1066,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/fd",
+        "name": "fd",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1021,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/fzf",
+        "name": "fzf",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1098,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/go",
+        "name": "go",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1034,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/jq",
+        "name": "jq",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1011,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/mise",
+        "name": "mise",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 9169,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/node",
+        "name": "node",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1124,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/opencode",
+        "name": "opencode",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1174,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/pi",
+        "name": "pi",
+        "file_count": 4,
+        "subdirectory_count": 1,
+        "total_size": 11614,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/pi/pi-packages",
+        "name": "pi-packages",
+        "file_count": 1,
+        "subdirectory_count": 0,
+        "total_size": 732,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/pi-web",
+        "name": "pi-web",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 2384,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/python",
+        "name": "python",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1852,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/ripgrep",
+        "name": "ripgrep",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1083,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/ruff",
+        "name": "ruff",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 930,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/rust",
+        "name": "rust",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 2673,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/shell-tools",
+        "name": "shell-tools",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 2242,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/starship",
+        "name": "starship",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1123,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/user-tools",
+        "name": "user-tools",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 3373,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/uv",
+        "name": "uv",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 965,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/yq",
+        "name": "yq",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1031,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./scenarios/zoxide",
+        "name": "zoxide",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 1105,
+        "importance_score": 0.0
+      },
+      {
+        "path": "./vnc",
+        "name": "vnc",
+        "file_count": 2,
+        "subdirectory_count": 0,
+        "total_size": 10482,
+        "importance_score": 0.0
+      }
+    ],
+    "files": [
+      {
+        "path": "config/src/main.rs",
+        "name": "main.rs",
+        "size": 1140,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.9500000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1790123608"
+      },
+      {
+        "path": "app/src/main.rs",
+        "name": "main.rs",
+        "size": 9448,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.88,
+        "complexity_score": 0.0,
+        "last_modified": "1788969882"
+      },
+      {
+        "path": "mgr/src/main.rs",
+        "name": "main.rs",
+        "size": 4714,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.8899999999999999,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/config.rs",
+        "name": "config.rs",
+        "size": 30862,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.8300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "config/src/scenario.rs",
+        "name": "scenario.rs",
+        "size": 14438,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.8,
+        "complexity_score": 0.0,
+        "last_modified": "1790062050"
+      },
+      {
+        "path": "config/src/manifest.rs",
+        "name": "manifest.rs",
+        "size": 6900,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.8,
+        "complexity_score": 0.0,
+        "last_modified": "1790124488"
+      },
+      {
+        "path": "config/src/gen.rs",
+        "name": "gen.rs",
+        "size": 16276,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.8,
+        "complexity_score": 0.0,
+        "last_modified": "1790124494"
+      },
+      {
+        "path": "app/src/routes/models/render/claude.rs",
+        "name": "claude.rs",
+        "size": 14324,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7000000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/render/codex.rs",
+        "name": "codex.rs",
+        "size": 22749,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7000000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/render/common.rs",
+        "name": "common.rs",
+        "size": 19634,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7000000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/render/opencode.rs",
+        "name": "opencode.rs",
+        "size": 23737,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7000000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/render/pi.rs",
+        "name": "pi.rs",
+        "size": 33888,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7000000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/catalog.rs",
+        "name": "catalog.rs",
+        "size": 11531,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7200000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/discover.rs",
+        "name": "discover.rs",
+        "size": 29076,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7200000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/mod.rs",
+        "name": "mod.rs",
+        "size": 45707,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7200000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/terminal.rs",
+        "name": "terminal.rs",
+        "size": 10531,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789714865"
+      },
+      {
+        "path": "app/src/routes/buttons.rs",
+        "name": "buttons.rs",
+        "size": 12920,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/preview.rs",
+        "name": "preview.rs",
+        "size": 13674,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/stats.rs",
+        "name": "stats.rs",
+        "size": 5829,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/state.rs",
+        "name": "state.rs",
+        "size": 3452,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1788969864"
+      },
+      {
+        "path": "app/src/pty.rs",
+        "name": "pty.rs",
+        "size": 6328,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789714865"
+      },
+      {
+        "path": "app/src/mgr_sync.rs",
+        "name": "mgr_sync.rs",
+        "size": 25716,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.7300000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/state.rs",
+        "name": "state.rs",
+        "size": 6085,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1788952128"
+      },
+      {
+        "path": "mgr/src/proxy.rs",
+        "name": "proxy.rs",
+        "size": 25418,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1789058185"
+      },
+      {
+        "path": "mgr/src/caddy.rs",
+        "name": "caddy.rs",
+        "size": 12149,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1789058185"
+      },
+      {
+        "path": "mgr/src/composegen.rs",
+        "name": "composegen.rs",
+        "size": 16922,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/envhash.rs",
+        "name": "envhash.rs",
+        "size": 10201,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/usage.rs",
+        "name": "usage.rs",
+        "size": 15636,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/db.rs",
+        "name": "db.rs",
+        "size": 25197,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1790093132"
+      },
+      {
+        "path": "mgr/src/docker.rs",
+        "name": "docker.rs",
+        "size": 30929,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1790095610"
+      },
+      {
+        "path": "mgr/src/jobs.rs",
+        "name": "jobs.rs",
+        "size": 26311,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.74,
+        "complexity_score": 0.0,
+        "last_modified": "1790095586"
+      },
+      {
+        "path": "config/src/lib.rs",
+        "name": "lib.rs",
+        "size": 329,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.65,
+        "complexity_score": 0.0,
+        "last_modified": "1790123647"
+      },
+      {
+        "path": "app/src/routes/seam.rs",
+        "name": "seam.rs",
+        "size": 864,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5800000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1785220586"
+      },
+      {
+        "path": "app/src/routes/manifest.rs",
+        "name": "manifest.rs",
+        "size": 867,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5800000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1786677247"
+      },
+      {
+        "path": "app/src/routes/models/render/mod.rs",
+        "name": "mod.rs",
+        "size": 580,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.55,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/models/usage.rs",
+        "name": "usage.rs",
+        "size": 79190,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5700000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "app/src/routes/mod.rs",
+        "name": "mod.rs",
+        "size": 168,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5800000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1788335482"
+      },
+      {
+        "path": "mgr-web/vite.config.ts",
+        "name": "vite.config.ts",
+        "size": 1109,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.5,
+        "complexity_score": 0.0,
+        "last_modified": "1788959257"
+      },
+      {
+        "path": "aio-models/src/lib.rs",
+        "name": "lib.rs",
+        "size": 434,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.56,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "aio-models/src/store.rs",
+        "name": "store.rs",
+        "size": 64208,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.56,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/models.rs",
+        "name": "models.rs",
+        "size": 112097,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5900000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr/src/routes.rs",
+        "name": "routes.rs",
+        "size": 66788,
+        "extension": "rs",
+        "is_core": false,
+        "importance_score": 0.5900000000000001,
+        "complexity_score": 0.0,
+        "last_modified": "1790093449"
+      },
+      {
+        "path": "app/redirect/index.html",
+        "name": "index.html",
+        "size": 3881,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.37,
+        "complexity_score": 0.0,
+        "last_modified": "1789029602"
+      },
+      {
+        "path": "docs/Web-Prototype/index.html",
+        "name": "index.html",
+        "size": 9020,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.38,
+        "complexity_score": 0.0,
+        "last_modified": "1789086874"
+      },
+      {
+        "path": "mgr-web/src/pages/models/MgrNotice.tsx",
+        "name": "MgrNotice.tsx",
+        "size": 1480,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789000895"
+      },
+      {
+        "path": "mgr-web/src/pages/models/SandboxTable.tsx",
+        "name": "SandboxTable.tsx",
+        "size": 6556,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789352094"
+      },
+      {
+        "path": "mgr-web/src/pages/models/AgentTabs.tsx",
+        "name": "AgentTabs.tsx",
+        "size": 6535,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789352152"
+      },
+      {
+        "path": "mgr-web/src/pages/models/ProviderEditor.tsx",
+        "name": "ProviderEditor.tsx",
+        "size": 18203,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789352384"
+      },
+      {
+        "path": "mgr-web/src/pages/models/ProviderGrid.tsx",
+        "name": "ProviderGrid.tsx",
+        "size": 4328,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789352557"
+      },
+      {
+        "path": "mgr-web/src/pages/models/ModelRow.tsx",
+        "name": "ModelRow.tsx",
+        "size": 8641,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/pages/models/PresetList.tsx",
+        "name": "PresetList.tsx",
+        "size": 20528,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/pages/models/ModelsPage.tsx",
+        "name": "ModelsPage.tsx",
+        "size": 44024,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789865212"
+      },
+      {
+        "path": "mgr-web/src/pages/models/charts.tsx",
+        "name": "charts.tsx",
+        "size": 15017,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789874476"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/panes/IframePane.tsx",
+        "name": "IframePane.tsx",
+        "size": 1349,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.42,
+        "complexity_score": 0.0,
+        "last_modified": "1788958291"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/panes/CodeServerPane.tsx",
+        "name": "CodeServerPane.tsx",
+        "size": 6078,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.42,
+        "complexity_score": 0.0,
+        "last_modified": "1788964880"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/panes/XtermPane.tsx",
+        "name": "XtermPane.tsx",
+        "size": 20077,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.42,
+        "complexity_score": 0.0,
+        "last_modified": "1790058627"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/NodeMenu.tsx",
+        "name": "NodeMenu.tsx",
+        "size": 4579,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.43,
+        "complexity_score": 0.0,
+        "last_modified": "1789347036"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/RegisterDialog.tsx",
+        "name": "RegisterDialog.tsx",
+        "size": 11001,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.43,
+        "complexity_score": 0.0,
+        "last_modified": "1789354791"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/SandboxTree.tsx",
+        "name": "SandboxTree.tsx",
+        "size": 18819,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.43,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr-web/src/pages/JobView.tsx",
+        "name": "JobView.tsx",
+        "size": 4824,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789354295"
+      },
+      {
+        "path": "mgr-web/src/pages/EditPage.tsx",
+        "name": "EditPage.tsx",
+        "size": 13800,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789354707"
+      },
+      {
+        "path": "mgr-web/src/pages/AdoptPage.tsx",
+        "name": "AdoptPage.tsx",
+        "size": 6098,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/pages/SandboxListPage.tsx",
+        "name": "SandboxListPage.tsx",
+        "size": 24297,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/pages/UsagePage.tsx",
+        "name": "UsagePage.tsx",
+        "size": 20702,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/pages/WorkspacePage.tsx",
+        "name": "WorkspacePage.tsx",
+        "size": 34859,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789714865"
+      },
+      {
+        "path": "mgr-web/src/pages/ServicesPicker.tsx",
+        "name": "ServicesPicker.tsx",
+        "size": 7895,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789906531"
+      },
+      {
+        "path": "mgr-web/src/pages/ImagesPage.tsx",
+        "name": "ImagesPage.tsx",
+        "size": 13447,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1790093825"
+      },
+      {
+        "path": "mgr-web/src/pages/EnvPicker.tsx",
+        "name": "EnvPicker.tsx",
+        "size": 9510,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1790093866"
+      },
+      {
+        "path": "mgr-web/src/pages/CreatePage.tsx",
+        "name": "CreatePage.tsx",
+        "size": 20001,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1790095386"
+      },
+      {
+        "path": "mgr-web/src/components/AgentAssignControl.tsx",
+        "name": "AgentAssignControl.tsx",
+        "size": 3125,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789350164"
+      },
+      {
+        "path": "mgr-web/src/components/Dialogs.tsx",
+        "name": "Dialogs.tsx",
+        "size": 6222,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.44,
+        "complexity_score": 0.0,
+        "last_modified": "1789442858"
+      },
+      {
+        "path": "mgr-web/src/main.tsx",
+        "name": "main.tsx",
+        "size": 797,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.45999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789118139"
+      },
+      {
+        "path": "mgr-web/src/App.tsx",
+        "name": "App.tsx",
+        "size": 15873,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.45999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789906531"
+      },
+      {
+        "path": "mgr-web/src/icons.tsx",
+        "name": "icons.tsx",
+        "size": 7207,
+        "extension": "tsx",
+        "is_core": false,
+        "importance_score": 0.45999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789906531"
+      },
+      {
+        "path": "mgr-web/index.html",
+        "name": "index.html",
+        "size": 1910,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.44999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789906531"
+      },
+      {
+        "path": "docs/Web-Prototype/mgr-shell.js",
+        "name": "mgr-shell.js",
+        "size": 7426,
+        "extension": "js",
+        "is_core": false,
+        "importance_score": 0.32999999999999996,
+        "complexity_score": 0.0,
+        "last_modified": "1789086974"
+      },
+      {
+        "path": "mgr-web/src/pages/models/types.ts",
+        "name": "types.ts",
+        "size": 22889,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.39,
+        "complexity_score": 0.0,
+        "last_modified": "1789874476"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/paneUrl.ts",
+        "name": "paneUrl.ts",
+        "size": 4736,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.38,
+        "complexity_score": 0.0,
+        "last_modified": "1789714865"
+      },
+      {
+        "path": "mgr-web/src/pages/workspace/types.ts",
+        "name": "types.ts",
+        "size": 4745,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.38,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "mgr-web/src/api.ts",
+        "name": "api.ts",
+        "size": 11406,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1789865212"
+      },
+      {
+        "path": "mgr-web/src/themes.ts",
+        "name": "themes.ts",
+        "size": 3438,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1789906531"
+      },
+      {
+        "path": "mgr-web/src/types.ts",
+        "name": "types.ts",
+        "size": 8432,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1790093680"
+      },
+      {
+        "path": "mgr-web/src/i18n.ts",
+        "name": "i18n.ts",
+        "size": 40904,
+        "extension": "ts",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1790093734"
+      },
+      {
+        "path": "app/Cargo.toml",
+        "name": "Cargo.toml",
+        "size": 1897,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "app/services.toml",
+        "name": "services.toml",
+        "size": 6692,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1789878187"
+      },
+      {
+        "path": "config/Dockerfile",
+        "name": "Dockerfile",
+        "size": 1153,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.39,
+        "complexity_score": 0.0,
+        "last_modified": "1790123660"
+      },
+      {
+        "path": "mgr/compose.yml",
+        "name": "compose.yml",
+        "size": 4165,
+        "extension": "yml",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "mgr/Cargo.toml",
+        "name": "Cargo.toml",
+        "size": 2983,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.41000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1788951492"
+      },
+      {
+        "path": "docker-compose.yml",
+        "name": "docker-compose.yml",
+        "size": 6854,
+        "extension": "yml",
+        "is_core": false,
+        "importance_score": 0.25,
+        "complexity_score": 0.0,
+        "last_modified": "1789383678"
+      },
+      {
+        "path": "docs/open-design/screens_workspace.html",
+        "name": "screens_workspace.html",
+        "size": 44643,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.22000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      },
+      {
+        "path": "docs/Web-Prototype/create-sandbox.html",
+        "name": "create-sandbox.html",
+        "size": 18688,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.23,
+        "complexity_score": 0.0,
+        "last_modified": "1789087008"
+      },
+      {
+        "path": "docs/Web-Prototype/mgr-web.css",
+        "name": "mgr-web.css",
+        "size": 29468,
+        "extension": "css",
+        "is_core": false,
+        "importance_score": 0.23,
+        "complexity_score": 0.0,
+        "last_modified": "1789086974"
+      },
+      {
+        "path": "docs/Web-Prototype/models.html",
+        "name": "models.html",
+        "size": 29242,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.23,
+        "complexity_score": 0.0,
+        "last_modified": "1789086974"
+      },
+      {
+        "path": "docs/Web-Prototype/sandbox-list.html",
+        "name": "sandbox-list.html",
+        "size": 23263,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.23,
+        "complexity_score": 0.0,
+        "last_modified": "1789086974"
+      },
+      {
+        "path": "docs/Web-Prototype/workspace.html",
+        "name": "workspace.html",
+        "size": 33354,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.23,
+        "complexity_score": 0.0,
+        "last_modified": "1789086546"
+      },
+      {
+        "path": "config/Cargo.toml",
+        "name": "Cargo.toml",
+        "size": 779,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.33999999999999997,
+        "complexity_score": 0.0,
+        "last_modified": "1790123632"
+      },
+      {
+        "path": "mgr-web/src/gl-kumo.css",
+        "name": "gl-kumo.css",
+        "size": 12016,
+        "extension": "css",
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1788959187"
+      },
+      {
+        "path": "mgr-web/src/components.css",
+        "name": "components.css",
+        "size": 25515,
+        "extension": "css",
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1790062027"
+      },
+      {
+        "path": "mgr-web/tsconfig.json",
+        "name": "tsconfig.json",
+        "size": 508,
+        "extension": "json",
+        "is_core": false,
+        "importance_score": 0.30000000000000004,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "docs/open-design/screens_model-config.html",
+        "name": "screens_model-config.html",
+        "size": 114065,
+        "extension": "html",
+        "is_core": false,
+        "importance_score": 0.17000000000000004,
+        "complexity_score": 0.0,
+        "last_modified": "1787819001"
+      },
+      {
+        "path": "app/aio-mise-volume.sh",
+        "name": "aio-mise-volume.sh",
+        "size": 5423,
+        "extension": "sh",
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1790051819"
+      },
+      {
+        "path": "app/entrypoint.sh",
+        "name": "entrypoint.sh",
+        "size": 5006,
+        "extension": "sh",
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1790051890"
+      },
+      {
+        "path": "app/Dockerfile",
+        "name": "Dockerfile",
+        "size": 4840,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1790051916"
+      },
+      {
+        "path": "gateway/Caddyfile",
+        "name": "Caddyfile",
+        "size": 2626,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.21999999999999997,
+        "complexity_score": 0.0,
+        "last_modified": "1789383678"
+      },
+      {
+        "path": "code-server/Dockerfile",
+        "name": "Dockerfile",
+        "size": 6143,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "vnc/Dockerfile",
+        "name": "Dockerfile",
+        "size": 5381,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.21,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      },
+      {
+        "path": "vnc/entrypoint.sh",
+        "name": "entrypoint.sh",
+        "size": 5101,
+        "extension": "sh",
+        "is_core": false,
+        "importance_score": 0.21,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      },
+      {
+        "path": "scenarios/python/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 1084,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.21,
+        "complexity_score": 0.0,
+        "last_modified": "1786527007"
+      },
+      {
+        "path": "scenarios/c23/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 3036,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1787127368"
+      },
+      {
+        "path": "scenarios/pi/agent-browser-wrapper.sh",
+        "name": "agent-browser-wrapper.sh",
+        "size": 2551,
+        "extension": "sh",
+        "is_core": false,
+        "importance_score": 0.21999999999999997,
+        "complexity_score": 0.0,
+        "last_modified": "1787714013"
+      },
+      {
+        "path": "scenarios/pi/aio-pi-extensions.sh",
+        "name": "aio-pi-extensions.sh",
+        "size": 3048,
+        "extension": "sh",
+        "is_core": false,
+        "importance_score": 0.21999999999999997,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      },
+      {
+        "path": "scenarios/pi/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 5350,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.21999999999999997,
+        "complexity_score": 0.0,
+        "last_modified": "1790046951"
+      },
+      {
+        "path": "scenarios/pi-web/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 1740,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1787707507"
+      },
+      {
+        "path": "scenarios/mise/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 8655,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.21,
+        "complexity_score": 0.0,
+        "last_modified": "1790051764"
+      },
+      {
+        "path": "scenarios/rust/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 2020,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.21,
+        "complexity_score": 0.0,
+        "last_modified": "1790046499"
+      },
+      {
+        "path": "scenarios/user-tools/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 2857,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1790085076"
+      },
+      {
+        "path": "scenarios/shell-tools/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 1694,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1790087377"
+      },
+      {
+        "path": "mise-poc/Dockerfile",
+        "name": "Dockerfile",
+        "size": 3062,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.18,
+        "complexity_score": 0.0,
+        "last_modified": "1788406057"
+      },
+      {
+        "path": "mgr/Dockerfile",
+        "name": "Dockerfile",
+        "size": 5216,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.31000000000000005,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "Dockerfile.base.head",
+        "name": "Dockerfile.base.head",
+        "size": 6126,
+        "extension": "head",
+        "is_core": false,
+        "importance_score": 0.15,
+        "complexity_score": 0.0,
+        "last_modified": "1790087312"
+      },
+      {
+        "path": "Makefile",
+        "name": "Makefile",
+        "size": 9143,
+        "extension": null,
+        "is_core": false,
+        "importance_score": 0.15,
+        "complexity_score": 0.0,
+        "last_modified": "1790123681"
+      },
+      {
+        "path": "scenarios/node/scenario.toml",
+        "name": "scenario.toml",
+        "size": 426,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/python/scenario.toml",
+        "name": "scenario.toml",
+        "size": 768,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/c23/scenario.toml",
+        "name": "scenario.toml",
+        "size": 368,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/pi/pi-packages/package.json",
+        "name": "package.json",
+        "size": 732,
+        "extension": "json",
+        "is_core": false,
+        "importance_score": 0.14,
+        "complexity_score": 0.0,
+        "last_modified": "1787714463"
+      },
+      {
+        "path": "scenarios/pi/scenario.toml",
+        "name": "scenario.toml",
+        "size": 665,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16999999999999998,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/pi-web/scenario.toml",
+        "name": "scenario.toml",
+        "size": 644,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/mise/scenario.toml",
+        "name": "scenario.toml",
+        "size": 514,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/rust/scenario.toml",
+        "name": "scenario.toml",
+        "size": 653,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/go/scenario.toml",
+        "name": "scenario.toml",
+        "size": 371,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/uv/scenario.toml",
+        "name": "scenario.toml",
+        "size": 400,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/ruff/scenario.toml",
+        "name": "scenario.toml",
+        "size": 387,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/fzf/scenario.toml",
+        "name": "scenario.toml",
+        "size": 378,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/ripgrep/scenario.toml",
+        "name": "scenario.toml",
+        "size": 368,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/bat/scenario.toml",
+        "name": "scenario.toml",
+        "size": 365,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/fd/scenario.toml",
+        "name": "scenario.toml",
+        "size": 345,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/eza/scenario.toml",
+        "name": "scenario.toml",
+        "size": 362,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/zoxide/scenario.toml",
+        "name": "scenario.toml",
+        "size": 365,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/delta/scenario.toml",
+        "name": "scenario.toml",
+        "size": 354,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/starship/scenario.toml",
+        "name": "scenario.toml",
+        "size": 363,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/jq/scenario.toml",
+        "name": "scenario.toml",
+        "size": 339,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/yq/scenario.toml",
+        "name": "scenario.toml",
+        "size": 350,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/opencode/scenario.toml",
+        "name": "scenario.toml",
+        "size": 435,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/claude-code/scenario.toml",
+        "name": "scenario.toml",
+        "size": 466,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/codex/scenario.toml",
+        "name": "scenario.toml",
+        "size": 453,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.16,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/user-tools/scenario.toml",
+        "name": "scenario.toml",
+        "size": 516,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "scenarios/shell-tools/scenario.toml",
+        "name": "scenario.toml",
+        "size": 548,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.15000000000000002,
+        "complexity_score": 0.0,
+        "last_modified": "1790123693"
+      },
+      {
+        "path": "mgr-web/package.json",
+        "name": "package.json",
+        "size": 923,
+        "extension": "json",
+        "is_core": false,
+        "importance_score": 0.2,
+        "complexity_score": 0.0,
+        "last_modified": "1789874476"
+      },
+      {
+        "path": "Cargo.toml",
+        "name": "Cargo.toml",
+        "size": 736,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.1,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "aio-models/Cargo.toml",
+        "name": "Cargo.toml",
+        "size": 683,
+        "extension": "toml",
+        "is_core": false,
+        "importance_score": 0.25,
+        "complexity_score": 0.0,
+        "last_modified": "1788932634"
+      },
+      {
+        "path": "mgr-web/src/styles.css",
+        "name": "styles.css",
+        "size": 87660,
+        "extension": "css",
+        "is_core": false,
+        "importance_score": 0.16000000000000003,
+        "complexity_score": 0.0,
+        "last_modified": "1790093954"
+      },
+      {
+        "path": "scenarios/node/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 698,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.06,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      },
+      {
+        "path": "scenarios/go/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 663,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.06,
+        "complexity_score": 0.0,
+        "last_modified": "1790046510"
+      },
+      {
+        "path": "scenarios/uv/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 565,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046552"
+      },
+      {
+        "path": "scenarios/ruff/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 543,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046595"
+      },
+      {
+        "path": "scenarios/fzf/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 720,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790094933"
+      },
+      {
+        "path": "scenarios/ripgrep/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 715,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/bat/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 707,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/fd/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 676,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/eza/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 704,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/zoxide/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 740,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/delta/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 718,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/starship/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 760,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/jq/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 672,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/yq/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 681,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.05,
+        "complexity_score": 0.0,
+        "last_modified": "1790046606"
+      },
+      {
+        "path": "scenarios/opencode/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 739,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.06,
+        "complexity_score": 0.0,
+        "last_modified": "1790046619"
+      },
+      {
+        "path": "scenarios/claude-code/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 926,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.06,
+        "complexity_score": 0.0,
+        "last_modified": "1790046619"
+      },
+      {
+        "path": "scenarios/codex/fragment.Dockerfile",
+        "name": "fragment.Dockerfile",
+        "size": 669,
+        "extension": "Dockerfile",
+        "is_core": false,
+        "importance_score": 0.06,
+        "complexity_score": 0.0,
+        "last_modified": "1790046619"
+      },
+      {
+        "path": "Dockerfile.base.tail",
+        "name": "Dockerfile.base.tail",
+        "size": 479,
+        "extension": "tail",
+        "is_core": false,
+        "importance_score": 0.0,
+        "complexity_score": 0.0,
+        "last_modified": "1788179374"
+      }
+    ],
+    "total_files": 169,
+    "total_directories": 59,
+    "file_types": {
+      "html": 9,
+      "rs": 41,
+      "Dockerfile": 25,
+      "toml": 31,
+      "sh": 5,
+      "css": 4,
+      "json": 3,
+      "tail": 1,
+      "js": 1,
+      "tsx": 30,
+      "ts": 8,
+      "yml": 2,
+      "head": 1
+    },
+    "size_distribution": {
+      "small": 60,
+      "tiny": 56,
+      "medium": 51,
+      "large": 2
+    }
+  },
+  "timestamp": 1790130631,
+  "prompt_hash": "81ce170d34aadf59b5341dea337be584",
+  "token_usage": null,
+  "model_name": null
+}

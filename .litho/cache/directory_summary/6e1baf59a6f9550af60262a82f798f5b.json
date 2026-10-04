@@ -1,0 +1,107 @@
+{
+  "data": {
+    "summary": "The caddy directory is a configuration-only directory holding Caddy web-server config files that define reverse-proxy routing for the sandbox-mgr local development environment. Caddyfile is the active generated config mapping mgr.localhost to the management API and each sandbox hostname to its container port; Caddyfile.bak is a backup copy with identical routing rules. Because the file is machine-generated from the sandboxes database table, it is an infrastructure artifact rather than application logic.",
+    "importance_score": 0.55,
+    "key_files": [
+      "Caddyfile",
+      "Caddyfile.bak"
+    ],
+    "file_insights": [
+      {
+        "name": "Caddyfile",
+        "summary": "Generated Caddy configuration that reverse-proxies the management UI/API and every sandbox hostname to its corresponding container and port.",
+        "code_purpose": "config",
+        "source_summary": "The file consists solely of comment headers and three site blocks using the http:// scheme, each containing a single reverse_proxy directive. The mgr.localhost block targets mgr-api:8089, the sbx-devvv block targets sbx-devvv:8080, and the sbx-devvv-piweb block targets http://sbx-devvv-piweb:30141. There are no matchers, headers, TLS, or logging directives present.",
+        "detailed_description": "This Caddyfile is a declarative configuration file, not source code, that wires up the ingress layer for the sandbox-mgr environment. It defines an http://mgr.localhost site that reverse-proxies to the mgr-api service on port 8089, plus one site per sandbox (e.g. sbx-devvv.mgr.localhost -> sbx-devvv:8080 and sbx-devvv-piweb.mgr.localhost -> http://sbx-devvv-piweb:30141). The header comments state it is regenerated from the sandboxes table on every create/delete by mgr/src/caddy.rs, so it must never be edited manually.",
+        "responsibilities": [
+          "Route mgr.localhost traffic to the management API at mgr-api:8089",
+          "Route each sandbox hostname to the sandbox's container and exposed port",
+          "Serve as the generated, machine-owned source of ingress routing rules",
+          "Mirror the sandboxes database table as Caddy site blocks"
+        ],
+        "interfaces": [
+          {
+            "name": "http://mgr.localhost",
+            "interface_type": "site_block",
+            "parameters": [
+              {
+                "name": "reverse_proxy",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "http://sbx-devvv.mgr.localhost",
+            "interface_type": "site_block",
+            "parameters": [
+              {
+                "name": "reverse_proxy",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "http://sbx-devvv-piweb.mgr.localhost",
+            "interface_type": "site_block",
+            "parameters": [
+              {
+                "name": "reverse_proxy",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mgr-api",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "sbx-devvv",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "sbx-devvv-piweb",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.62
+      },
+      {
+        "name": "Caddyfile.bak",
+        "summary": "Backup copy of the generated Caddyfile preserving the same reverse-proxy site definitions for the management API and sandbox hostnames.",
+        "code_purpose": "config",
+        "source_summary": "The content mirrors Caddyfile exactly: a generated-by-sandbox-mgr comment header followed by http://mgr.localhost -> mgr-api:8089, http://sbx-devvv.mgr.localhost -> sbx-devvv:8080, and http://sbx-devvv-piweb.mgr.localhost -> http://sbx-devvv-piweb:30141. No additional directives or differences from the primary file are present.",
+        "detailed_description": "Caddyfile.bak is a backup artifact of the generated Caddy configuration, retaining the identical comment banner and the same three reverse_proxy site blocks. It exists so that the previous routing state can be restored if regeneration of Caddyfile fails or produces an invalid config. As a duplicate, it carries no independent behavior and should not be loaded by Caddy itself.",
+        "responsibilities": [
+          "Preserve a previous revision of the generated Caddy routing config",
+          "Enable rollback if the freshly generated Caddyfile is invalid",
+          "Document the same sandbox-to-container proxy mappings as the active file"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "Caddyfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.35
+      }
+    ]
+  },
+  "timestamp": 1790130871,
+  "prompt_hash": "6e1baf59a6f9550af60262a82f798f5b",
+  "token_usage": {
+    "input_tokens": 973,
+    "output_tokens": 1063,
+    "total_tokens": 2036
+  },
+  "model_name": null
+}

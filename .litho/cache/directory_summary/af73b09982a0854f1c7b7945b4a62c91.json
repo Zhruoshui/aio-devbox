@@ -1,0 +1,617 @@
+{
+  "data": {
+    "summary": "The `models` directory is the core backend module of a Rust service that manages LLM model configuration and observability: it serves canonical model config CRUD, imports/renderers for agent CLIs (pi, opencode, claude, codex), model discovery against provider endpoints, an upstream model metadata catalog proxy, and per-model token usage statistics. `mod.rs` is the module root that wires up all `/api/models/*` axum routes and agent render/apply logic, while `discover.rs`, `catalog.rs`, and `usage.rs` are the specialized feature modules (URL/response discovery, models.dev catalog with 1h cache, and multi-source session-log aggregation). Together they form the data/API layer for provider and model management, making this one of the highest-value directories in the project.",
+    "importance_score": 0.9,
+    "key_files": [
+      "mod.rs",
+      "usage.rs",
+      "discover.rs",
+      "catalog.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "mod.rs",
+        "summary": "Module root and routing layer for all `/api/models/*` endpoints: canonical config GET/PUT, pi import, agent renderers, apply/sync, and agent status reporting.",
+        "code_purpose": "controller",
+        "source_summary": "Declares handlers such as get_config, get_managed, get_agents, plus helpers pi_models_path, opencode_jsonc_path, render_agent, incremental_agent, agent_status, read_live, read_pi_defaults, read_pi_providers_summary, opencode_live_providers, read_file_optional, and test helpers temp_home/seed_pi. Uses AppState, CanonicalConfig, Agent, AgentAssignment, ApplyResult, and command_exists to translate canonical models into each agent's on-disk configuration.",
+        "detailed_description": "This is the central hub of the models module, defining the axum handlers and route surface for canonical model configuration, agent (pi/opencode/claude/codex) rendering and incremental application, and live agent state inspection. It resolves per-agent config paths, reads live agent files, and merges canonical config into each agent's native format via ApplyResult. It also carries an extensive unit-test suite for live-read edge cases (temp homes, seeded pi config, missing model keys).",
+        "responsibilities": [
+          "Expose canonical model config routes (GET/PUT /api/models/config, import/pi)",
+          "Render canonical config into pi/opencode/other agent file formats",
+          "Perform incremental agent sync/apply with AgentAssignment",
+          "Report per-agent status, live config, and binary availability",
+          "Path resolution and safe optional file reads for agent state"
+        ],
+        "interfaces": [
+          {
+            "name": "get_config",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "get_agents",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "render_agent",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agent_kind",
+                "param_type": "Agent"
+              },
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              }
+            ],
+            "return_type": "ApplyResult"
+          },
+          {
+            "name": "incremental_agent",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agent",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Result<Agent, (StatusCode, String)>"
+          },
+          {
+            "name": "agent_status",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "bin",
+                "param_type": "&str"
+              },
+              {
+                "name": "dirs",
+                "param_type": "&[PathBuf]"
+              },
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "agent",
+                "param_type": "Agent"
+              }
+            ],
+            "return_type": "AgentStatus"
+          },
+          {
+            "name": "read_live",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "agent",
+                "param_type": "Agent"
+              },
+              {
+                "name": "home",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Option<Value>"
+          },
+          {
+            "name": "pi_models_path",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "PathBuf"
+          },
+          {
+            "name": "opencode_jsonc_path",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "PathBuf"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CanonicalConfig",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Agent",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "ApplyResult",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "command_exists",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "home_dir",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.95
+      },
+      {
+        "name": "usage.rs",
+        "summary": "Aggregates per-model token usage and cost from local agent session logs (pi jsonl, opencode sqlite, claude, codex) behind `GET /api/models/usage`.",
+        "code_purpose": "service",
+        "source_summary": "Defines UsageQuery/UsageRow/UsageResponse/DayUsage/UsageScan and a CacheEntry-based memo cache, plus date utilities (day_label, format_iso_utc, days_to_ymd, is_leap, window_cutoff) and scanners scan_pi, scan_opencode, scan_claude, scan_codex, with find_provider_for_model and price_per_m for cost attribution. merge_row aggregates buckets keyed by model/provider.",
+        "detailed_description": "The largest and most complex file in the module (~2143 lines, 74 functions, complexity 142). It scans each installed agent's local session storage, parses protocol-specific record shapes (verified field names as ground truth), buckets usage by model/day, resolves the owning provider from canonical config, and computes cost. A process-global Mutex-guarded cache with window cutoffs avoids re-scanning on every request.",
+        "responsibilities": [
+          "Scan pi/opencode/claude/codex session logs for token usage records",
+          "Aggregate per-model token counts and costs into time-windowed buckets",
+          "Compute window cutoffs and UTC date labels without external date crates",
+          "Resolve model->provider mapping from canonical config",
+          "Cache scan results to avoid repeated expensive disk scans"
+        ],
+        "interfaces": [
+          {
+            "name": "window_cutoff",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "window",
+                "param_type": "&str"
+              },
+              {
+                "name": "now_secs",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "u64"
+          },
+          {
+            "name": "format_iso_utc",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "secs",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "days_to_ymd",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "days",
+                "param_type": "i64"
+              }
+            ],
+            "return_type": "(i64, u32, u32)"
+          },
+          {
+            "name": "scan_pi",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              },
+              {
+                "name": "cutoff_secs",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "UsageScan"
+          },
+          {
+            "name": "scan_opencode",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "cutoff_ms",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "UsageScan"
+          },
+          {
+            "name": "scan_claude",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "cutoff_secs",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "UsageScan"
+          },
+          {
+            "name": "scan_codex",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "home",
+                "param_type": "&Path"
+              },
+              {
+                "name": "cutoff_secs",
+                "param_type": "u64"
+              }
+            ],
+            "return_type": "UsageScan"
+          },
+          {
+            "name": "find_provider_for_model",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "canonical",
+                "param_type": "&CanonicalConfig"
+              },
+              {
+                "name": "model_id",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Option<String>"
+          },
+          {
+            "name": "price_per_m",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "tokens",
+                "param_type": "u64"
+              },
+              {
+                "name": "per_m",
+                "param_type": "Option<f64>"
+              }
+            ],
+            "return_type": "f64"
+          },
+          {
+            "name": "cache",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "&'static Mutex<Option<CacheEntry>>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::sync::Mutex",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::sync::OnceLock",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::io::BufRead",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "home_dir",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "read_config",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CanonicalConfig",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.92
+      },
+      {
+        "name": "discover.rs",
+        "summary": "Implements `POST /api/models/discover`: derives candidate /v1/models URLs from a provider base, performs multi-candidate HTTP fallback with protocol-correct headers, and parses/dedupes/sorts model ids.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Defines DiscoverRequest/DiscoveredModel/DiscoverResponse/ResolvedProvider types and helpers primary_models_url, candidate_urls, parse_discovered_models, collect_items, truncate, natcmp, default_api, with an extensive test suite covering base-with/without-v1, anthropic path insertion, fallback dedupe, and auth headers.",
+        "detailed_description": "Contains pure, unit-tested helpers for URL derivation (OpenAI vs Anthropic path rules, v1 insertion, suffix stripping) and header construction (bearer vs anthropic), plus a multi-shape response parser that extracts model ids from varied provider payloads. Candidate URLs are deduped preserving order, results are naturally sorted, and strings are truncated for safe display.",
+        "responsibilities": [
+          "Derive protocol-appropriate models endpoint URLs from a base+api kind",
+          "Build ordered, deduped URL fallback candidates",
+          "Construct auth headers (OpenAI bearer, Anthropic variants)",
+          "Parse heterogeneous provider responses into normalized model ids",
+          "Sort, dedupe, and truncate discovered model lists"
+        ],
+        "interfaces": [
+          {
+            "name": "primary_models_url",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "base",
+                "param_type": "&str"
+              },
+              {
+                "name": "api",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "candidate_urls",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "base",
+                "param_type": "&str"
+              },
+              {
+                "name": "api",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Vec<String>"
+          },
+          {
+            "name": "parse_discovered_models",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "body",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Vec<DiscoveredModel>"
+          },
+          {
+            "name": "collect_items",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "v",
+                "param_type": "&Value"
+              }
+            ],
+            "return_type": "Vec<(Option<String>, Value)>"
+          },
+          {
+            "name": "natcmp",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "a",
+                "param_type": "&str"
+              },
+              {
+                "name": "b",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "std::cmp::Ordering"
+          },
+          {
+            "name": "default_api",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::collections::BTreeMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "read_config",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "catalog.rs",
+        "summary": "Proxies and normalizes the upstream models.dev catalog into a CatalogResponse with a 1-hour process-global cache and in-flight request dedup.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Defines CatalogModel/CatalogProvider/CatalogResponse/CatalogCache and normalize_catalog/normalize_model/truncate helpers, guarded by a OnceLock<tokio::sync::Mutex<Option<CatalogCache>>> with TTL Duration. Tests cover provider/model field mapping, missing-field non-panics, non-object payloads, and cache-hit-within-TTL behavior.",
+        "detailed_description": "Fetches https://models.dev/api.json, normalizes loose upstream JSON into strongly-typed CatalogModel/CatalogProvider structures (with defensive handling of missing/non-object fields), and passes cost fields through unchanged. The fetch happens while holding the cache mutex so concurrent callers queue behind the in-flight fetch rather than issuing duplicate requests.",
+        "responsibilities": [
+          "Fetch upstream models.dev catalog JSON",
+          "Normalize arbitrary provider/model shapes into typed structs",
+          "Maintain a 1-hour process-global cache with in-flight dedup",
+          "Truncate long display strings safely",
+          "Expose catalog data for the frontend provider form"
+        ],
+        "interfaces": [
+          {
+            "name": "cache",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "&'static tokio::sync::Mutex<Option<CatalogCache>>"
+          },
+          {
+            "name": "normalize_catalog",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "raw",
+                "param_type": "&Value"
+              }
+            ],
+            "return_type": "CatalogResponse"
+          },
+          {
+            "name": "normalize_model",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "model_id",
+                "param_type": "&str"
+              },
+              {
+                "name": "mv",
+                "param_type": "&Value"
+              }
+            ],
+            "return_type": "CatalogModel"
+          },
+          {
+            "name": "truncate",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "s",
+                "param_type": "&str"
+              },
+              {
+                "name": "max",
+                "param_type": "usize"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio::sync::Mutex",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::sync::OnceLock",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::time::Duration",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "CostEntry",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.8
+      }
+    ]
+  },
+  "timestamp": 1790130725,
+  "prompt_hash": "af73b09982a0854f1c7b7945b4a62c91",
+  "token_usage": {
+    "input_tokens": 2592,
+    "output_tokens": 3352,
+    "total_tokens": 5944
+  },
+  "model_name": null
+}

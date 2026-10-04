@@ -1,0 +1,102 @@
+{
+  "data": {
+    "summary": "The `yq` directory is a container-image provisioning scenario in an aio-config generation system. It pairs a `scenario.toml` metadata descriptor with a `fragment.Dockerfile` install recipe, together declaring how to install the yq YAML/JSON/XML command-line processor via the mise tool manager. There is no application business logic here — it is purely an infrastructure/configuration layer for reproducible tool installation.",
+    "importance_score": 0.32,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Machine-readable metadata describing the yq install scenario (id, category, installer, and the pinned 4.53.6 version) that `aio-config gen` consumes during fragment resolution.",
+        "code_purpose": "config",
+        "source_summary": "Defines scalar fields `id = \"yq\"`, `name`, `description` (YAML/JSON/XML CLI processor, mise aqua backend, installed under /opt/mise/installs), `category = \"shell\"`, `installer = \"mise\"`, plus a `[[versions]]` table with label and version both set to 4.53.6. Also contains comments explaining that the sibling fragment.Dockerfile holds the actual install steps.",
+        "detailed_description": "This TOML file is the declarative descriptor for the yq scenario, telling the aio-config generator that yq is a shell-category tool installed through mise. It carries the pinned version list (4.53.6) that the fragment template substitutes into install commands, keeping version management centralized and decoupled from the Dockerfile mechanics.",
+        "responsibilities": [
+          "Declare the unique scenario identifier and human-readable name",
+          "Specify the install category (shell) and installer backend (mise)",
+          "Pin the yq version (4.53.6) used by fragment generation",
+          "Point consumers to the adjacent fragment.Dockerfile for install steps"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs yq at a parameterized version via `mise use -g` and then verifies the binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "A single RUN instruction interpolates `ARG YQ_VERSION={{version}}` into `mise use -g \"yq@${YQ_VERSION}\"`, lists installed tools via `mise ls yq`, and runs two guard commands (`bash -lc` and `bash -c`) that verify `command -v yq` succeeds, emitting a MISSING error and non-zero exit otherwise.",
+        "detailed_description": "This Docker layer performs the actual provisioning of yq inside the image, using the `YQ_VERSION` ARG injected by the scenario generator. Because `mise use -g` is read-modify-write over the global mise config, the fragment is idempotent and safely composable with other mise-based fragments without a separate aggregation step. It concludes with login and non-login shell PATH sanity checks that fail the build if the `yq` binary cannot be located.",
+        "responsibilities": [
+          "Install yq at the scenario-pinned version using mise",
+          "Remain idempotent and composable with other mise tool fragments",
+          "Verify the yq binary is on PATH in login and non-login shells",
+          "Fail the image build early if yq is not resolvable"
+        ],
+        "interfaces": [
+          {
+            "name": "YQ_VERSION",
+            "interface_type": "build-arg",
+            "parameters": [
+              {
+                "name": "default",
+                "param_type": "{{version}}"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "RUN mise use -g yq@${YQ_VERSION}",
+            "interface_type": "docker-instruction",
+            "parameters": [
+              {
+                "name": "YQ_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "image-layer"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "yq",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790131279,
+  "prompt_hash": "05d472e3533ea0cd73270bce09b7fe92",
+  "token_usage": {
+    "input_tokens": 989,
+    "output_tokens": 1008,
+    "total_tokens": 1997
+  },
+  "model_name": null
+}

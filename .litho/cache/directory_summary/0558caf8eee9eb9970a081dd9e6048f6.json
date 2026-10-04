@@ -1,0 +1,88 @@
+{
+  "data": {
+    "summary": "This directory is a single scenario definition for the `fzf` command-line fuzzy finder within a scenario-based tool provisioning system (aio-config). It pairs declarative metadata (`scenario.toml`, consumed by `aio-config gen`) with the executable install fragment (`fragment.Dockerfile`) that installs fzf via `mise use -g` and verifies the binary is resolvable in both login and non-login shells. It contains no application business logic — it is pure infrastructure/configuration for image building.",
+    "importance_score": 0.32,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the pinned fzf version with `mise use -g` and asserts the `fzf` binary is available in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "Declares `ARG FZF_VERSION={{version}}` and runs `mise use -g \"fzf@${FZF_VERSION}\"`, then lists the installed tool with `mise ls fzf` and fails the build with an explicit MISSING message if `command -v fzf` fails under a login shell or a non-login shell. Comments note that the binary name is the canonical `fzf` (no Debian-style renaming to batcat/fdfind equivalents).",
+        "detailed_description": "This fragment represents the L2 shell layer of the image build, responsible for provisioning the fzf fuzzy finder. It relies on `mise use -g` being a read-modify-write, idempotent operation so that the fragment can be composed with other mise tool fragments in any Docker layer order without an aggregation step. It ends with verification checks using `bash -lc` and `bash -c` to ensure the binary resolves in both login and non-login shell contexts.",
+        "responsibilities": [
+          "Declare a versioned build argument for the fzf release",
+          "Install fzf globally through the mise aqua backend",
+          "Verify installation via `mise ls fzf` output",
+          "Fail fast if fzf is not on PATH in login or non-login shells"
+        ],
+        "interfaces": [
+          {
+            "name": "FZF_VERSION",
+            "interface_type": "build-arg",
+            "parameters": [],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fzf",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario metadata describing the fzf installation scenario, including its id, category, installer backend, and the pinned 0.74.4 version.",
+        "code_purpose": "config",
+        "source_summary": "Contains the fields `id = \"fzf\"`, `name = \"fzf\"`, a Chinese description describing fzf as a command-line fuzzy finder (completion/history search/file selection) installed via the mise aqua backend into /opt/mise/installs, `category = \"shell\"`, `installer = \"mise\"`, and one `[[versions]]` table with label and version both set to `0.74.4`.",
+        "detailed_description": "This TOML file is the machine-readable descriptor consumed by `aio-config gen` for fragment resolution; it tells the generator what scenario exists and where its install steps live. It identifies the scenario as belonging to the `shell` category and using the `mise` installer, with fzf installed under /opt/mise/installs via the mise aqua backend. It exposes a single pinned version entry (label and version 0.74.4) that parameterizes the `{{version}}` placeholder in the adjacent Dockerfile fragment.",
+        "responsibilities": [
+          "Identify the scenario by id and display name",
+          "Categorize the tool as a shell-layer scenario",
+          "Declare mise as the installer backend",
+          "Pin the exact tool version (0.74.4) used for fragment templating"
+        ],
+        "interfaces": [
+          {
+            "name": "[[versions]]",
+            "interface_type": "config-table",
+            "parameters": [],
+            "return_type": "table"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      }
+    ]
+  },
+  "timestamp": 1790131107,
+  "prompt_hash": "0558caf8eee9eb9970a081dd9e6048f6",
+  "token_usage": {
+    "input_tokens": 1001,
+    "output_tokens": 1003,
+    "total_tokens": 2004
+  },
+  "model_name": null
+}

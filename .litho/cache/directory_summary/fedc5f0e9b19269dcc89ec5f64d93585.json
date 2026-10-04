@@ -1,0 +1,118 @@
+{
+  "data": {
+    "summary": "The `vnc` directory defines a self-contained Chromium-over-VNC browser surface container for the sandbox platform (Phase G / design §7). The Dockerfile builds a deliberately minimal image (not based on `sandbox-base`) that only mounts the shared `/root` workspace and joins `sandbox-net`, while `entrypoint.sh` supervises the four cooperating processes (TigerVNC Xvnc, openbox, chromium, and a keep-alive loop) that make a drivable remote desktop possible.",
+    "importance_score": 0.55,
+    "key_files": [
+      "entrypoint.sh",
+      "Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Dockerfile",
+        "summary": "Builds the lightweight VNC/Chromium container image used as a pure browser surface for viewing workspace artifacts and dev servers.",
+        "code_purpose": "config",
+        "source_summary": "A Dockerfile using `# syntax=docker/dockerfile:1` with extensive comments explaining its deliberate divergence from `sandbox-base`. It sets up a minimal image that installs the VNC server, window manager, and Chromium packages, copies `entrypoint.sh`, and defines the container's runtime entrypoint and networking/volume assumptions.",
+        "detailed_description": "This Dockerfile intentionally avoids the heavier `sandbox-base` image because the VNC container is only a browser surface: it reads the shared workspace volume at `/root` and reaches dev servers over `sandbox-net` DNS (e.g. `http://code-server:<port>`). It installs only the minimal graphical stack (TigerVNC, openbox, chromium) needed to run a drivable desktop, keeping the image small and the attack surface narrow. It represents the container-build contract for the Phase G VNC feature.",
+        "responsibilities": [
+          "Define the minimal base image and package set for the VNC/Chromium surface",
+          "Install TigerVNC, openbox, and chromium without inheriting sandbox-base tooling",
+          "Wire in `entrypoint.sh` as the container start command",
+          "Document reliance on the shared `/root` volume and `sandbox-net` DNS"
+        ],
+        "interfaces": [
+          {
+            "name": "ENTRYPOINT/CMD",
+            "interface_type": "docker_directive",
+            "parameters": [
+              {
+                "name": "entrypoint.sh",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "docker/dockerfile:1",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "entrypoint.sh",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "tigervnc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "chromium",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "openbox",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "entrypoint.sh",
+        "summary": "Bash supervisor that launches and keeps alive the Xvnc X server, openbox window manager, and Chromium browser that compose the remote desktop.",
+        "code_purpose": "entry",
+        "source_summary": "A bash script with a descriptive header comment enumerating the four cooperating processes. It sets up the virtual X display, starts `Xvnc` on `:99` with RFB on localhost only, launches `openbox`, starts `chromium` on that display with appropriate flags, and then blocks to keep the container alive while propagating signals/restarts as needed.",
+        "detailed_description": "This is the runtime entrypoint for the VNC container, responsible for starting the four cooperating processes that make a Chromium desktop drivable from a browser: TigerVNC's `Xvnc` on display `:99` (RFB bound to `127.0.0.1:5900`, no auth, `-localhost`), `openbox` as the window manager, Chromium as the actual browser surface with anti-automation/container-safe flags, and a keep-alive/wait loop. It encodes the Phase G / design §7 architecture decisions directly in shell, so changes here directly affect how the remote browser is exposed and kept running.",
+        "responsibilities": [
+          "Start the TigerVNC Xvnc server on display :99 with localhost-only RFB",
+          "Launch the openbox window manager on the same display",
+          "Start Chromium on :99 with container/anti-automation friendly flags",
+          "Keep the container alive and manage the lifecycle of the child processes"
+        ],
+        "interfaces": [
+          {
+            "name": "entrypoint.sh",
+            "interface_type": "script",
+            "parameters": [],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "/bin/bash",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "Xvnc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "openbox",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "chromium",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.65
+      }
+    ]
+  },
+  "timestamp": 1790131298,
+  "prompt_hash": "fedc5f0e9b19269dcc89ec5f64d93585",
+  "token_usage": {
+    "input_tokens": 1002,
+    "output_tokens": 1127,
+    "total_tokens": 2129
+  },
+  "model_name": null
+}

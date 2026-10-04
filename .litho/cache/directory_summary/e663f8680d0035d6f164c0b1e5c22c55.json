@@ -1,0 +1,135 @@
+{
+  "data": {
+    "summary": "This directory is a single scenario definition in an AIO/config generation pipeline that installs the ripgrep search tool. It pairs a declarative metadata file (scenario.toml) that `aio-config gen` consumes for fragment resolution with a Dockerfile fragment that performs the actual idempotent mise-based installation and self-verification of the `rg` binary. Together they form one composable, version-pinned layer of the shell tooling image.",
+    "importance_score": 0.32,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario metadata describing the ripgrep scenario, its category, installer backend, and pinned versions, consumed by `aio-config gen` for fragment resolution.",
+        "code_purpose": "config",
+        "source_summary": "A short TOML document with a leading comment explaining that `aio-config gen` consumes this metadata and that the adjacent fragment.Dockerfile holds the install steps. It defines the keys id, name, description, category, installer, and a single [[versions]] table entry with label and version both set to 15.2.0.",
+        "detailed_description": "This TOML file is the registry entry that the `aio-config gen` tool reads to discover the ripgrep scenario and locate its sibling fragment.Dockerfile. It declares identity (id/name), human-readable description (Chinese, describing ripgrep as a fast recursive grep replacement installed via the mise aqua backend into /opt/mise/installs), classification (category = shell, installer = mise), and a version table used to template the Dockerfile build argument. Without it the fragment would not be resolved or emitted into the generated Dockerfile.",
+        "responsibilities": [
+          "Declare the unique scenario id and display name (ripgrep)",
+          "Provide the description and category/installer metadata used by the generator",
+          "Pin the concrete tool version (15.2.0) that the fragment templates into the build",
+          "Point the generator at the accompanying fragment.Dockerfile for install steps"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "toml_array_of_tables",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs ripgrep at a versioned pin via `mise use -g` and asserts the `rg` binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "A commented Dockerfile snippet declaring `ARG RIPGREP_VERSION={{version}}` and a single RUN step that runs `mise use -g \"ripgrep@${RIPGREP_VERSION}\"`, lists the installed tool with `mise ls ripgrep`, and executes bash login/non-login checks that exit 1 with a MISSING message when `rg` is absent. The header comments note that `mise use -g` has read-modify-write semantics, so the fragment is idempotent and composable with other mise tool fragments without aggregation.",
+        "detailed_description": "The fragment is the executable half of the ripgrep scenario: it takes the RIPGREP_VERSION build argument (templated by the generator from scenario.toml) and installs ripgrep globally through mise. It then verifies the installation with `mise ls ripgrep` and two `command -v rg` self-checks (login and non-login shell) to fail the build early if the binary — whose real name is `rg`, not `ripgrep` — is not on PATH. A prominent warning comment documents this binary-name pitfall for future maintainers.",
+        "responsibilities": [
+          "Accept the templated RIPGREP_VERSION build argument from scenario metadata",
+          "Install ripgrep globally via the mise aqua backend",
+          "Verify the installation is registered with `mise ls ripgrep`",
+          "Assert `rg` resolves on PATH in both login and non-login shells, failing the build otherwise"
+        ],
+        "interfaces": [
+          {
+            "name": "ARG RIPGREP_VERSION",
+            "interface_type": "docker_build_arg",
+            "parameters": [
+              {
+                "name": "RIPGREP_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "RUN mise use -g \"ripgrep@${RIPGREP_VERSION}\"",
+            "interface_type": "docker_run_step",
+            "parameters": [
+              {
+                "name": "ripgrep@${RIPGREP_VERSION}",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "ripgrep",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "scenario.toml",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790131209,
+  "prompt_hash": "e663f8680d0035d6f164c0b1e5c22c55",
+  "token_usage": {
+    "input_tokens": 997,
+    "output_tokens": 1244,
+    "total_tokens": 2241
+  },
+  "model_name": null
+}

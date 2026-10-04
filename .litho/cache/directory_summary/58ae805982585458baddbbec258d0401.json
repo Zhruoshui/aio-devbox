@@ -1,0 +1,138 @@
+{
+  "data": {
+    "summary": "The `rust` directory is a single scenario package in an `aio-config` generator system: it declares how to install the Rust toolchain (via mise's `core:rust` backend, which internally drives rustup) on top of a base image. `scenario.toml` holds the declarative metadata (id, category, installer, selectable versions) consumed by `aio-config gen`, while `fragment.Dockerfile` holds the actual executable install steps that the generator stitches into a final Dockerfile. The two files work as a metadata + implementation pair and carry unusually detailed inline rationale about why the config-table form and a non-minimal rustup profile are required.",
+    "importance_score": 0.52,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the Rust toolchain through mise's `core:rust`/rustup backend, appending a table-form rust config and running `mise install rust`. It documents two mandatory compensations: forcing `profile = \"default\"` and installing to a system path to avoid rustup's minimal profile and volume-shadowing issues.",
+        "code_purpose": "config",
+        "source_summary": "A Dockerfile fragment consisting of a heavily commented header followed by shell/RUN steps: append `rust = { version = \"...\", profile = \"default\" }` to the mise config using `>>`, then execute `mise install rust` against the core:rust backend (rustup under the hood) to materialize the toolchain at /opt/mise. The comments document the version/profile requirement, the ~1.4GB install size, and the two non-negotiable compensations for a fresh RUSTUP_HOME.",
+        "detailed_description": "This fragment is the L3 'lang' layer of the image build: it installs the full Rust toolchain (rustc, cargo, clippy, rustfmt, rust-analyzer) into /opt/mise so system paths survive volume shadowing. Because `mise use -g` can only emit the simple `rust = \"1.93.1\"` form rather than the required table form with `profile`, the fragment appends the config block directly with `>>` (composable with other fragments) and then explicitly runs `mise install rust`. The header comments record PoC-verified reasoning dated 2026-09-02 explaining why each compensation is necessary.",
+        "responsibilities": [
+          "Install the complete Rust toolchain via mise core:rust/rustup",
+          "Append a table-form rust entry (version + profile) to the mise config instead of using `mise use -g`",
+          "Force the rustup `default` profile so clippy/rustfmt/rust-analyzer are present",
+          "Install to the system path /opt/mise to avoid persistence-volume shadowing",
+          "Remain composable with other fragments by appending rather than overwriting config"
+        ],
+        "interfaces": [
+          {
+            "name": "mise install rust",
+            "interface_type": "command",
+            "parameters": [
+              {
+                "name": "rust",
+                "param_type": "tool-name"
+              }
+            ],
+            "return_type": "exit-code"
+          },
+          {
+            "name": "rust config block append (>>)",
+            "interface_type": "command",
+            "parameters": [
+              {
+                "name": "rust",
+                "param_type": "table{version, profile}"
+              }
+            ],
+            "return_type": "exit-code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "rustup",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "core:rust",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "rust-analyzer/clippy/rustfmt",
+            "is_external": true,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario metadata for the Rust installation, consumed by `aio-config gen` for fragment resolution: it defines the id, display name/description, category `lang`, installer `mise`, and the selectable version list (e.g. 1.93.1) injected into the fragment as `{{version}}`.",
+        "code_purpose": "config",
+        "source_summary": "A TOML document with fields `id = \"rust\"`, `name = \"Rust\"`, `description` (mise core:rust backend, clippy/rustfmt/rust-analyzer components, installed to /opt/mise, ~1.4GB, largest mise tool), `category = \"lang\"`, `installer = \"mise\"`, plus a `[[versions]]` array holding label entries such as `1.93.1`. Comments explain that `gen` injects `{{version}}` and that the fragment must use the table form rather than `mise use -g`.",
+        "detailed_description": "This TOML file is the discovery/registry side of the scenario: the generator reads it to know that a `rust` scenario exists, what category and installer it belongs to, and which versions the TUI should offer in its dropdown. Its inline comments explicitly warn that rust's fragment cannot use plain `mise use -g` and must write the table form with a profile, cross-referencing fragment.Dockerfile. Together with the fragment it forms the complete, self-contained definition of one installable language toolchain.",
+        "responsibilities": [
+          "Register the `rust` scenario for `aio-config gen` fragment resolution",
+          "Declare category (`lang`) and installer backend (`mise`) for TUI grouping/filtering",
+          "Provide the selectable version list that drives the TUI dropdown",
+          "Supply a human-readable name and size/composition description",
+          "Document the version-injection contract (`{{version}}`) for the adjacent fragment"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions[]",
+            "interface_type": "config_key",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array<table>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      }
+    ]
+  },
+  "timestamp": 1790131230,
+  "prompt_hash": "58ae805982585458baddbbec258d0401",
+  "token_usage": {
+    "input_tokens": 1070,
+    "output_tokens": 1448,
+    "total_tokens": 2518
+  },
+  "model_name": null
+}

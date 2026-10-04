@@ -1,0 +1,62 @@
+{
+  "data": {
+    "summary": "This directory defines the \"jq\" scenario for an aio-config generator, packaging the jq JSON command-line processor as a shell-layer tool installed via mise. It pairs a scenario.toml metadata file (consumed by `aio-config gen` for fragment resolution) with a fragment.Dockerfile that performs the actual templated mise install and shell-level verification. Both files are declarative configuration/installation artifacts rather than application logic.",
+    "importance_score": 0.22,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` for fragment resolution, declaring the jq tool id, category, installer backend, and version.",
+        "code_purpose": "config",
+        "source_summary": "Contains a comment header explaining its role, followed by top-level keys id, name, description, category, installer, and a [[versions]] table with label and version both set to 1.8.2.",
+        "detailed_description": "This TOML file registers the jq scenario with the aio-config generator, specifying the id, human-readable name/description, category (shell), and installer backend (mise). It also enumerates the supported versions (1.8.2), which the generator uses to template the accompanying Dockerfile fragment. It is a pure declarative metadata file with no executable logic.",
+        "responsibilities": [
+          "Declare scenario identity (id, name, description)",
+          "Specify tool category (shell) and installer backend (mise)",
+          "Enumerate available versions used to template the fragment"
+        ],
+        "interfaces": [],
+        "dependencies": [],
+        "importance_score": 0.45
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs jq via `mise use -g` and verifies the binary is resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "Defines ARG JQ_VERSION, runs `mise use -g \"jq@${JQ_VERSION}\"`, lists installed jq via `mise ls jq`, and performs two `command -v jq` checks (login and non-login bash) that exit non-zero with a MISSING message if jq is absent. The snippet ends after the second verification check.",
+        "detailed_description": "This fragment is the executable install layer for the jq scenario, using the generator-templated JQ_VERSION build arg. It relies on mise's read-modify-write global config semantics so it stays idempotent and composable with other mise tool fragments regardless of Docker layer order, then asserts jq is on PATH for both login and non-login bash invocations.",
+        "responsibilities": [
+          "Install jq at the pinned version through the mise aqua backend",
+          "Verify installation with `mise ls jq`",
+          "Validate jq availability in login and non-login shell contexts",
+          "Remain idempotent and composable with other mise fragments"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      }
+    ]
+  },
+  "timestamp": 1790131131,
+  "prompt_hash": "18d6c86062c859d5033956106a475c97",
+  "token_usage": {
+    "input_tokens": 987,
+    "output_tokens": 778,
+    "total_tokens": 1765
+  },
+  "model_name": null
+}

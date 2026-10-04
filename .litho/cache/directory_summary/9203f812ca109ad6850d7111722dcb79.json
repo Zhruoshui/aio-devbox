@@ -1,0 +1,46 @@
+{
+  "data": {
+    "summary": "The redirect directory is a single-file static web root that replaced the retired per-sandbox workbench SPA (unified Phase 6, D1). Its only file, index.html, is served at \"/\" and either bounces the browser to the Sandbox manager (mgr-web) or explains where the old UI went, while leaving all /api/* backend routes untouched. It is a thin presentation-layer shim with no business logic, APIs, or data access of its own.",
+    "importance_score": 0.12,
+    "key_files": [
+      "index.html"
+    ],
+    "file_insights": [
+      {
+        "name": "index.html",
+        "summary": "Static HTML landing/redirect page served at the web root after the per-sandbox workbench SPA was retired; it redirects users to the Sandbox manager or explains the migration, and does not touch any /api/* endpoints.",
+        "code_purpose": "page",
+        "source_summary": "A minimal HTML5 document (lang=\"zh-CN\") with charset and viewport meta tags and a title, followed by a comment block documenting that app/redirect is the static root served since web/ retired. The body (truncated in the provided excerpt) hosts the redirect/explanation content; there is no JavaScript framework, build step, or data fetching beyond browser-level navigation/redirect.",
+        "detailed_description": "This file is the static tree served at \"/\" since the web/ frontend was retired in unified Phase 6 (D1). It contains no application logic: it exists purely to route or inform visitors arriving at the old root URL, pointing them at the Sandbox manager (mgr-web), which reaches backend APIs through the mgr proxy at /api/sbx/:name/* (契约 10). Because all app APIs remain untouched, this page is a compatibility/UX shim rather than a functional component of the system.",
+        "responsibilities": [
+          "Serve as the static root document for \"/\" after the web/ SPA retirement",
+          "Redirect or guide the browser toward the Sandbox manager (mgr-web) UI",
+          "Explain to users where the previous per-sandbox workbench UI went",
+          "Remain decoupled from all /api/* endpoints, which are served unchanged"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "mgr-web",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "/api/sbx/:name/* (mgr proxy)",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.12
+      }
+    ]
+  },
+  "timestamp": 1790130683,
+  "prompt_hash": "9203f812ca109ad6850d7111722dcb79",
+  "token_usage": {
+    "input_tokens": 874,
+    "output_tokens": 598,
+    "total_tokens": 1472
+  },
+  "model_name": null
+}

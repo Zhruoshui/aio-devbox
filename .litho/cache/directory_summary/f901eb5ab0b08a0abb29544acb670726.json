@@ -1,0 +1,143 @@
+{
+  "data": {
+    "summary": "sbx-devvv is a generated sandbox environment definition directory for the sandbox manager (design §3.5), holding the Docker build fragment and the Docker Compose topology for a single named sandbox (\"devvv\"). The two files work together to define how the sandbox image is bootstrapped (Dockerfile.base HEAD fragment) and how it is run at runtime (compose.yml with a Caddy gateway and the sandbox app container on an isolated network). It is infrastructure/configuration scaffolding rather than business logic.",
+    "importance_score": 0.42,
+    "key_files": [
+      "compose.yml",
+      "Dockerfile.base"
+    ],
+    "file_insights": [
+      {
+        "name": "compose.yml",
+        "summary": "Generated Docker Compose definition for the \"devvv\" sandbox, declaring a Caddy gateway service that fronts the sandbox app service and wires them onto an internal sandbox network plus the aio manager network.",
+        "code_purpose": "config",
+        "source_summary": "YAML defining two services: `gateway` (caddy:2, restart unless-stopped, mounts ./gateway/Caddyfile read-only, networks sandbox-net and aio-mgr-net with alias sbx-devvv, depends_on app) and `app` (image sandbox-app-df882efe5ef5, restart unless-stopped, environment variables for phase-2 app-side wiring).",
+        "detailed_description": "This compose file is emitted by sandbox-mgr for sandbox \"devvv\" and is intended to be hand-operable via `docker compose -p sbx-devvv -f <file> <cmd>`. It defines the runtime topology: a `gateway` container using the caddy:2 image with a read-only Caddyfile mount, attached to both the sandbox network and the aio-mgr network under the alias `sbx-devvv`, and an `app` container built from the sandbox-app image. Because it is generated, it is the authoritative runtime contract for this specific sandbox instance.",
+        "responsibilities": [
+          "Declare the sandbox runtime service topology (gateway + app)",
+          "Attach the sandbox to sandbox-net and aio-mgr-net with the sbx-devvv alias",
+          "Mount the Caddy reverse-proxy configuration read-only into the gateway",
+          "Define restart policy and dependency ordering between gateway and app"
+        ],
+        "interfaces": [
+          {
+            "name": "gateway",
+            "interface_type": "service",
+            "parameters": [
+              {
+                "name": "image",
+                "param_type": "string"
+              },
+              {
+                "name": "volumes",
+                "param_type": "array"
+              },
+              {
+                "name": "networks",
+                "param_type": "object"
+              },
+              {
+                "name": "depends_on",
+                "param_type": "array"
+              }
+            ],
+            "return_type": "container"
+          },
+          {
+            "name": "app",
+            "interface_type": "service",
+            "parameters": [
+              {
+                "name": "image",
+                "param_type": "string"
+              },
+              {
+                "name": "environment",
+                "param_type": "object"
+              }
+            ],
+            "return_type": "container"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "caddy:2",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "sandbox-app-df882efe5ef5",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "./gateway/Caddyfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "Dockerfile.base",
+        "summary": "HEAD fragment of the assembled Dockerfile.base, providing the shared root-context bootstrap (HTTPS apt, CA self-bootstrap, build-essential) that every derived sandbox image inherits.",
+        "code_purpose": "config",
+        "source_summary": "A Dockerfile HEAD fragment with `# syntax=docker/dockerfile:1`, comments describing the head + scenario fragments + tail assembly model performed by `aio-config gen`, and the root-context bootstrap steps for apt-over-HTTPS, CA self-bootstrap and build-essential installation.",
+        "detailed_description": "This file is not a complete Dockerfile: `aio-config gen` concatenates this HEAD fragment with enabled scenario fragments and a tail to produce the final Dockerfile.base. It captures the non-versioned root-context bootstrap shared by all derived images, installing HTTPS-capable apt, bootstrapping CA certificates, and build-essential, and it documents that everything (including the runtime default user and the /root workspace owner) runs as root so the shared workspace volume can persist dotfiles.",
+        "responsibilities": [
+          "Provide the shared, non-versioned bootstrap layer for all sandbox images",
+          "Configure apt over HTTPS and self-bootstrap CA certificates",
+          "Install build-essential and baseline build tooling",
+          "Establish root as build and runtime user so /root can host the persistent workspace volume"
+        ],
+        "interfaces": [
+          {
+            "name": "aio-config gen",
+            "interface_type": "cli",
+            "parameters": [
+              {
+                "name": "head_fragment",
+                "param_type": "file"
+              },
+              {
+                "name": "scenario_fragments",
+                "param_type": "file[]"
+              },
+              {
+                "name": "tail",
+                "param_type": "file"
+              }
+            ],
+            "return_type": "Dockerfile"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "docker/dockerfile:1",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "apt",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "build-essential",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.45
+      }
+    ]
+  },
+  "timestamp": 1790130883,
+  "prompt_hash": "f901eb5ab0b08a0abb29544acb670726",
+  "token_usage": {
+    "input_tokens": 1005,
+    "output_tokens": 1202,
+    "total_tokens": 2207
+  },
+  "model_name": null
+}

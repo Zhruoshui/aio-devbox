@@ -1,0 +1,775 @@
+{
+  "data": {
+    "summary": "The src directory is the core Rust backend of the 'aio-mgr' sandbox management control plane. It orchestrates per-sandbox Docker Compose projects, generates gateway Caddyfiles, manages SQLite state, runs detached long-running jobs (image builds/recreates), and serves the mgr HTTP API and SPA. Files work together as a layered backend: main.rs wires modules, db holds durable state, docker/composegen/caddy perform infra actions, jobs orchestrates them, and models exposes the API.",
+    "importance_score": 0.97,
+    "key_files": [
+      "main.rs",
+      "db.rs",
+      "models.rs",
+      "docker.rs",
+      "jobs.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "caddy.rs",
+        "summary": "Generates and reloads the total-gateway Caddyfile that routes *.mgr.localhost Host headers to each sandbox's workbench and pi-web services.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Provides caddyfile_path, render(rows), async regenerate(state) and reload(data) helpers plus which_caddy/tail_hint/row utilities. render() serializes SandboxRow entries into Caddyfile site blocks for the *.mgr.localhost gateway and tests pin the expected output shape.",
+        "detailed_description": "This module derives the shared gateway Caddyfile from the sandboxes table, emitting one site block per sandbox (workbench -> sbx-<name>, pi-web -> sbx-<name>-piweb). The file is treated as derived state and fully regenerated on every create/delete, then reloaded through a dual fallback channel. It also includes unit tests asserting the generated config shape (both site blocks per sandbox, no basicauth, correct ordering, indentation).",
+        "responsibilities": [
+          "Render the total-gateway Caddyfile from the sandboxes table",
+          "Regenerate the derived Caddyfile on sandbox create/delete",
+          "Reload Caddy via a dual fallback channel (host binary or in-container)",
+          "Guarantee auth-free, deterministic site block ordering"
+        ],
+        "interfaces": [
+          {
+            "name": "render",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "rows",
+                "param_type": "&[db::SandboxRow]"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "regenerate",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&crate::state::AppState"
+              }
+            ],
+            "return_type": "Result<String>"
+          },
+          {
+            "name": "reload",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "data",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<String>"
+          },
+          {
+            "name": "caddyfile_path",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "data",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "std::path::PathBuf"
+          },
+          {
+            "name": "which_caddy",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "Option<String>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Context",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "docker",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "composegen.rs",
+        "summary": "Generates per-sandbox docker-compose.yml and gateway Caddyfile content derived from the repo compose file with mgr-specific deltas.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Defines a Generated struct and functions code_server_block, code_server_route, vnc_route, render_caddyfile, and write. Tests ensure no build/ports, conditional deploy blocks, disabled-service omission, unique app alias, and image tag hash substitution.",
+        "detailed_description": "This module produces the per-sandbox Compose project definitions and its accompanying gateway Caddyfile. It applies the mgr deltas: all services use pre-built image references (no build sections, no published ports), no basicauth, and a generated Caddyfile mirroring the repo gateway route shape. The Generated struct plus write() persist these artifacts into each instance directory.",
+        "responsibilities": [
+          "Render per-sandbox compose.yml from the base repo template",
+          "Emit the per-sandbox gateway Caddyfile (auth-free)",
+          "Conditionally include services based on the installed set",
+          "Substitute env_hash image tags and write artifacts to the instance dir"
+        ],
+        "interfaces": [
+          {
+            "name": "render_caddyfile",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              },
+              {
+                "name": "services",
+                "param_type": "db::Services"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "write",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "instance_dir",
+                "param_type": "&Path"
+              },
+              {
+                "name": "gen",
+                "param_type": "&Generated"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "code_server_block",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "short",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "code_server_route",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "vnc_route",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Context",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.88
+      },
+      {
+        "name": "db.rs",
+        "summary": "SQLite persistence layer for the sandbox-mgr state.db with sandboxes/images/jobs/kv tables and typed row helpers.",
+        "code_purpose": "database",
+        "source_summary": "open() opens the connection and init_schema() creates the sandboxes/images/jobs/kv tables. SandboxRow/Services model the state, with row_from/insert/get/list/update/delete helpers for sandboxes, list_images/delete_image_row/image_refcount for images, and canonical_json for deterministic serialization.",
+        "detailed_description": "Defines the migration-free schema (sandboxes, images, jobs, kv) and the typed data access helpers used across the control plane. It exposes sandbox/image/job CRUD plus refcount and canonical JSON helpers, holding the connection briefly and returning owned data. The SandboxRow and Services structs are the central data model shared by caddy, composegen, jobs, and routes.",
+        "responsibilities": [
+          "Open and initialize the SQLite state.db schema",
+          "Provide typed CRUD helpers for sandboxes and images",
+          "Expose SandboxRow/Services as the shared data model",
+          "Maintain image reference counts and canonical JSON"
+        ],
+        "interfaces": [
+          {
+            "name": "open",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "db_path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Connection>"
+          },
+          {
+            "name": "init_schema",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&Connection"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "insert_sandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&Connection"
+              },
+              {
+                "name": "row",
+                "param_type": "&SandboxRow"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "list_sandboxes",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&Connection"
+              }
+            ],
+            "return_type": "Result<Vec<SandboxRow>>"
+          },
+          {
+            "name": "delete_sandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&Connection"
+              },
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Result<()>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Context",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "params",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "state",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.95
+      },
+      {
+        "name": "docker.rs",
+        "summary": "CLI wrapper around docker and docker compose that performs all container, network, image, and Caddy reload operations for the manager.",
+        "code_purpose": "service",
+        "source_summary": "Exposes ensure_network, network_connect_alias, network_disconnect, up_profiles, compose_* command wrappers, compose_ps with ComposePsEntry parsing, image_exists/is_owned_image_tag/image_rmi, caddy_reload_in_container, and run_args. Structured output is always parsed from JSON, never grepped.",
+        "detailed_description": "This is the sole abstraction over the Docker CLI, following design decision D2 (CLI only, never the Docker API) so generated compose files remain diffable and hand-operable. It covers network creation/aliasing, compose up/down/stop/restart/ps, image existence/tag/removal, and in-container Caddy reload, parsing all structured output from --format json and treating parse failures as errors.",
+        "responsibilities": [
+          "Wrap docker/docker compose CLI invocations",
+          "Manage sandbox Docker networks and container aliases",
+          "Start/stop/restart/query compose projects",
+          "Build/check/remove owned images and reload Caddy in-container",
+          "Parse structured JSON output safely"
+        ],
+        "interfaces": [
+          {
+            "name": "ensure_network",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "compose_up_file",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "compose_file",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<String>"
+          },
+          {
+            "name": "compose_ps",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "project",
+                "param_type": "&str"
+              },
+              {
+                "name": "compose_file",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Vec<ComposePsEntry>>"
+          },
+          {
+            "name": "image_exists",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "tag",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Result<bool>"
+          },
+          {
+            "name": "caddy_reload_in_container",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "container",
+                "param_type": "&str"
+              },
+              {
+                "name": "config_path",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Result<String>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Command",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bail",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.92
+      },
+      {
+        "name": "envhash.rs",
+        "summary": "Computes canonical sandbox environment hashes and derived image tags / project names for build deduplication.",
+        "code_purpose": "specificfeature",
+        "source_summary": "SandboxEnv holds scenarios/versions with canonical_json for stable hashing; env_hash produces sha256 hex, image_tags returns the tuple of derived tags, project_name sanitizes the sandbox name, and describe_combo summarizes the enabled set. Tests validate hash format, short tags, and canonical sorting.",
+        "detailed_description": "Defines the SandboxEnv contract {scenarios, versions} (matching enabled.toml minus always_on) and the canonical SHA-256 env_hash used to deduplicate image builds. It derives deterministic image tags and compose project names from the hash and produces human-readable combo descriptions.",
+        "responsibilities": [
+          "Model the canonical sandbox environment selection",
+          "Compute the deterministic SHA-256 env_hash",
+          "Derive image tags and compose project names from the hash",
+          "Describe the enabled service combination for display"
+        ],
+        "interfaces": [
+          {
+            "name": "env_hash",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "dockerfile_base",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "image_tags",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "env_hash",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "(String, String, String)"
+          },
+          {
+            "name": "project_name",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "describe_combo",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "env",
+                "param_type": "&SandboxEnv"
+              },
+              {
+                "name": "services",
+                "param_type": "&crate::db::Services"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "BTreeMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Digest",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Services",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bail",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.8
+      },
+      {
+        "name": "jobs.rs",
+        "summary": "Runs long-running sandbox/image operations (create, delete, builds, cleanup) as detached tokio tasks with streamed logs and durable job state.",
+        "code_purpose": "service",
+        "source_summary": "Provides spawn_delete, spawn_image_delete, spawn_image_cleanup, run_image_cleanup, and append_log/tail helpers. Tasks build base -> app -> code-server images, regenerate Caddy, and clean up images, mirroring progress into the jobs table and buffering/tail-truncating log output.",
+        "detailed_description": "Implements the job execution model (design §3.4/§3.6) where minute-scale work like image builds runs asynchronously and is polled via GET /api/jobs/:id. Job state is kept in-memory in AppState for O(1) polling and mirrored into the jobs table for durability, with orphaned running jobs marked error on restart. It orchestrates db, docker, composegen, caddy, and envhash to perform the actual work and bundles stdout/stderr into job logs.",
+        "responsibilities": [
+          "Spawn detached tokio tasks for long-running operations",
+          "Orchestrate builds, compose up/down, and Caddy regeneration",
+          "Mirror in-memory job state into the durable jobs table",
+          "Stream and tail-truncate job log output"
+        ],
+        "interfaces": [
+          {
+            "name": "spawn_delete",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "Arc<AppState>"
+              },
+              {
+                "name": "name",
+                "param_type": "String"
+              },
+              {
+                "name": "volumes",
+                "param_type": "bool"
+              }
+            ],
+            "return_type": "Result<i64>"
+          },
+          {
+            "name": "spawn_image_delete",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "Arc<AppState>"
+              },
+              {
+                "name": "env_hash",
+                "param_type": "String"
+              }
+            ],
+            "return_type": "Result<i64>"
+          },
+          {
+            "name": "run_image_cleanup",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "st",
+                "param_type": "&Arc<AppState>"
+              },
+              {
+                "name": "log",
+                "param_type": "&Arc<TokioMutex<JobShared>>"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "append_log",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "log",
+                "param_type": "&Arc<TokioMutex<JobShared>>"
+              },
+              {
+                "name": "chunk",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": ""
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Arc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "mpsc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "caddy",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "composegen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "docker",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "envhash",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "main.rs",
+        "summary": "Binary entry point that wires all manager modules, initializes AppState, serves the API router and static mgr-web SPA.",
+        "code_purpose": "entry",
+        "source_summary": "Defines an async main() that declares modules, builds shared AppState, and starts the Axum server combining explicit API routes with a ServeDir-based SPA fallback for everything else. The API routes take precedence over static serving.",
+        "detailed_description": "main.rs is the async entry point of the aio-mgr control plane. It declares every module (caddy, composegen, db, docker, envhash, jobs, models, proxy, routes, state, usage), initializes application state, mounts the HTTP API router, and serves the mgr-web SPA statically with an index.html fallback pattern mirroring app/src/main.rs.",
+        "responsibilities": [
+          "Declare and wire all manager modules",
+          "Initialize shared application state",
+          "Mount API routes and static SPA serving",
+          "Start the HTTP server"
+        ],
+        "interfaces": [
+          {
+            "name": "main",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "Result<()>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "caddy",
+            "is_external": false,
+            "dependency_type": "mod"
+          },
+          {
+            "name": "routes",
+            "is_external": false,
+            "dependency_type": "mod"
+          },
+          {
+            "name": "state",
+            "is_external": false,
+            "dependency_type": "mod"
+          },
+          {
+            "name": "ServeDir",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Arc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "PathBuf",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.93
+      },
+      {
+        "name": "models.rs",
+        "summary": "Model-config API routes implementing the single-source-of-truth canonical model configuration with multi-profile support and per-sandbox assignment.",
+        "code_purpose": "api",
+        "source_summary": "Defines Profile/StoredAssignment/StoredModels structs with fresh/profile/profile_mut/selected helpers, read_stored/write_stored kv persistence and a LegacyRow migration path, gen_profile_id, an ApiError type implementing IntoResponse, and a router() mounting the model-config endpoints.",
+        "detailed_description": "This large module is the mgr side of the config up-lift (Phase 4a/4), making the manager the single source of truth for canonical model config per profile. It stores profiles and assignments in the kv 'models_profiles' row with a global version counter, exposes a router of model-config endpoints, and defines shared API error types. It also handles legacy row migration into the current StoredModels shape.",
+        "responsibilities": [
+          "Persist canonical model profiles and per-sandbox assignments in kv",
+          "Expose model-config HTTP routes via router()",
+          "Maintain the global config version counter",
+          "Serve selected/resolved profile queries and migrate legacy rows",
+          "Provide shared ApiError responses"
+        ],
+        "interfaces": [
+          {
+            "name": "router",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Router<Arc<AppState>>"
+          },
+          {
+            "name": "read_stored",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&rusqlite::Connection"
+              }
+            ],
+            "return_type": "Result<StoredModels, ApiError>"
+          },
+          {
+            "name": "write_stored",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "conn",
+                "param_type": "&rusqlite::Connection"
+              },
+              {
+                "name": "stored",
+                "param_type": "&StoredModels"
+              }
+            ],
+            "return_type": "Result<(), ApiError>"
+          },
+          {
+            "name": "selected",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "want",
+                "param_type": "Option<&str>"
+              }
+            ],
+            "return_type": "Result<&Profile, ApiError>"
+          },
+          {
+            "name": "gen_profile_id",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "BTreeMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "StatusCode",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "IntoResponse",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "json",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.94
+      }
+    ]
+  },
+  "timestamp": 1790130843,
+  "prompt_hash": "517236e32de8ed7a833e6858bf082f6a",
+  "token_usage": {
+    "input_tokens": 3877,
+    "output_tokens": 4510,
+    "total_tokens": 8387
+  },
+  "model_name": null
+}

@@ -1,0 +1,91 @@
+{
+  "data": {
+    "summary": "A disposable proof-of-concept directory containing a single Dockerfile that bakes the mise toolchain manager into a sandbox base image at build time. It simulates a hypothetical mise-managed rust/opencode preset and is explicitly marked as not-for-merge, so it carries no production business logic or APIs.",
+    "importance_score": 0.12,
+    "key_files": [
+      "Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Dockerfile",
+        "summary": "PoC Dockerfile that installs the mise binary, then uses it to provision pinned Rust and opencode versions on top of sandbox-base. It is explicitly disposable and not intended for merge.",
+        "code_purpose": "config",
+        "source_summary": "Declares FROM sandbox-base and three build args (MISE_VERSION=v2026.9.0, RUST_VERSION=1.93.1, OPENCODE_VERSION=1.18.24). A first RUN layer curl-installs the mise binary to a system path, and subsequent layers use mise to install the pinned Rust and opencode toolchain versions. No application code, services, or exported symbols are defined.",
+        "detailed_description": "This Dockerfile is a throwaway proof-of-concept (task #3, Phase B) validating mise as a build-time install engine inside a sandbox image. It layers the mise binary system-side and then uses mise to install pinned Rust and opencode versions, emulating a 'mise-managed rust/opencode preset' as described in the comments. Its comments state it is not for merge and lives only in mise-poc/, so it has no production role.",
+        "responsibilities": [
+          "Bake the mise binary into the image system path",
+          "Install the pinned Rust toolchain via mise",
+          "Install the pinned opencode version via mise",
+          "Serve as a disposable validation artifact for the mise-based provisioning pattern"
+        ],
+        "interfaces": [
+          {
+            "name": "MISE_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "RUST_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "OPENCODE_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "RUN",
+            "interface_type": "docker_instruction",
+            "parameters": [
+              {
+                "name": "command",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "image_layer"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "sandbox-base",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "curl",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "rust",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "opencode",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.12
+      }
+    ]
+  },
+  "timestamp": 1790131040,
+  "prompt_hash": "4a7dc3701751d81df7d5d3da2f5a12eb",
+  "token_usage": {
+    "input_tokens": 872,
+    "output_tokens": 667,
+    "total_tokens": 1539
+  },
+  "model_name": null
+}

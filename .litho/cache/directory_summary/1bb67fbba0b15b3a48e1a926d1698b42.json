@@ -1,0 +1,107 @@
+{
+  "data": {
+    "summary": "This directory is a single scenario definition unit in an image-building (aio-config / mise) system, describing how to install the OpenAI Codex CLI into a container layer. The two files work as a pair: scenario.toml holds metadata and the version matrix consumed by `aio-config gen`, while fragment.Dockerfile holds the actual installation steps (mise aqua backend) that get resolved and injected during image assembly.",
+    "importance_score": 0.3,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the OpenAI Codex CLI via mise's aqua backend and verifies the binary is on PATH in both login and non-login shells. It also carries a licensing warning about redistributing the closed-source tool.",
+        "code_purpose": "config",
+        "source_summary": "Declares `ARG CODEX_VERSION={{version}}` as a templated build argument, then runs `mise use -g \"codex@${CODEX_VERSION}\"`, `mise ls codex`, and two `bash -lc` / `bash -c` guard commands that check `command -v codex` and exit 1 with a MISSING message if the binary is absent. The file is a fragment, not a complete Dockerfile, intended to be concatenated into a larger build context.",
+        "detailed_description": "This is an L4 'app layer' build fragment in a layered image pipeline. It takes the version supplied by the generator through the CODEX_VERSION build argument, installs it globally with `mise use -g codex@${CODEX_VERSION}`, lists the installed tool, and then asserts that the `codex` executable resolves in both a login and a non-login shell so the image fails fast if installation silently broke. A comment block flags that Codex CLI is a closed-source commercial tool, so license terms must be checked before distributing images produced by `make save`.",
+        "responsibilities": [
+          "Install the OpenAI Codex CLI at a pinned version using the mise aqua backend",
+          "Parameterize the installed version through the CODEX_VERSION build ARG",
+          "Verify the `codex` binary is reachable in login and non-login shells",
+          "Document the licensing risk of baking/distributing a closed-source tool"
+        ],
+        "interfaces": [
+          {
+            "name": "mise use -g codex@${CODEX_VERSION}",
+            "interface_type": "shell command",
+            "parameters": [
+              {
+                "name": "CODEX_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "aqua:openai/codex",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` for fragment resolution, declaring the codex scenario id, category, installer and available versions. It points at fragment.Dockerfile for the actual install steps.",
+        "code_purpose": "config",
+        "source_summary": "Contains a top-level comment explaining the generator contract, then key/value entries: `id = \"codex\"`, `name = \"Codex CLI\"`, a long `description`, `category = \"app\"`, `installer = \"mise\"`, and a single `[[versions]]` table with `label = \"0.155.1\"` and `version = \"0.155.1\"`. No executable code — purely declarative metadata driving fragment resolution.",
+        "detailed_description": "This TOML manifest registers the 'codex' scenario with the aio-config generator: a human-readable name/description, the category `app`, the installer backend `mise`, and a version table whose label/version pair (0.155.1) is substituted into the `{{version}}` placeholder in the adjacent fragment.Dockerfile. The description also records operational facts such as the install location (/opt/mise/installs) and approximate image size (~354MB), plus the same closed-source license caution found in the Dockerfile.",
+        "responsibilities": [
+          "Register the codex scenario (id, name, description, category) for the generator",
+          "Declare mise as the installer backend used by the fragment",
+          "Enumerate the supported/pinned Codex CLI versions for template substitution",
+          "Record install path, size, and licensing caveats for operators"
+        ],
+        "interfaces": [
+          {
+            "name": "[[versions]]",
+            "interface_type": "config table",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "table"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790131072,
+  "prompt_hash": "1bb67fbba0b15b3a48e1a926d1698b42",
+  "token_usage": {
+    "input_tokens": 1010,
+    "output_tokens": 1155,
+    "total_tokens": 2165
+  },
+  "model_name": null
+}

@@ -1,0 +1,69 @@
+{
+  "data": {
+    "summary": "The `config` directory is the host-side scenario configurator for the AIO sandbox: it packages the `aio-config` Rust crate that generates `Dockerfile.base` and discovers scenarios/manifests. It is a build-time tool only, not part of the running sandbox stack — it is compiled into the `aio-config` image and run via `docker run` from the Makefile (`make build-base`). The Cargo manifest and Dockerfile together define how this generator crate is declared, built, and shipped as an independent utility image.",
+    "importance_score": 0.42,
+    "key_files": [
+      "Cargo.toml",
+      "Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Cargo.toml",
+        "summary": "Cargo package manifest declaring the `aio-config` crate (v0.1.0, edition 2021), a build/host-side Dockerfile.base generator independent of the `app` crate.",
+        "code_purpose": "config",
+        "source_summary": "Declares `[package]` metadata (name = \"aio-config\", version = \"0.1.0\", edition = \"2021\", description \"AIO sandbox scenario configurator: Dockerfile.base generator\"), followed by comments describing the tool's build/host-side role, its invocation through the Makefile `make build-base` target, and the reusable `gen` library target for Dockerfile.base assembly plus scenario/manifest discovery.",
+        "detailed_description": "This manifest defines the `aio-config` Rust package used as the scenario configurator for the AIO sandbox, exposing a library target named `gen` that assembles `Dockerfile.base` and performs scenario/manifest discovery. It explicitly documents that the crate is a build/host-side tool rather than part of the running stack, built into the `aio-config` image and invoked via `docker run` from the Makefile. Its library surface is designed to be reusable by other crates such as the sandbox-mgr control plane.",
+        "responsibilities": [
+          "Declare the `aio-config` package identity, version, and edition",
+          "Expose the `gen` library target for Dockerfile.base assembly and scenario/manifest discovery",
+          "Document the crate's host-side-only, non-runtime role relative to the `app` crate",
+          "Define reusable library boundaries for consumption by other crates (e.g., sandbox-mgr)"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "Dockerfile",
+        "summary": "Multi-stage Dockerfile that builds the `aio-config` Rust binary in a rust:1-bookworm stage and copies it into a slim runtime image for the `gen`-only configurator.",
+        "code_purpose": "config",
+        "source_summary": "Contains the `# syntax=docker/dockerfile:1` directive and comments explaining that the image is a build/host-side configurator (gen only) run through `docker run` by the Makefile. The build is a multi-stage pipeline: a `rust:1-bookworm` stage compiles the Rust binary, which is then copied into a slim runtime image; crates.io fetching imposes an online-build-machine constraint mirrored from sandbox-base.",
+        "detailed_description": "This Dockerfile produces the `aio-config` image, the build/host-side scenario configurator that is deliberately excluded from the running sandbox stack and executed via `docker run` from the Makefile during `make build-base`'s gen step. It uses a multi-stage approach: compiling the Rust binary inside a `rust:1-bookworm` builder stage, then copying the artifact into a minimal runtime image. Because crate fetching happens from crates.io, the build requires an online build machine, with offline machines expected to `docker load` a pre-built image.",
+        "responsibilities": [
+          "Build the `aio-config` Rust binary in a `rust:1-bookworm` builder stage",
+          "Produce a minimal runtime image containing only the generator binary",
+          "Encode the online-build-machine requirement for crates.io fetching",
+          "Keep the configurator image separate from the running sandbox stack"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "rust:1-bookworm",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "crates.io",
+            "is_external": true,
+            "dependency_type": "require"
+          }
+        ],
+        "importance_score": 0.45
+      }
+    ]
+  },
+  "timestamp": 1790130757,
+  "prompt_hash": "aee7f634fc0f22836b19d021c9d25d36",
+  "token_usage": {
+    "input_tokens": 1002,
+    "output_tokens": 1045,
+    "total_tokens": 2047
+  },
+  "model_name": null
+}

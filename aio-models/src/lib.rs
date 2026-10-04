@@ -5,4 +5,8 @@
 // control plane consume the exact same types and semantics (single owner of
 // the canonical models.json contract).
 
+pub mod incremental;
+pub mod sandbox_config;
+pub mod snapshot;
 pub mod store;
+pub mod template;

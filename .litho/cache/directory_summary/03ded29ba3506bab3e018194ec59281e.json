@@ -1,0 +1,203 @@
+{
+  "data": {
+    "summary": "The \"pi\" directory is the scenario definition for an all-in-one (AIO) container image that ships the pi coding agent (earendil-works) alongside other L4 agents. It bundles a Dockerfile fragment that installs the CLI via mise and bakes pi extension packages, a runtime registration script that idempotently wires those packages into ~/.pi on the shared workspace volume, a wrapper that routes agent-browser traffic through the VNC chromium CDP endpoint, and a scenario.toml manifest declaring the scenario's id, installer, and always_on policy. Together they form the build-time + run-time contract for enabling the pi scenario in the manager.",
+    "importance_score": 0.62,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml",
+      "aio-pi-extensions.sh",
+      "agent-browser-wrapper.sh"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the pi coding agent CLI via mise (aqua backend) into /opt/mise/installs and pins PI_VERSION to stay compatible with the agent-browser plugin baseline.",
+        "code_purpose": "config",
+        "source_summary": "A Dockerfile fragment with a scenario marker comment; installs pi via mise's aqua backend into /opt/mise/installs, pins PI_VERSION, and stages pi-packages content at /opt/pi-extensions for later runtime registration.",
+        "detailed_description": "This fragment is the build-time half of the pi scenario: it installs the earendil-works/pi coding agent through mise (unifying it with opencode/codex/claude-code installs) instead of a legacy global npm install, and bakes the extension packages into /opt/pi-extensions. It also documents the strict PI_VERSION pinning requirement (0.84.2 baseline vs the 0.86.1 aqua source latest) so the CLI does not drift away from the pi-agent-browser-native plugin baseline. Comment headers carry the scenario marker ('>>> scenario: pi >>>') used by the image assembly tooling.",
+        "responsibilities": [
+          "Install the pi CLI through mise at a pinned version",
+          "Bake pi extension packages into /opt/pi-extensions",
+          "Preserve version compatibility with the agent-browser plugin baseline",
+          "Mark the fragment for scenario-based image composition"
+        ],
+        "interfaces": [
+          {
+            "name": "scenario: pi",
+            "interface_type": "dockerfile_fragment",
+            "parameters": [],
+            "return_type": "image_layer"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "@earendil-works/pi-coding-agent",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "pi-packages/package.json",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.78
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario manifest declaring pi's id, display name, description, npm installer, and optional (always_on = false) activation policy.",
+        "code_purpose": "config",
+        "source_summary": "A TOML manifest with fields id='pi', name, description, category='app', installer='npm', always_on=false, plus Chinese-language comments explaining the S1 change from always_on to optional and the command -v guard mechanism.",
+        "detailed_description": "This manifest is the metadata entry point consumed by the manager's creation wizard and image builder. It marks pi as an optional 'app' category scenario (previously always_on), meaning the wizard's pi service toggle controls whether the fragment is baked, while host-side features (model config pages reading ~/.pi/agent/models.json) guard themselves with command -v checks when pi is absent. It also encodes the install strategy (npm) and the extension registration flow (baked /opt/pi-extensions, registered offline via aio-pi-extensions).",
+        "responsibilities": [
+          "Declare the pi scenario identity and metadata",
+          "Select the npm installer and app category",
+          "Drive optional/always-on inclusion decisions by the image builder",
+          "Point to the extension baking and runtime registration flow"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "always_on",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "bool"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "pi-packages",
+            "is_external": false,
+            "dependency_type": "include"
+          },
+          {
+            "name": "npm",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.68
+      },
+      {
+        "name": "aio-pi-extensions.sh",
+        "summary": "Idempotent, offline runtime script that registers the image-baked pi packages from /opt/pi-extensions into ~/.pi/agent/settings.json on the shared aio_workspace volume.",
+        "code_purpose": "tool",
+        "source_summary": "A bash script that locates the baked /opt/pi-extensions package set and idempotently registers those packages into ~/.pi/agent/settings.json, operating fully offline and per-volume.",
+        "detailed_description": "Because ~/.pi (== /root/.pi) lives on the shared aio_workspace volume that is masked during image build, package registration cannot happen at build time and must run once per volume at container start. This script reads the baked package manifest at /opt/pi-extensions (the pi scenario's 'subset config') and writes the package list into pi's settings.json without any network access, being safe to re-run. It is the run-time counterpart to fragment.Dockerfile's build-time baking.",
+        "responsibilities": [
+          "Register baked pi extension packages into pi settings",
+          "Operate offline without network access",
+          "Be idempotent so repeated container starts are safe",
+          "Handle the volume-masked ~/.pi directory that build steps cannot touch"
+        ],
+        "interfaces": [
+          {
+            "name": "aio-pi-extensions",
+            "interface_type": "cli_entrypoint",
+            "parameters": [
+              {
+                "name": "manifest_path",
+                "param_type": "string"
+              },
+              {
+                "name": "settings_path",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "/opt/pi-extensions",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "~/.pi/agent/settings.json",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "agent-browser-wrapper.sh",
+        "summary": "Wrapper placed at /usr/local/bin/agent-browser that routes agent-browser to the VNC chromium CDP endpoint (localhost:9222) so automated browsing shares cookies/state with manual VNC browsing.",
+        "code_purpose": "tool",
+        "source_summary": "A short bash wrapper that execs agent-browser-real with a default --cdp http://localhost:9222 argument unless the caller already supplied --cdp, enabling shared VNC/automation browser state.",
+        "detailed_description": "Without this shim, agent-browser would launch its own headless Chrome, which is invisible in VNC and does not share cookies or session state with manual browsing (violating R3/AC5). The script forwards to the real binary (baked as agent-browser-real by fragment.Dockerfile) while defaulting to --cdp against the shared netns chromium, and it preserves escape hatches (R7): a user-supplied --cdp <port> is passed through untouched, and agent-browser-real can be invoked directly to bypass the wrapper.",
+        "responsibilities": [
+          "Default agent-browser to the shared VNC chromium CDP endpoint",
+          "Preserve manual-browsing cookie/state sharing",
+          "Honor caller-supplied --cdp for passthrough",
+          "Provide an escape hatch via agent-browser-real"
+        ],
+        "interfaces": [
+          {
+            "name": "agent-browser",
+            "interface_type": "cli_wrapper",
+            "parameters": [
+              {
+                "name": "--cdp",
+                "param_type": "string"
+              },
+              {
+                "name": "args",
+                "param_type": "string[]"
+              }
+            ],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "agent-browser-real",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "chromium CDP localhost:9222",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790131177,
+  "prompt_hash": "03ded29ba3506bab3e018194ec59281e",
+  "token_usage": {
+    "input_tokens": 1329,
+    "output_tokens": 1939,
+    "total_tokens": 3268
+  },
+  "model_name": null
+}

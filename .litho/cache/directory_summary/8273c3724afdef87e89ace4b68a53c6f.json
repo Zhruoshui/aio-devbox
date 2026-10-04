@@ -1,0 +1,154 @@
+{
+  "data": {
+    "summary": "The `uv` directory is a declarative scenario definition for the aio-config toolchain, describing how to install the `uv` Python package/project manager via the mise `aqua:astral-sh/uv` backend. It pairs a metadata file (`scenario.toml`) that declares id, category, installer, and pinned versions with a Dockerfile fragment (`fragment.Dockerfile`) that performs the actual idempotent installation and verification inside login and non-login shells. Together they form a small, self-contained L3 language-layer module that other scenarios can compose with.",
+    "importance_score": 0.38,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` for fragment resolution, declaring the uv scenario's id, category, installer, and pinned version.",
+        "code_purpose": "config",
+        "source_summary": "Contains static key/value metadata: id = \"uv\", name = \"uv\", a Chinese description noting uv installs to /opt/mise/installs and includes uv/uvx, category = \"lang\", installer = \"mise\", plus a single [[versions]] table with label/version 0.5.11. There is no executable logic, only declarative fields.",
+        "detailed_description": "This TOML file is the machine-readable declaration of the `uv` scenario used by the aio-config generator. It identifies the scenario (id/name/description), classifies it as `lang`, selects `mise` as the installer backend, and pins the supported version (0.5.11). The fragment.Dockerfile sitting next to it is selected based on this metadata.",
+        "responsibilities": [
+          "Declare the scenario identity (id, name, description) for aio-config gen",
+          "Classify the scenario as category `lang` and select the `mise` installer backend",
+          "Pin the installable version list (0.5.11) exposed to consumers",
+          "Anchor the sibling fragment.Dockerfile to this scenario for fragment resolution"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "name",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "category",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_key",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.42
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs uv via `mise use -g` and then verifies uv/uvx are resolvable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "A parameterized Dockerfile snippet: `ARG UV_VERSION={{version}}` followed by a single RUN step chaining `mise use -g \"uv@${UV_VERSION}\"`, `mise ls uv`, a bash login-shell loop asserting `uv` and `uvx` resolve or exiting with MISSING(login), a bash non-login check for `uv`, and finally `uv --version && uvx --version`. The block is delimited by `# >>> scenario: uv >>>` / `# <<< scenario: uv <<<` markers used by the fragment resolver.",
+        "detailed_description": "This fragment implements the L3 language layer for uv inside an image build. It takes the UV_VERSION build arg (templated from scenario.toml via `{{version}}`), installs uv globally with mise, lists the install to confirm registration, and then runs a set of assertions to ensure both `uv` and `uvx` are on PATH in login and non-login shells before printing their versions. Because `mise use -g` is read-modify-write, the step is designed to be idempotent and order-composable with other mise tool fragments.",
+        "responsibilities": [
+          "Install the uv toolchain at the pinned version into the mise global installs directory",
+          "Confirm the install is registered by listing it with `mise ls uv`",
+          "Validate that uv and uvx are resolvable in both login and non-login shells, failing the build otherwise",
+          "Emit uv/uvx version output for build-log traceability",
+          "Remain idempotent and order-composable with other mise fragments"
+        ],
+        "interfaces": [
+          {
+            "name": "UV_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [
+              {
+                "name": "UV_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "mise use -g uv@${UV_VERSION}",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "UV_VERSION",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          },
+          {
+            "name": "verification loop (uv, uvx)",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "t",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit_code"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "astral-sh/uv (aqua backend)",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790131273,
+  "prompt_hash": "8273c3724afdef87e89ace4b68a53c6f",
+  "token_usage": {
+    "input_tokens": 987,
+    "output_tokens": 1269,
+    "total_tokens": 2256
+  },
+  "model_name": null
+}

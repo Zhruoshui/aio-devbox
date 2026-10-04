@@ -1,0 +1,148 @@
+{
+  "data": {
+    "summary": "The `ruff` directory is a self-contained scenario definition used by the `aio-config gen` tooling to install the Ruff Python linter/formatter into a container image via mise. It pairs declarative metadata (`scenario.toml`) with an executable Dockerfile fragment (`fragment.Dockerfile`) that performs and verifies the installation. There is no application business logic here; it is purely a declarative, composable infrastructure/config layer.",
+    "importance_score": 0.42,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative scenario metadata consumed by `aio-config gen` to resolve which fragment to apply for the Ruff toolchain.",
+        "code_purpose": "config",
+        "source_summary": "A small TOML document with top-level `id`, `name`, `description`, `category = \"lang\"`, and `installer = \"mise\"` keys, followed by a `[[versions]]` array table containing one entry with `label = \"0.8.4\"` and `version = \"0.8.4\"`. Comments at the top explain that the file is scenario metadata consumed by `aio-config gen` for fragment resolution, and that the actual install steps live in the adjacent Dockerfile fragment.",
+        "detailed_description": "This TOML file declares the identity and versioning contract for the Ruff scenario: an id/name of `ruff`, a human-readable description, the `lang` category, and `mise` as the installer backend. It pins a single default version label (0.8.4) that the generator substitutes into the sibling `fragment.Dockerfile` via the `{{version}}` placeholder. Without it, the fragment has no version input and no registry entry to be discovered.",
+        "responsibilities": [
+          "Declare the unique scenario id/name for fragment resolution",
+          "Declare the installer backend (mise) and category (lang)",
+          "Provide the pinned Ruff version injected into the Dockerfile fragment",
+          "Supply human-readable metadata/description for tooling and docs"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "toml_array_table",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.45
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs Ruff globally through mise and asserts the binary is reachable in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "The file contains only a `RUN` instruction wrapped in `# >>> scenario: ruff >>>` / `# <<< scenario: ruff <<<` marker comments. It takes `ARG RUFF_VERSION={{version}}`, executes `mise use -g \"ruff@${RUFF_VERSION}\"`, then `mise ls ruff`, and chains two guard commands using `bash -lc` and `bash -c` that exit 1 with a `MISSING(login): ruff` / `MISSING(non-login): ruff` message if the binary is absent, finishing with `bash -lc 'ruff --version'`.",
+        "detailed_description": "This is a single-`RUN` fragment injected into a larger image build at the `L3 lang` layer. It consumes the `{{version}}` build ARG supplied by the scenario metadata, runs `mise use -g ruff@${RUFF_VERSION}` (a read-modify-write operation that keeps it idempotent and order-composable with other mise tool fragments), lists the installed tool, then verifies `ruff` resolves on PATH under both `bash -lc` and `bash -c` before printing the version. The double shell check guards against PATH differences between login and non-login shells in the final image.",
+        "responsibilities": [
+          "Install the pinned Ruff version globally via `mise use -g`",
+          "Remain idempotent and order-composable with other mise fragments",
+          "Verify the `ruff` binary is discoverable in login and non-login shells",
+          "Emit the installed Ruff version for build-log traceability"
+        ],
+        "interfaces": [
+          {
+            "name": "mise use -g ruff@${RUFF_VERSION}",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "RUFF_VERSION",
+                "param_type": "build_arg_string"
+              }
+            ],
+            "return_type": "exit_code"
+          },
+          {
+            "name": "mise ls ruff",
+            "interface_type": "shell_command",
+            "parameters": [],
+            "return_type": "stdout"
+          },
+          {
+            "name": "bash -lc 'command -v ruff'",
+            "interface_type": "shell_command",
+            "parameters": [],
+            "return_type": "exit_code"
+          },
+          {
+            "name": "bash -c 'command -v ruff'",
+            "interface_type": "shell_command",
+            "parameters": [],
+            "return_type": "exit_code"
+          },
+          {
+            "name": "bash -lc 'ruff --version'",
+            "interface_type": "shell_command",
+            "parameters": [],
+            "return_type": "stdout"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "astral-sh/ruff (aqua backend)",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "scenario.toml",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.5
+      }
+    ]
+  },
+  "timestamp": 1790131215,
+  "prompt_hash": "295a39668e7db0a47a381218acd36582",
+  "token_usage": {
+    "input_tokens": 980,
+    "output_tokens": 1281,
+    "total_tokens": 2261
+  },
+  "model_name": null
+}

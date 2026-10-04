@@ -1,0 +1,100 @@
+{
+  "data": {
+    "summary": "The 'open-design' directory is a static design-reference bundle for the AIO Sandbox (沙箱) product, containing two standalone HTML screens: a model configuration screen and a workspace screen. Both pages share the same Cloudflare Kumo UI semantic token binding layer (embedded as inline CSS) adapted for the Open Design system, so they act as visual/UX specifications rather than executable application code. No build, framework, or backend logic lives here.",
+    "importance_score": 0.3,
+    "key_files": [
+      "screens_workspace.html",
+      "screens_model-config.html"
+    ],
+    "file_insights": [
+      {
+        "name": "screens_workspace.html",
+        "summary": "Standalone HTML mockup of the AIO Sandbox main workspace screen, styled with Cloudflare Kumo UI design tokens under a dark theme and Chinese (zh-CN) locale.",
+        "code_purpose": "page",
+        "source_summary": "The document is an HTML5 skeleton with a zh-CN lang attribute, data-mode='dark', a viewport meta tag, and a title of 'AIO 沙箱 · 工作台'. Nearly all content is a <style> block documenting the provenance of the design tokens (kumo-ui.com colors, the Kumo GitHub commit, and theme-generator/config.ts) followed by the adapted token definitions and screen styling. There is no JavaScript or server-side logic present.",
+        "detailed_description": "This file is a self-contained HTML page representing the primary workspace ('工作台') of the AIO Sandbox product. It declares a dark-mode document root, embeds a large inline stylesheet that adapts Cloudflare Kumo UI color/token values into Open Design semantic bindings, and lays out the screen's UI regions. It functions as a design deliverable / prototype reference rather than production application logic.",
+        "responsibilities": [
+          "Render the dark-themed AIO Sandbox workspace screen layout",
+          "Define and apply Cloudflare Kumo UI derived design tokens (colors, semantic bindings)",
+          "Serve as a visual/UX specification for the workspace view",
+          "Set locale, viewport, and document metadata for the screen"
+        ],
+        "interfaces": [
+          {
+            "name": "html[data-mode=\"dark\"]",
+            "interface_type": "document-root-attribute",
+            "parameters": [
+              {
+                "name": "data-mode",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "Kumo semantic color tokens (inline CSS custom properties)",
+            "interface_type": "css-variable-set",
+            "parameters": [],
+            "return_type": "css-value"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Cloudflare Kumo UI (kumo-ui.com/colors)",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.32
+      },
+      {
+        "name": "screens_model-config.html",
+        "summary": "Standalone HTML mockup of the AIO Sandbox model configuration screen, reusing the same Cloudflare Kumo UI derived dark-theme token layer.",
+        "code_purpose": "page",
+        "source_summary": "The source consists of an HTML5 document with charset/viewport metadata, the title 'AIO 沙箱 · 模型配置', and an inline <style> block whose comments cite the upstream Kumo UI color source, a specific Kumo GitHub commit hash, and the theme-generator config file from which token values were adapted. The style block then defines the semantic bindings and styling for the model configuration screen; no scripts are included.",
+        "detailed_description": "This file is a self-contained HTML page representing the model configuration ('模型配置') screen of the AIO Sandbox product. Like its sibling, it inlines a full Kumo-UI-derived stylesheet and presents the configuration form/settings UI in dark mode with a zh-CN locale. It is a static design artifact for the configuration workflow rather than runnable feature code.",
+        "responsibilities": [
+          "Render the dark-themed AIO Sandbox model configuration screen",
+          "Reuse and apply the shared Kumo UI derived design token palette",
+          "Document the upstream token provenance for the configuration view",
+          "Define localization and document metadata for the screen"
+        ],
+        "interfaces": [
+          {
+            "name": "html[data-mode=\"dark\"]",
+            "interface_type": "document-root-attribute",
+            "parameters": [
+              {
+                "name": "data-mode",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "Kumo semantic color tokens (inline CSS custom properties)",
+            "interface_type": "css-variable-set",
+            "parameters": [],
+            "return_type": "css-value"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "Cloudflare Kumo UI (kumo-ui.com/colors)",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.3
+      }
+    ]
+  },
+  "timestamp": 1790130789,
+  "prompt_hash": "4a3a287942f469def977d27108e35661",
+  "token_usage": {
+    "input_tokens": 1016,
+    "output_tokens": 1104,
+    "total_tokens": 2120
+  },
+  "model_name": null
+}

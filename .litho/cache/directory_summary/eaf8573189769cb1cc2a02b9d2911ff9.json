@@ -1,0 +1,100 @@
+{
+  "data": {
+    "summary": "This directory defines a single declarative scenario, \"shell-tools\", for the AIO configuration generator. scenario.toml supplies metadata (id, category, installer) consumed by `aio-config gen`, while fragment.Dockerfile provides the actual apt-based installation steps for baseline shell utilities (wget/tree/less/file/zip/vim) into system paths. Together they form a configuration layer that registers and installs a set of generic L2 shell tools.",
+    "importance_score": 0.32,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata file consumed by `aio-config gen` to register the shell-tools scenario and resolve its sibling fragment.Dockerfile.",
+        "code_purpose": "config",
+        "source_summary": "Static TOML configuration with keys id, name, description, category, installer, and always_on. It documents that fragment resolution is handled by `aio-config gen` and that the actual install steps live in the neighboring fragment.Dockerfile.",
+        "detailed_description": "This TOML file declares the scenario identity and metadata used by the AIO configuration generator. It specifies the scenario id, human-readable name and description, the category (shell), installer type (apt), and an always_on flag set to false. It contains no executable logic; it only wires the scenario into the broader generation pipeline, which then looks for the adjacent fragment.Dockerfile to perform the actual install.",
+        "responsibilities": [
+          "Declare scenario identity (id, name, description)",
+          "Set the scenario category to shell and installer backend to apt",
+          "Mark the scenario as opt-in via always_on = false",
+          "Provide metadata consumed by the aio-config gen fragment-resolution pipeline"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that apt-installs baseline shell utilities (wget, tree, less, file, zip, vim) into system paths, kept separate from mise-managed L2 tools.",
+        "code_purpose": "config",
+        "source_summary": "A Dockerfile fragment containing apt-based installation of wget, tree, less, file, zip, and vim into system paths, with explanatory comments on the L2 layer split. It also trims apt lists at the end of the head stage to reduce image size.",
+        "detailed_description": "This Dockerfile fragment is the executable half of the shell-tools scenario. It uses apt to install distribution-neutral baseline tools into system paths (/usr/bin, /usr/local/bin) so they are not shadowed by the shared aio_workspace volume. The comments explain the deliberate split from mise-managed modern alternatives (fzf/ripgrep/bat/fd/eza/zoxide/delta/starship/jq/yq), which have version dimensions, while these baseline tools have no version-selection need. Because the installer differs from the mise side, the EnvPicker/TUI renders two sub-headers as intended by scenario.rs::has_multiple_installers.",
+        "responsibilities": [
+          "Install baseline shell utilities (wget/tree/less/file/zip/vim) via apt",
+          "Place binaries on system paths unaffected by the shared workspace volume",
+          "Complement mise-managed modern tools without overlap",
+          "Trigger two-level installer sub-headings in the EnvPicker/TUI",
+          "Clean up apt lists to keep the image lean"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "apt",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "wget",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tree",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "less",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "file",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "zip",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "vim",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790131242,
+  "prompt_hash": "eaf8573189769cb1cc2a02b9d2911ff9",
+  "token_usage": {
+    "input_tokens": 1064,
+    "output_tokens": 1016,
+    "total_tokens": 2080
+  },
+  "model_name": null
+}

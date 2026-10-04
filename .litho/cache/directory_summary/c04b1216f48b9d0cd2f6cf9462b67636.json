@@ -1,0 +1,125 @@
+{
+  "data": {
+    "summary": "The \"fd\" directory is a single scenario definition in a declarative Docker image build system (aio-config). It pairs a scenario.toml metadata file (id, category, installer, pinned version 10.5.0) with a fragment.Dockerfile that installs the `fd` find-alternative via `mise use -g` and then verifies the binary resolves in both login and non-login shells. Together they form an idempotent, composable L2 shell-layer install fragment rather than application business logic.",
+    "importance_score": 0.3,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Docker build fragment that installs the `fd` CLI at a parameterized version through mise and asserts the binary is on PATH for both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "Declares `ARG FD_VERSION={{version}}`, then runs `mise use -g \"fd@${FD_VERSION}\"`, lists the installed fd, and executes `command -v fd` checks under both `bash -lc` (login) and `bash -c` (non-login) shells, exiting 1 with a MISSING diagnostic if not found. The visible content is truncated mid-command, but the pattern is install-then-verify.",
+        "detailed_description": "This fragment is a self-contained, composable Dockerfile snippet generated from a scenario template, using ARG FD_VERSION to pin the fd release. It relies on mise's read-modify-write `use -g` semantics so multiple tool fragments can be layered in any Docker layer order without aggregation. Post-install verification steps fail the build early if `fd` is not resolvable in either shell mode.",
+        "responsibilities": [
+          "Install the pinned fd version globally via mise (aqua backend) into /opt/mise/installs",
+          "Verify fd is discoverable on PATH in login and non-login shells",
+          "Expose the pinned version as a build ARG for template substitution",
+          "Remain idempotent and order-independent when composed with other mise tool fragments"
+        ],
+        "interfaces": [
+          {
+            "name": "FD_VERSION",
+            "interface_type": "build_arg",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "mise use -g",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "tool_spec",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "void"
+          },
+          {
+            "name": "command -v fd",
+            "interface_type": "shell_command",
+            "parameters": [
+              {
+                "name": "fd",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "string"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.35
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata consumed by `aio-config gen` that identifies the fd scenario, its category, installer backend, and pinned version list.",
+        "code_purpose": "config",
+        "source_summary": "Defines id = \"fd\", name = \"fd\", a Chinese-language description noting fd is a user-friendly find replacement installed via the mise aqua backend into /opt/mise/installs, category = \"shell\", installer = \"mise\", and one [[versions]] table with label and version both set to \"10.5.0\".",
+        "detailed_description": "This TOML file is the declarative descriptor that the aio-config generator uses to resolve and render the sibling fragment.Dockerfile. It classifies fd as a shell-category tool installed by mise and pins the build version to 10.5.0 via a [[versions]] entry. It is purely declarative configuration with no executable logic.",
+        "responsibilities": [
+          "Identify the scenario to the aio-config fragment resolver",
+          "Declare category (shell) and installer backend (mise)",
+          "Pin the installable version(s) used to fill the fragment's version template"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config_table_array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "table[]"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.3
+      }
+    ]
+  },
+  "timestamp": 1790131101,
+  "prompt_hash": "c04b1216f48b9d0cd2f6cf9462b67636",
+  "token_usage": {
+    "input_tokens": 988,
+    "output_tokens": 1050,
+    "total_tokens": 2038
+  },
+  "model_name": null
+}

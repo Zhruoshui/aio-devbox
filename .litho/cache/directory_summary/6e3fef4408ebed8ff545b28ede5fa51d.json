@@ -1,0 +1,435 @@
+{
+  "data": {
+    "summary": "The routes directory is the HTTP/WebSocket API layer of this Rust/Axum backend, housing all route-group handlers for the workspace application. Each module owns one route group: buttons (register/remove user buttons), manifest (service manifest), preview (dynamic reverse proxy to dev servers), seam (reserved-API catch-all), stats (container resource snapshot), and terminal (pty WebSocket bridge). These handlers wire the axum router to AppState, config parsers, and infrastructure services, making this a hub of the backend's external surface.",
+    "importance_score": 0.9,
+    "key_files": [
+      "terminal.rs",
+      "preview.rs",
+      "buttons.rs",
+      "manifest.rs",
+      "stats.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "mod.rs",
+        "summary": "Module declaration file that exposes each route group (buttons, manifest, models, preview, seam, stats, terminal) as public submodules.",
+        "code_purpose": "module",
+        "source_summary": "Contains only `pub mod` declarations for buttons, manifest, models, preview, seam, stats, and terminal. No executable logic; purely organizational.",
+        "detailed_description": "Serves as the aggregated re-export point for all route handler modules in the routes directory. It simply declares each submodule as public, giving the parent router access to every endpoint group handler.",
+        "responsibilities": [
+          "Declare public route-group submodules",
+          "Provide a single import surface for the routes layer"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "buttons",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "manifest",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "models",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "preview",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "seam",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "stats",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "terminal",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "buttons.rs",
+        "summary": "Handles POST/DELETE /api/buttons for registering and removing user-defined buttons persisted to buttons.toml, including validation, atomic writes, and live probe endpoints.",
+        "code_purpose": "controller",
+        "source_summary": "Defines ButtonInput/ButtonOut/ProbeQuery/ProbeOut structs plus slugify/unique_id helpers and write_buttons_atomic for crash-safe TOML persistence. Includes unit tests for slug generation, collision suffixing, type validation, and async tests probing live/dead ports.",
+        "detailed_description": "Implements the user-button CRUD API, writing atomically to the persistent workspace volume so registered buttons survive container restarts and are shared across browsers. It validates button types (agent/web), normalizes web ports, derives unique slugs/IDs, and exposes async probe handlers that test whether a port is live. Writes are serialized via AppState::file_lock.",
+        "responsibilities": [
+          "Register user buttons via POST /api/buttons",
+          "Remove user buttons via DELETE /api/buttons/:id",
+          "Validate and normalize button types/ports",
+          "Persist buttons.toml atomically under file lock",
+          "Probe whether web ports are listening"
+        ],
+        "interfaces": [
+          {
+            "name": "write_buttons_atomic",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "defs",
+                "param_type": "&[ButtonDef]"
+              }
+            ],
+            "return_type": "std::io::Result<()>"
+          },
+          {
+            "name": "slugify",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "unique_id",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "base",
+                "param_type": "String"
+              },
+              {
+                "name": "defs",
+                "param_type": "&[ButtonDef]"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "probe_live_port_listening",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "()"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "parse_button_defs",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "manifest.rs",
+        "summary": "GET /api/manifest handler that builds a live service manifest per request by merging built-in and user buttons with availability checks.",
+        "code_purpose": "controller",
+        "source_summary": "Thin axum handler extracting State<AppState> and returning JSON from build_manifest, after loading/merging services and resolving button definitions via config functions.",
+        "detailed_description": "Computes the service manifest on each request so it reflects current availability: web-type entries via TCP reachability and agent-type entries via PATH existence. It merges built-in services.toml buttons with user buttons.toml, delegating to config helpers.",
+        "responsibilities": [
+          "Serve GET /api/manifest",
+          "Merge built-in and user buttons",
+          "Reflect live service availability"
+        ],
+        "interfaces": [
+          {
+            "name": "manifest",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "State<AppState>"
+              }
+            ],
+            "return_type": "impl IntoResponse"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum::extract::State",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "build_manifest",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.75
+      },
+      {
+        "name": "preview.rs",
+        "summary": "Dynamic reverse proxy for /preview/<port>(/<path>) that forwards HTTP and WebSocket traffic to loopback-bound dev servers, including hop-by-hop header filtering.",
+        "code_purpose": "middleware",
+        "source_summary": "Provides port_allowed, upstream_path, and is_hop_by_hop helpers with async proxying of Body/WebSocketUpgrade to 127.0.0.1:<port>. Includes tests covering port rejection, prefix stripping, and hop-by-hop header filtering.",
+        "detailed_description": "Implements a per-app reverse proxy so user-started dev servers (bound on the shared netns loopback) are reachable via /preview/<port>. It constructs upstream paths, blocks disallowed ports (zero/self), upgrades WebSockets, and strips RFC 7230 hop-by-hop headers when relaying responses.",
+        "responsibilities": [
+          "Reverse-proxy HTTP requests to loopback dev servers",
+          "Bridge WebSocket upgrades",
+          "Strip hop-by-hop headers per RFC 7230",
+          "Reject disallowed ports (zero/self)"
+        ],
+        "interfaces": [
+          {
+            "name": "port_allowed",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "port",
+                "param_type": "u16"
+              }
+            ],
+            "return_type": "bool"
+          },
+          {
+            "name": "upstream_path",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "full_path",
+                "param_type": "&str"
+              },
+              {
+                "name": "port",
+                "param_type": "u16"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "is_hop_by_hop",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&header::HeaderName"
+              }
+            ],
+            "return_type": "bool"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "seam.rs",
+        "summary": "Reserved-API catch-all handler returning 502 with a stub JSON body for /api, /v1, and /mcp prefixes until a future agent/SDK API exists.",
+        "code_purpose": "controller",
+        "source_summary": "Defines a single async seam handler returning (StatusCode, Json<Value>) with a stub payload; wired as a catch-all for reserved prefixes.",
+        "detailed_description": "Provides an explicit placeholder so reserved API surfaces (/api minus real endpoints, /v1, /mcp) are not swallowed by code-server or the static SPA. Wired as `any(seam)` on catch-all routes, it answers every method and sub-path with a 502 stub, proving the seam exists.",
+        "responsibilities": [
+          "Answer all reserved-prefix requests with 502 stub",
+          "Reserve API namespace from being swallowed by other services"
+        ],
+        "interfaces": [
+          {
+            "name": "seam",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "(StatusCode, Json<Value>)"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "http::StatusCode",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "json",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "stats.rs",
+        "summary": "GET /api/stats handler plus a background sampler that reports container-self CPU, memory, and disk usage for the statusbar footer.",
+        "code_purpose": "controller",
+        "source_summary": "Defines StatsSnapshot and stats/async handler, spawn_stats_sampler, read_cpu_usage_usec, effective_cpus, read_mem, and read_disk helpers reading cgroup v2 and statvfs data.",
+        "detailed_description": "Provides container-scoped resource metrics (not host) using cgroup v2 files for portability across host OSes. CPU% derives from cpu.stat usage_usec deltas over wall time against the effective CPU budget; memory and disk come from read_mem and statvfs. A spawn_stats_sampler periodically refreshes the shared StatsSnapshot.",
+        "responsibilities": [
+          "Serve GET /api/stats with latest snapshot",
+          "Sample cgroup v2 CPU usage deltas",
+          "Read memory and disk (statvfs) metrics",
+          "Run background sampling task"
+        ],
+        "interfaces": [
+          {
+            "name": "stats",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "State<AppState>"
+              }
+            ],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "spawn_stats_sampler",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "AppState"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "read_cpu_usage_usec",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Option<u64>"
+          },
+          {
+            "name": "read_mem",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Option<(u64, Option<u64>)>"
+          },
+          {
+            "name": "read_disk",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Option<(u64, u64)>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum::extract::State",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "statvfs",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.7
+      },
+      {
+        "name": "terminal.rs",
+        "summary": "GET /api/term/ws WebSocket handler that spawns a pty (login shell or ?cmd= under it) and bidirectionally bridges it to the browser.",
+        "code_purpose": "service",
+        "source_summary": "Defines TermQuery (cmd/cwd) and async terminal_ws plus run_pty_session, using axum WebSocketUpgrade, tokio mpsc, and spawn_pty with PtySize for the pty loop.",
+        "detailed_description": "Bridges a WebSocket to a spawned pty, routing client Text frames to pty stdin and pty stdout/stderr back to the client. Supports ?cmd= to run a command under a login shell and ?cwd= to override the working directory (falling back to /root). The pty runs as root since the app process does.",
+        "responsibilities": [
+          "Serve GET /api/term/ws WebSocket",
+          "Spawn pty with optional cmd/cwd",
+          "Bridge client keystrokes to pty stdin",
+          "Stream pty output back to client"
+        ],
+        "interfaces": [
+          {
+            "name": "terminal_ws",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "ws",
+                "param_type": "WebSocketUpgrade"
+              }
+            ],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "run_pty_session",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "socket",
+                "param_type": "WebSocket"
+              },
+              {
+                "name": "cmd",
+                "param_type": "Option<String>"
+              },
+              {
+                "name": "cwd",
+                "param_type": "Option<String>"
+              }
+            ],
+            "return_type": "()"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum::extract::Query",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio::sync::mpsc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "spawn_pty",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      }
+    ]
+  },
+  "timestamp": 1790130709,
+  "prompt_hash": "6e3fef4408ebed8ff545b28ede5fa51d",
+  "token_usage": {
+    "input_tokens": 2391,
+    "output_tokens": 2811,
+    "total_tokens": 5202
+  },
+  "model_name": null
+}

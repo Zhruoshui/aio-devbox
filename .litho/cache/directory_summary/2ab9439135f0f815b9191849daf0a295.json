@@ -1,0 +1,79 @@
+{
+  "data": {
+    "summary": "The user-tools directory is a small, self-contained container-image build layer that gives end users an escape hatch for installing non-mise tooling (apt packages, tarballs, compiled source) via a hand-editable Dockerfile fragment. It pairs a scenario.toml metadata file (consumed by `aio-config gen` for fragment resolution) with fragment.Dockerfile, which holds the actual install steps. Together they form an optional, always_on=false shell-category scenario that rebuilds independently without invalidating earlier image layers.",
+    "importance_score": 0.38,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "A user-editable Dockerfile fragment that installs non-mise tools (apt system packages, source builds, custom tarballs) into a dedicated L2 shell layer.",
+        "code_purpose": "config",
+        "source_summary": "The file is primarily a heavily-commented Dockerfile fragment: the header comments explain the L2 shell-layer role, the BuildKit positional cache behavior, and the three hard rules for path placement and single-binary installation. The commented body contrasts the intended user-edit workflow with what scenario authors should copy, and the remaining instruction lines perform the actual installs of apt/tarball/compiled tools into system paths.",
+        "detailed_description": "This fragment occupies a single L2 shell layer of the image build chain and exists specifically as an escape hatch for tooling that mise cannot manage. It documents BuildKit's positional cache semantics (changing this layer invalidates this and every subsequent layer, measured at ~27 layers / ~50s), so the file is deliberately kept small and rarely modified. It also states three hard rules about installing into system paths (/usr/local/bin, /usr/local, /opt) rather than /root, which is masked by the workspace volume.",
+        "responsibilities": [
+          "Provide a user-editable escape hatch for non-mise tool installation",
+          "Install apt packages, compiled sources, and custom tarballs into the image",
+          "Document BuildKit positional cache/rebuild cost so the layer stays small and stable",
+          "Enforce path rules (/usr/local, /opt, /usr/local/bin) to survive workspace volume mounting"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "Docker/BuildKit",
+            "is_external": true,
+            "dependency_type": "include"
+          },
+          {
+            "name": "apt",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "TOML metadata describing the user-tools scenario so `aio-config gen` can resolve the adjacent fragment.Dockerfile during image generation.",
+        "code_purpose": "config",
+        "source_summary": "A short TOML document with comment headers explaining its role in fragment resolution. It defines the keys id, name, description, category, installer, and always_on, with a description string that restates the non-mise install policy and the /usr/local or /opt path requirement.",
+        "detailed_description": "This metadata file declares the scenario identity (id = \"user-tools\", name/description in Chinese), its category (shell), installer (apt), and the always_on = false flag that makes it opt-in rather than baked into every build. It explicitly points readers to the sibling fragment.Dockerfile as the place where install steps live, and it warns that installs must target /usr/local or /opt because /root is hidden by the workspace volume.",
+        "responsibilities": [
+          "Declare scenario identity and human-readable name/description",
+          "Specify scenario category (shell) and installer (apt) for the generator",
+          "Control opt-in behavior via always_on = false",
+          "Point the builder at the sibling fragment.Dockerfile containing install steps"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.35
+      }
+    ]
+  },
+  "timestamp": 1790131260,
+  "prompt_hash": "2ab9439135f0f815b9191849daf0a295",
+  "token_usage": {
+    "input_tokens": 1077,
+    "output_tokens": 1031,
+    "total_tokens": 2108
+  },
+  "model_name": null
+}

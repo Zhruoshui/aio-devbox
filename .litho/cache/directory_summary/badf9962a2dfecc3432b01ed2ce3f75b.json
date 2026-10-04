@@ -1,0 +1,66 @@
+{
+  "data": {
+    "summary": "The code-server directory contains a single Dockerfile that builds a container image running code-server (VS Code in the browser) on top of the shared sandbox-base image. It is a pure infrastructure/deployment artifact of the sandbox environment rather than a business-logic module, and it must be built from the repository root context alongside the other service images. Its role is to expose a browser-accessible IDE inside the sandbox, but it holds no application code, APIs, or data-layer logic of its own.",
+    "importance_score": 0.4,
+    "key_files": [
+      "Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "Dockerfile",
+        "summary": "Dockerfile that layers code-server (browser-based VS Code) onto the shared sandbox-base image, installing it via npm because code-server.dev is blocked in the sandbox network.",
+        "code_purpose": "config",
+        "source_summary": "The file starts with `# syntax=docker/dockerfile:1` and a comment block explaining that this is the Phase D code-server (VS Code in the browser) image. It documents the base image, build context conventions, and the rationale for installing code-server via npm instead of code-server.dev due to network restrictions; the remaining content is the Dockerfile instructions that layer code-server onto the base image.",
+        "detailed_description": "This Dockerfile defines a Phase D sandbox image derived from the shared `sandbox-base` image (built with `make build-base`), which already provides node, python, git, opencode, root user, and WORKDIR /root. The file only adds code-server on top, using an npm-based install path because the upstream code-server.dev distribution endpoint is unreachable from this sandbox's network. Build context is the repository root, matching how docker-compose declares `context: .` and `dockerfile: code-server/Dockerfile` for the `app` service, so the image is part of a multi-service deployment topology rather than a standalone artifact.",
+        "responsibilities": [
+          "Derive the code-server image from the shared sandbox-base image",
+          "Install code-server via npm due to blocked upstream distribution endpoint",
+          "Align with docker-compose build context (repo root, code-server/Dockerfile) used by the app service",
+          "Preserve the base image's root user and /root working directory for sandbox consistency"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "sandbox-base",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "docker-compose",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Makefile (make build-base)",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "code-server (npm package)",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "node/npm",
+            "is_external": true,
+            "dependency_type": "require"
+          },
+          {
+            "name": "docker/dockerfile:1 syntax",
+            "is_external": true,
+            "dependency_type": "import"
+          }
+        ],
+        "importance_score": 0.4
+      }
+    ]
+  },
+  "timestamp": 1790130745,
+  "prompt_hash": "badf9962a2dfecc3432b01ed2ce3f75b",
+  "token_usage": {
+    "input_tokens": 873,
+    "output_tokens": 745,
+    "total_tokens": 1618
+  },
+  "model_name": null
+}

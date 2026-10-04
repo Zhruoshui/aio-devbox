@@ -1,0 +1,145 @@
+{
+  "data": {
+    "summary": "The \"opencode\" directory is a single scenario definition in what appears to be an aio-config scenario registry, declaring how to install the opencode AI coding agent into a container image. It contains only declarative artifacts: a scenario.toml metadata file consumed by `aio-config gen`, and a fragment.Dockerfile holding the actual mise-based install and verification steps. Together they form a self-contained, idempotent install unit whose success is gated by a login-shell PATH probe that auto-enables the app panel button.",
+    "importance_score": 0.34,
+    "key_files": [
+      "scenario.toml",
+      "fragment.Dockerfile"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs the opencode AI coding agent via mise's aqua backend and verifies the binary is resolvable in a login shell.",
+        "code_purpose": "config",
+        "source_summary": "A short Dockerfile fragment: an `ARG OPENCODE_VERSION={{version}}` placeholder, a `RUN mise use -g \"opencode@${OPENCODE_VERSION}\"` install step, a `mise ls opencode` listing for the build log, and a `bash -lc 'command -v opencode >/dev/null || { echo \"MISSING(login): opencode\" >&2; exit 1; }'` guard followed by a non-login `bash -c` check.",
+        "detailed_description": "This fragment is the executable half of the opencode scenario: it takes the OPENCODE_VERSION build arg injected from scenario.toml and runs `mise use -g opencode@${OPENCODE_VERSION}` to install the ~177MB aqua-backed binary into /opt/mise/installs. After installation it asserts both `mise ls opencode` and a login-shell `command -v opencode` check, failing the build with a MISSING(login) message if the binary is not on the login PATH. That guard is intentional because the app panel's opencode button (type=agent) is enabled only when command_exists(opencode) succeeds, so a successful build makes the button appear and a failed one keeps it hidden rather than producing a dead pane.",
+        "responsibilities": [
+          "Install the opencode binary globally via mise/aqua at the version passed in as a build arg",
+          "Verify the install with `mise ls opencode` for build-time observability",
+          "Assert that opencode resolves on the login-shell PATH so the app panel button activates",
+          "Fail fast with an explicit error if the binary is missing, keeping the UI free of dead panes"
+        ],
+        "interfaces": [
+          {
+            "name": "OPENCODE_VERSION",
+            "interface_type": "build-arg",
+            "parameters": [
+              {
+                "name": "value",
+                "param_type": "string (semver, templated as {{version}})"
+              }
+            ],
+            "return_type": "string"
+          },
+          {
+            "name": "mise use -g opencode@${OPENCODE_VERSION}",
+            "interface_type": "shell-command",
+            "parameters": [
+              {
+                "name": "tool",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "exit code"
+          },
+          {
+            "name": "command -v opencode",
+            "interface_type": "shell-command",
+            "parameters": [
+              {
+                "name": "binary",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "path string or non-zero exit"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anomalyco/opencode (aqua backend)",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.4
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Scenario metadata file declaring the opencode install scenario's id, category, installer, and pinned version for `aio-config gen` fragment resolution.",
+        "code_purpose": "config",
+        "source_summary": "A declarative TOML document with top-level keys `id = \"opencode\"`, `name = \"opencode\"`, a description explaining the aqua-backed agent install (~177MB, /opt/mise/installs) and the command -v button guard, `category = \"app\"`, `installer = \"mise\"`, and one `[[versions]]` entry with label and version both set to \"1.18.24\".",
+        "detailed_description": "This TOML file is the registry entry that the aio-config generator reads to discover the opencode scenario and pair it with the sibling fragment.Dockerfile. It declares id/name \"opencode\" (matching the resulting binary name), category \"app\", installer \"mise\", and a single versions block pinning 1.18.24 with a matching human-readable label. Its description also documents the command -v guard behavior that hides the app panel button when the tool is absent.",
+        "responsibilities": [
+          "Identify the scenario uniquely via id/name for fragment resolution",
+          "Classify the scenario as an app-layer install backed by the mise installer",
+          "Pin the installable version (1.18.24) exposed to the Dockerfile build arg",
+          "Document the UI guard semantics that hide the app panel button when opencode is not installed"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "config-key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "config-key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "config-array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array of version entries"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.38
+      }
+    ]
+  },
+  "timestamp": 1790131166,
+  "prompt_hash": "005e7762038245f5b6a898056203cfb1",
+  "token_usage": {
+    "input_tokens": 1004,
+    "output_tokens": 1315,
+    "total_tokens": 2319
+  },
+  "model_name": null
+}

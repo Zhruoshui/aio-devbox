@@ -1,0 +1,153 @@
+{
+  "data": {
+    "summary": "The mgr-web directory is the build-and-bootstrap root of the aio-mgr-web React SPA (the Sandbox 管理器 UI), containing only top-level toolchain configuration plus the HTML shell that Vite serves. index.html provides the pre-paint theme/locale bootstrap and mounts the React app, while package.json, tsconfig.json and vite.config.ts define dependencies, strict TypeScript compilation and the static-asset/base-path build that aio-mgr's ServeDir and Dockerfile consume. No application business logic lives here; the real code is under the subdirectory (src).",
+    "importance_score": 0.45,
+    "key_files": [
+      "index.html",
+      "vite.config.ts",
+      "package.json",
+      "tsconfig.json"
+    ],
+    "file_insights": [
+      {
+        "name": "index.html",
+        "summary": "HTML entry shell for the React SPA that restores the persisted theme/language before first paint and mounts the app bundle.",
+        "code_purpose": "entry",
+        "source_summary": "A minimal doctype/head/body document with charset, viewport and title ('Sandbox 管理器'). The inline <script> restores the theme scheme and language from stored preferences prior to first paint, with a key-to-mode map that App.tsx later owns; the rest of the markup is a mount container for the bundled React entry.",
+        "detailed_description": "This is the single HTML document Vite uses as the SPA entry template, served at '/' by aio-mgr's ServeDir. It defines the Chinese-language document with a default tokyo-night/dark scheme and contains an inline pre-paint script that reads stored preferences so the UI never flashes the wrong theme or mode before React hydrates. It is the anchor file loaded by browsers and the injection point for the compiled JS/CSS assets.",
+        "responsibilities": [
+          "Provide the SPA HTML shell and <title>/meta tags",
+          "Restore persisted theme scheme, dark/light mode and language before first paint",
+          "Serve as the mount point for the bundled React application"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "App.tsx",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "src/main entry bundle",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.6
+      },
+      {
+        "name": "package.json",
+        "summary": "Package manifest for aio-mgr-web declaring the React SPA's dependencies, dev/build/typecheck scripts and Vite-based toolchain.",
+        "code_purpose": "config",
+        "source_summary": "A standard npm manifest: name, version, type=module, description, four scripts (dev, build, preview, typecheck) where build = 'tsc --noEmit && vite build', and a dependencies block including @fontsource/inter and @xterm/addon-clipboard, @xterm/addon-fit and other xterm addons (list truncated).",
+        "detailed_description": "Defines the private ESM package 'aio-mgr-web' (version 0.1.0) that is the sandbox-mgr UI — a React SPA with a golden-layout workspace and admin pages, served statically by aio-mgr. It pins runtime dependencies such as xterm terminal addons and the Inter font, and exposes the canonical dev/build/preview/typecheck scripts; the build script runs tsc --noEmit before vite build, so type errors fail the Docker image build.",
+        "responsibilities": [
+          "Declare runtime and build dependencies of the SPA",
+          "Define the dev/build/preview/typecheck script entry points",
+          "Mark the package private and ESM-typed for static bundling by aio-mgr"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "@xterm/addon-clipboard",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "@xterm/addon-fit",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "@fontsource/inter",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "vite",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "typescript",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.55
+      },
+      {
+        "name": "tsconfig.json",
+        "summary": "Strict TypeScript compiler configuration controlling JSX, module resolution and lint-like checks for the whole mgr-web source tree.",
+        "code_purpose": "config",
+        "source_summary": "A compilerOptions object with target ES2020, DOM/Iterable libs, module ESNext, moduleResolution bundler, allowImportingTsExtensions, resolveJsonModule, isolatedModules, noEmit, jsx react-jsx and strict-family checks; an include array (truncated) selects the project sources.",
+        "detailed_description": "Configures the TypeScript compiler for the SPA: ES2020 target/lib, ESNext modules with bundler resolution, react-jsx JSX transform and noEmit (Vite owns emission). It turns on strict mode plus noUnusedLocals, noUnusedParameters and noFallthroughCasesInSwitch, so `npm run typecheck` (and the build's tsc step) enforces a high code-quality bar across the included source files.",
+        "responsibilities": [
+          "Set language level, module resolution and JSX transform for the SPA",
+          "Enforce strict type checking and unused-code rules",
+          "Define the file set included in typechecking"
+        ],
+        "interfaces": [],
+        "dependencies": [
+          {
+            "name": "typescript",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.5
+      },
+      {
+        "name": "vite.config.ts",
+        "summary": "Vite build/dev configuration that sets the React plugin, root-absolute base and dist output consumed by aio-mgr's static serving and Docker image.",
+        "code_purpose": "config",
+        "source_summary": "A 31-line module importing defineConfig from vite and react from @vitejs/plugin-react, then exporting a config with the React plugin, base '/', dist output directory and a dev-server /api proxy; the surrounding comments explain the ServeDir/gateway/Dockerfile wiring.",
+        "detailed_description": "Exports the Vite configuration for the SPA, registering @vitejs/plugin-react and fixing base to '/'. The comments document the deployment contract: the SPA is served at '/' by aio-mgr's ServeDir (mgr/src/main.rs) either directly on :8089 or through the gateway's mgr.localhost site, and build.outDir 'dist' is what mgr/Dockerfile's web-builder stage copies to /app/static. In dev mode the server proxies /api to a backend so the SPA can talk to the manager without CORS issues.",
+        "responsibilities": [
+          "Register the React plugin for the SPA build",
+          "Pin base '/' and outDir 'dist' to match aio-mgr static serving and Dockerfile copies",
+          "Proxy /api to the backend during local development"
+        ],
+        "interfaces": [
+          {
+            "name": "default export (Vite config)",
+            "interface_type": "constant",
+            "parameters": [],
+            "return_type": "UserConfig"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "vite",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "@vitejs/plugin-react",
+            "is_external": true,
+            "dependency_type": "import"
+          },
+          {
+            "name": "mgr/src/main.rs (ServeDir)",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "mgr/Dockerfile (web-builder stage)",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.55
+      }
+    ]
+  },
+  "timestamp": 1790130897,
+  "prompt_hash": "ebc03fd9d8a9136267678405fdac575d",
+  "token_usage": {
+    "input_tokens": 1320,
+    "output_tokens": 1680,
+    "total_tokens": 3000
+  },
+  "model_name": null
+}

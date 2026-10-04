@@ -1,0 +1,474 @@
+{
+  "data": {
+    "summary": "This is the core backend source directory of sandbox-mgr, an Axum-based Rust service that manages sandbox containers. The files together define the HTTP API surface (routes.rs), a per-sandbox reverse proxy layer (proxy.rs), the shared application state (state.rs), and a cross-sandbox usage aggregation endpoint (usage.rs). They form the main application server wired together through a common Arc<AppState> and a single router tree.",
+    "importance_score": 0.92,
+    "key_files": [
+      "routes.rs",
+      "proxy.rs",
+      "state.rs",
+      "usage.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "routes.rs",
+        "summary": "Defines the entire HTTP API surface of sandbox-mgr, including the top-level router, error type, and handlers for sandbox lifecycle, services, jobs, and scenarios.",
+        "code_purpose": "router",
+        "source_summary": "Exposes a router() that assembles all /api endpoints, an unmatched_fallback returning JSON 404s, and an ApiError struct implementing IntoResponse plus From<anyhow::Error> and From<crate::models::ApiError>. Handlers such as scenarios and helpers like installed_services_of are defined alongside body/model structs (ServicesBody, SandboxBody).",
+        "detailed_description": "This is the central routing and controller file for the mgr-api server, mapping URLs to thin handlers over the db/docker/jobs modules. It defines the ApiError type with IntoResponse and From conversions, request/response body structs, and both API and fallback routes. Long-running operations return 202 with a job id for client polling rather than SSE.",
+        "responsibilities": [
+          "Assemble the top-level Axum router for all /api endpoints",
+          "Handle sandbox lifecycle operations (create, recreate, delete) as async jobs",
+          "Provide standardized JSON error responses via ApiError",
+          "Define request/response DTOs shared with the client",
+          "Return 202 + job ids for long-running operations"
+        ],
+        "interfaces": [
+          {
+            "name": "router",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Router<Arc<AppState>>"
+          },
+          {
+            "name": "unmatched_fallback",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "uri",
+                "param_type": "Uri"
+              }
+            ],
+            "return_type": "Response"
+          },
+          {
+            "name": "api_not_found",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "ApiError"
+          },
+          {
+            "name": "bad",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "msg",
+                "param_type": "impl Into<String>"
+              }
+            ],
+            "return_type": "Self"
+          },
+          {
+            "name": "with_status",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "status",
+                "param_type": "StatusCode"
+              },
+              {
+                "name": "message",
+                "param_type": "String"
+              }
+            ],
+            "return_type": "Self"
+          },
+          {
+            "name": "into_response",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Response"
+          },
+          {
+            "name": "scenarios",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "installed_services_of",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "row",
+                "param_type": "&db::SandboxRow"
+              }
+            ],
+            "return_type": "ServicesBody"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anyhow",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "caddy",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "docker",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "envhash",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "jobs",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.96
+      },
+      {
+        "name": "proxy.rs",
+        "summary": "Implements the per-sandbox reverse proxy at /api/sbx/:name/* that forwards requests to a sandbox app's axum port, including WebSocket upgrades, hop-by-hop header handling, and sandbox auto-insertion.",
+        "code_purpose": "middleware",
+        "source_summary": "Provides router() for the /api/sbx/:name/* proxy route plus helpers split_proxy_path, upstream_url, is_hop_by_hop, insert_sandbox, and serve which proxies HTTP and WebSocket traffic. Test functions (split_proxy_path_forms, proxy_route_wins_over_api_seam, unknown_sandbox_is_404_error_json, etc.) validate edge cases like invalid slugs and unreachable sandboxes.",
+        "detailed_description": "This file routes mgr-web workbench traffic through mgr-api so browsers reach sandbox app APIs under a single mgr.localhost origin instead of cross-origin dialing sbx-<name>-piweb, working around missing CORS headers on adopted stacks. It resolves the upstream URL from names/paths, filters hop-by-hop headers, supports WebSocket upgrades via SinkExt, and defines several integration tests validating routing, 404s, 400s, and 502s.",
+        "responsibilities": [
+          "Proxy /api/sbx/:name/* requests to the sandbox app's axum port",
+          "Handle WebSocket upgrades through the proxy",
+          "Strip hop-by-hop headers and rewrite the upstream URL",
+          "Auto-insert or validate sandboxes by name slug",
+          "Return correct 400/404/502 error responses for proxy failures"
+        ],
+        "interfaces": [
+          {
+            "name": "router",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Router<Arc<AppState>>"
+          },
+          {
+            "name": "split_proxy_path",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "full_path",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Option<(String, String)>"
+          },
+          {
+            "name": "upstream_url",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "scheme",
+                "param_type": "&str"
+              },
+              {
+                "name": "name",
+                "param_type": "&str"
+              },
+              {
+                "name": "path_and_query",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "is_hop_by_hop",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&header::HeaderName"
+              }
+            ],
+            "return_type": "bool"
+          },
+          {
+            "name": "insert_sandbox",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&AppState"
+              },
+              {
+                "name": "name",
+                "param_type": "&str"
+              },
+              {
+                "name": "adopted",
+                "param_type": "bool"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "serve",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&Arc<AppState>"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "tokio-tungstenite",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Arc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "ApiError",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "APP_PORT",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.88
+      },
+      {
+        "name": "state.rs",
+        "summary": "Defines the shared application state passed to every handler, including the repo checkout root, the mgr data root, the SQLite connection, usage cache, and job coordination structures.",
+        "code_purpose": "context",
+        "source_summary": "Defines AppState with fields for repo/data paths and a db Connection, plus CachedUsage and JobShared structs. Implements AppState::new, instance_dir for computing per-sandbox instance paths, and new_for_test to build a state for unit tests.",
+        "detailed_description": "This module holds AppState, the central struct cloned into every Axum handler as Arc<AppState>. It captures the two mgr-owned roots (read-only repo checkout and writable mgr-data), the database connection, a per-sandbox usage cache (CachedUsage), and job sharing primitives (JobShared). It also provides path helpers and a test constructor.",
+        "responsibilities": [
+          "Provide the shared AppState cloned into all handlers",
+          "Expose repo and data root paths for builds and runtime state",
+          "Hold the SQLite connection and usage cache map",
+          "Coordinate background jobs via JobShared",
+          "Offer test-friendly state construction"
+        ],
+        "interfaces": [
+          {
+            "name": "new",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "repo",
+                "param_type": "PathBuf"
+              },
+              {
+                "name": "data",
+                "param_type": "PathBuf"
+              },
+              {
+                "name": "db",
+                "param_type": "Connection"
+              }
+            ],
+            "return_type": "Self"
+          },
+          {
+            "name": "instance_dir",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "PathBuf"
+          },
+          {
+            "name": "new_for_test",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Self"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "HashMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "PathBuf",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Arc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "rusqlite",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.85
+      },
+      {
+        "name": "usage.rs",
+        "summary": "Implements the GET /api/usage fan-out endpoint that concurrently fetches each running sandbox app's /api/models/usage and assembles per-sandbox results plus aggregate totals.",
+        "code_purpose": "api",
+        "source_summary": "Exposes router(), the usage handler, assemble_totals, fan_out, fetch_one, and assemble_entry helpers with supporting UsageQuery struct and default_window. Tests (assemble_entry_ok_shape, assemble_entry_error_is_isolated, fan_out_merges_errors_and_successes_in_order, etc.) validate aggregation and failure isolation.",
+        "detailed_description": "This module fans out usage queries across sandboxes known to the DB as running, isolating per-sandbox errors so one failure does not break the whole response. It passes each app's usage JSON through verbatim, caches results (with refetch on expiry), and assembles optional cost totals. Unit tests cover shape, error isolation, ordering, cache expiry, and empty-name handling.",
+        "responsibilities": [
+          "Serve GET /api/usage?window=today|7d|all",
+          "Fan out usage fetches to all running sandbox apps concurrently",
+          "Isolate per-sandbox fetch errors into the response without failing the request",
+          "Pass app usage JSON through verbatim and aggregate totals",
+          "Cache per-sandbox usage results with expiry-based refetch"
+        ],
+        "interfaces": [
+          {
+            "name": "router",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Router<Arc<AppState>>"
+          },
+          {
+            "name": "usage",
+            "interface_type": "async_function",
+            "parameters": [],
+            "return_type": "impl IntoResponse"
+          },
+          {
+            "name": "assemble_totals",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "entries",
+                "param_type": "&[Value]"
+              }
+            ],
+            "return_type": "Vec<Value>"
+          },
+          {
+            "name": "fan_out",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&Arc<AppState>"
+              },
+              {
+                "name": "names",
+                "param_type": "&[String]"
+              },
+              {
+                "name": "window",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "Vec<Value>"
+          },
+          {
+            "name": "fetch_one",
+            "interface_type": "async_function",
+            "parameters": [
+              {
+                "name": "state",
+                "param_type": "&Arc<AppState>"
+              },
+              {
+                "name": "name",
+                "param_type": "&str"
+              },
+              {
+                "name": "window",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "FetchOutcome"
+          },
+          {
+            "name": "assemble_entry",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "name",
+                "param_type": "&str"
+              },
+              {
+                "name": "outcome",
+                "param_type": "FetchOutcome"
+              }
+            ],
+            "return_type": "Value"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "axum",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde_json",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "Arc",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "db",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "AppState",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.78
+      }
+    ]
+  },
+  "timestamp": 1790130865,
+  "prompt_hash": "8defa67ab327352762e74ae8900ea34f",
+  "token_usage": {
+    "input_tokens": 2295,
+    "output_tokens": 2700,
+    "total_tokens": 4995
+  },
+  "model_name": null
+}

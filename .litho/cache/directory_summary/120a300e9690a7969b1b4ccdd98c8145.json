@@ -1,0 +1,138 @@
+{
+  "data": {
+    "summary": "This directory is a single scenario definition package for installing the `eza` modern `ls` replacement into a container image via mise (aqua backend). It pairs a declarative `scenario.toml` metadata file (id, category, installer, pinned version) with a `fragment.Dockerfile` that performs the actual idempotent `mise use -g` install and verifies the binary is resolvable in both login and non-login shells. Together they form one composable L2 shell-layer fragment consumed by `aio-config gen`.",
+    "importance_score": 0.22,
+    "key_files": [
+      "fragment.Dockerfile",
+      "scenario.toml"
+    ],
+    "file_insights": [
+      {
+        "name": "fragment.Dockerfile",
+        "summary": "Dockerfile fragment that installs eza via mise using a version ARG, then verifies the binary is present in both login and non-login shells.",
+        "code_purpose": "config",
+        "source_summary": "A short Dockerfile fragment consisting of a templated `ARG EZA_VERSION` and a single `RUN` step chaining: `mise use -g \"eza@${EZA_VERSION}\"`, `mise ls eza`, and two guard clauses (`bash -lc 'command -v eza || exit 1'` and the non-login equivalent) that emit `MISSING(login)` / `MISSING(non-login)` errors. Comments document that the binary name is the canonical `eza` (unlike Debian's batcat/fdfind renames) and that the fragment composes idempotently with other mise fragments.",
+        "detailed_description": "This fragment is the executable half of the eza scenario: it declares `ARG EZA_VERSION={{version}}` (templated by the generator from scenario.toml) and runs `mise use -g \"eza@${EZA_VERSION}\"` to install the tool into the global mise config. Because `mise use -g` is read-modify-write over the shared config, the layer is idempotent and order-independent relative to other mise tool fragments, so no aggregation step is needed. It then asserts `mise ls eza` and uses both `bash -lc` and `bash -c` probes to catch PATH/login-shell discrepancies that commonly break tool resolution in Docker.",
+        "responsibilities": [
+          "Install a pinned eza version globally through mise",
+          "Templatize the target version from the parent scenario definition",
+          "Verify installation via `mise ls eza`",
+          "Validate binary resolution in both login and non-login bash shells",
+          "Remain idempotent and order-independent when composed with sibling mise fragments"
+        ],
+        "interfaces": [
+          {
+            "name": "RUN mise use -g eza@${EZA_VERSION}",
+            "interface_type": "docker_build_step",
+            "parameters": [
+              {
+                "name": "EZA_VERSION",
+                "param_type": "string (ARG, templated)"
+              }
+            ],
+            "return_type": "image layer / exit code"
+          },
+          {
+            "name": "command -v eza",
+            "interface_type": "shell_verification",
+            "parameters": [
+              {
+                "name": "shell_mode",
+                "param_type": "login|non-login"
+              }
+            ],
+            "return_type": "exit code 0 or error message"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "mise",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "bash",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "eza",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.28
+      },
+      {
+        "name": "scenario.toml",
+        "summary": "Declarative metadata file describing the eza scenario (id, name, description, category, installer, and pinned version) for consumption by `aio-config gen`.",
+        "code_purpose": "config",
+        "source_summary": "A compact TOML document with header comments explaining that it is scenario metadata consumed by `aio-config gen` and that the real install steps live in the sibling `fragment.Dockerfile`. It defines `id`, `name`, `description`, `category = \"shell\"`, `installer = \"mise\"`, and one `[[versions]]` entry with `label = \"0.23.5\"` and `version = \"0.23.5\"`.",
+        "detailed_description": "This TOML file is the machine-readable contract that the `aio-config gen` fragment resolver reads to select and parameterize the adjacent `fragment.Dockerfile`. It declares the scenario id `eza`, a human-readable Chinese description (modern ls replacement with icons/tree/git status), the `shell` category, the `mise` installer, and a `[[versions]]` table pinning 0.23.5 as both label and version. The pinned version flows into the ARG substitution inside the Dockerfile, making this file the single source of truth for what gets installed.",
+        "responsibilities": [
+          "Identify the scenario uniquely (`id = \"eza\"`)",
+          "Classify the scenario within the shell category",
+          "Declare mise (aqua backend) as the installer",
+          "Pin the installable version(s) consumed by fragment templating",
+          "Supply human-readable description for the generation tooling"
+        ],
+        "interfaces": [
+          {
+            "name": "id",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "category",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "installer",
+            "interface_type": "toml_key",
+            "parameters": [],
+            "return_type": "string"
+          },
+          {
+            "name": "versions",
+            "interface_type": "toml_table_array",
+            "parameters": [
+              {
+                "name": "label",
+                "param_type": "string"
+              },
+              {
+                "name": "version",
+                "param_type": "string"
+              }
+            ],
+            "return_type": "array of version entries"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "aio-config gen",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "fragment.Dockerfile",
+            "is_external": false,
+            "dependency_type": "include"
+          }
+        ],
+        "importance_score": 0.25
+      }
+    ]
+  },
+  "timestamp": 1790131089,
+  "prompt_hash": "120a300e9690a7969b1b4ccdd98c8145",
+  "token_usage": {
+    "input_tokens": 994,
+    "output_tokens": 1296,
+    "total_tokens": 2290
+  },
+  "model_name": null
+}

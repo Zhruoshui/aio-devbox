@@ -1,0 +1,432 @@
+{
+  "data": {
+    "summary": "The src directory is the complete Rust source of aio-config, a scenario configurator for the AIO dev sandbox. It contains the crate's library surface (lib.rs), CLI entry point (main.rs), and three core modules — scenario (TOML decoder for scenario discovery), manifest (owner of the .aio/enabled.toml selection contract), and gen (build-time Dockerfile.base assembler) — which together form a thin CLI over a small, cohesive backend that resolves enabled scenarios into an assembled Dockerfile.",
+    "importance_score": 0.93,
+    "key_files": [
+      "gen.rs",
+      "scenario.rs",
+      "manifest.rs",
+      "main.rs",
+      "lib.rs"
+    ],
+    "file_insights": [
+      {
+        "name": "gen.rs",
+        "summary": "Build-time assembler that reads the selection manifest, resolves enabled scenario fragments, and concatenates them with head/tail into Dockerfile.base.",
+        "code_purpose": "specificfeature",
+        "source_summary": "Defines a Paths struct and run/assemble_for entrypoints that read the .aio/enabled.toml manifest and write Dockerfile.base. Key helpers include assemble (joins head, sorted fragments, and tail), sort_by_layer (orders fragments by category layer then id), substitute (replaces template placeholders via HashMap), ensure_trailing_newline, and render_fragment_versioned for per-scenario version selection.",
+        "detailed_description": "This module implements the core build pipeline: it loads the manifest, resolves each enabled scenario id to its fragment file, substitutes template variables, sorts fragments by layer, and concatenates head + fragments + tail into Dockerfile.base. It is pure file IO plus string assembly with no Dockerfile parsing, and is idempotent so repeated builds produce identical output. It also contains a robust unit test suite covering assembly order, substitution, sorting, and version selection.",
+        "responsibilities": [
+          "Read the selection manifest and resolve enabled scenario fragments",
+          "Assemble Dockerfile.base from head, sorted fragments, and tail",
+          "Substitute template placeholders with manifest-selected version variables",
+          "Sort fragments deterministically by layer/category then id",
+          "Guarantee idempotent, reproducible Dockerfile.base generation"
+        ],
+        "interfaces": [
+          {
+            "name": "Paths::new",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "repo",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Paths"
+          },
+          {
+            "name": "run",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "repo",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "assemble_for",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "repo",
+                "param_type": "&Path"
+              },
+              {
+                "name": "enabled",
+                "param_type": "&manifest::Enabled"
+              }
+            ],
+            "return_type": "Result<(String, Vec<String>)>"
+          },
+          {
+            "name": "sort_by_layer",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "pairs",
+                "param_type": "&mut [(String, String)]"
+              }
+            ],
+            "return_type": "()"
+          },
+          {
+            "name": "assemble",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "head",
+                "param_type": "&str"
+              },
+              {
+                "name": "tail",
+                "param_type": "&str"
+              },
+              {
+                "name": "fragments",
+                "param_type": "&[(&str, &str)]"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "substitute",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "frag",
+                "param_type": "&str"
+              },
+              {
+                "name": "vars",
+                "param_type": "&HashMap<String, String>"
+              }
+            ],
+            "return_type": "String"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::fs",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::collections::HashMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anyhow::bail",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::manifest",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::scenario",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.9
+      },
+      {
+        "name": "scenario.rs",
+        "summary": "The single decoder for scenarios/<id>/scenario.toml, providing scenario discovery, metadata parsing, and category/installer ordering helpers.",
+        "code_purpose": "model",
+        "source_summary": "Defines ScenarioMeta, Version, and Scenario structs plus scan(dir) for discovery. Helper functions include category_rank/category_title, installer_rank/installer_title/installer_rank, has_multiple_installers, and default_category/default_installer. Tests cover category defaults, always_on/version defaults, var flattening, and installer ordering.",
+        "detailed_description": "This module owns scenario discovery and metadata for both the TUI (listing) and gen (fragment resolution), scanning scenarios/<id>/scenario.toml into Scenario/ScenarioMeta/Version structs. It provides ranking and title helpers for categories and installers so layers can be ordered deterministically, plus flattening of per-version template vars. A thorough test suite validates defaults, category/installer honors, and version parsing.",
+        "responsibilities": [
+          "Discover scenarios by scanning scenarios/<id>/scenario.toml files",
+          "Decode scenario metadata (category, installer, always_on, versions) via serde",
+          "Provide deterministic category and installer ranking/title helpers",
+          "Flatten per-version extra keys into template variables",
+          "Supply defaults (lang category, mise installer) when fields are omitted"
+        ],
+        "interfaces": [
+          {
+            "name": "scan",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "dir",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Vec<Scenario>>"
+          },
+          {
+            "name": "category_rank",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "category",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "usize"
+          },
+          {
+            "name": "category_title",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "category",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "String"
+          },
+          {
+            "name": "installer_rank",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "installer",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "usize"
+          },
+          {
+            "name": "has_multiple_installers",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "scenarios",
+                "param_type": "&[Scenario]"
+              },
+              {
+                "name": "category",
+                "param_type": "&str"
+              }
+            ],
+            "return_type": "bool"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::collections::HashMap",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::fs",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anyhow::bail",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde::Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.88
+      },
+      {
+        "name": "manifest.rs",
+        "summary": "Owns the .aio/enabled.toml selection manifest contract, providing load/save and wildcard expansion of enabled scenario ids.",
+        "code_purpose": "model",
+        "source_summary": "Defines Enabled and VersionSelect structs with Default/Deserialize/Serialize. Functions include load(path) and save(path, enabled) for the manifest file, expand(discovered) to resolve wildcard selections, and test helpers scenario()/enabled(). Tests cover wildcard-to-all, wildcard-mixed bails, verbatim no-wildcard, and empty discovery.",
+        "detailed_description": "This module is the single owner of the selection manifest written by the TUI and read by gen, defining the Enabled and VersionSelect structs with serde (de)serialization. It exposes load/save for the manifest file and expand, which resolves a wildcard selection against discovered scenarios while rejecting mixed wildcard+explicit lists. Unit tests validate wildcard expansion edge cases.",
+        "responsibilities": [
+          "Define and (de)serialize the .aio/enabled.toml manifest schema",
+          "Load and save the selection manifest from disk",
+          "Expand wildcard selection against discovered scenarios",
+          "Reject invalid wildcard + explicit id combinations",
+          "Provide scenario id lists consumed by gen for fragment resolution"
+        ],
+        "interfaces": [
+          {
+            "name": "load",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              }
+            ],
+            "return_type": "Result<Enabled>"
+          },
+          {
+            "name": "save",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "path",
+                "param_type": "&Path"
+              },
+              {
+                "name": "enabled",
+                "param_type": "&Enabled"
+              }
+            ],
+            "return_type": "Result<()>"
+          },
+          {
+            "name": "expand",
+            "interface_type": "function",
+            "parameters": [
+              {
+                "name": "discovered",
+                "param_type": "&[scenario::Scenario]"
+              }
+            ],
+            "return_type": "Result<Vec<String>>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::fs",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "std::path::Path",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anyhow::bail",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "serde::Deserialize",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::scenario",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.82
+      },
+      {
+        "name": "main.rs",
+        "summary": "CLI entry point exposing a single `gen` subcommand that assembles Dockerfile.base for a given repo root.",
+        "code_purpose": "entry",
+        "source_summary": "Defines a Cli struct with a PathBuf --repo argument and a Cmd enum for the gen subcommand, plus main() which parses args and calls gen::run. Relies on clap's Parser derive and the crate's gen module.",
+        "detailed_description": "This is the binary entry point for aio-config, parsing a minimal clap CLI with a --repo option and dispatching the `gen` subcommand to the library's gen::run. It deliberately keeps logic thin so the Makefile can mount the repo once and invoke the tool, delegating all real work to the aio_config library modules.",
+        "responsibilities": [
+          "Parse command-line arguments and subcommands",
+          "Expose the --repo root option to the gen subcommand",
+          "Dispatch execution to the gen module",
+          "Serve as the binary entry point for the configurator"
+        ],
+        "interfaces": [
+          {
+            "name": "main",
+            "interface_type": "function",
+            "parameters": [],
+            "return_type": "Result<()>"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "std::path::PathBuf",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "anyhow::Result",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "clap::Parser",
+            "is_external": true,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::gen",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.78
+      },
+      {
+        "name": "lib.rs",
+        "summary": "Library root that exposes the reusable modules gen, manifest, and scenario to the binary and any external consumers.",
+        "code_purpose": "lib",
+        "source_summary": "Contains only module declarations (pub mod gen; pub mod manifest; pub mod scenario;) plus doc comments describing each module's role as the single owner of its cross-boundary payload.",
+        "detailed_description": "This is the crate's library surface, declaring the three public modules that make up the configurator's reusable core: scenario (the single decoder of scenario.toml), manifest (owner of the enabled.toml contract), and gen (the Dockerfile.base assembler). It carries no logic of its own but defines the public API boundary used by main.rs and the TUI.",
+        "responsibilities": [
+          "Declare and expose the crate's public modules",
+          "Define the library API surface (gen, manifest, scenario)",
+          "Document the single-owner contract of each module"
+        ],
+        "interfaces": [
+          {
+            "name": "gen",
+            "interface_type": "module",
+            "parameters": [],
+            "return_type": "module"
+          },
+          {
+            "name": "manifest",
+            "interface_type": "module",
+            "parameters": [],
+            "return_type": "module"
+          },
+          {
+            "name": "scenario",
+            "interface_type": "module",
+            "parameters": [],
+            "return_type": "module"
+          }
+        ],
+        "dependencies": [
+          {
+            "name": "crate::gen",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::manifest",
+            "is_external": false,
+            "dependency_type": "use"
+          },
+          {
+            "name": "crate::scenario",
+            "is_external": false,
+            "dependency_type": "use"
+          }
+        ],
+        "importance_score": 0.7
+      }
+    ]
+  },
+  "timestamp": 1790130768,
+  "prompt_hash": "7dab30524f2279914056ae22f22686d1",
+  "token_usage": {
+    "input_tokens": 2301,
+    "output_tokens": 2804,
+    "total_tokens": 5105
+  },
+  "model_name": null
+}
