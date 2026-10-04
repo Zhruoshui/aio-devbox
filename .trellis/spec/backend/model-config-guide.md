@@ -7,6 +7,15 @@
 > `.trellis/tasks/08-26-unified-model-config/research/`. claude/codex became
 > cc-switch-style multi-preset in task 08-27-agent-multi-preset (see "Agents
 > schema" below).
+>
+> **10-04-cc-switch 重构注记(Phase 1.2/3 已落地)**: 本指南主要描述 sandbox
+> app 层的 `/api/models/*`(下文 `app/src/routes/models/*` 各节,Phase 2
+> 尚未重构)。**mgr 层已切换为 cc-switch 供应商库模式**: 旧 mgr profile 系统、
+> mgr 侧 canonical config、`import/pi`、`catalog` 路由全部移除;mgr 现只保留
+> 供应商库(`aio_models::template::ProviderLibrary`,kv 键 `models_library`)
+> 作为共享模板源,沙箱侧 agent 配置端点(Phase 4)从
+> `GET /api/models/templates` 拉模板。详见 [api-contracts.md 的
+> "/api/models/providers + /api/models/templates" 节](./api-contracts.md)。
 
 ## Route map (`app/src/routes/models/mod.rs`)
 

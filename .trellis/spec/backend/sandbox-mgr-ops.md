@@ -217,6 +217,14 @@ render() 单测 `render_has_static_mgr_site_first` 锚定站点块存在且在�
 `app/src/routes/models/mod.rs` 写接口、或 composegen MGR_URL/MGR_SANDBOX_NAME
 注入的人。
 
+> **⚠ 10-04-cc-switch 重构注记(Phase 1.2/3 已落地)**: 下文描述的 mgr
+> profile 系统**已删除**——`models_profiles` kv 键、`PUT /api/sandboxes/
+> :name/model_profile`、`GET /api/models/sync`、`import/pi`、`catalog` 全部
+> 移除;mgr 只保留供应商库(`models_library` 键)。**app 层 mgr_sync 循环
+> 仍在(Phase 2 未做)**,会持续拉 `GET /api/models/sync` 拿到 404 = 保持
+> 本地,功能上无破坏但同步链已废。下文物权描述保留作为历史参考,直到
+> Phase 2/4 完成。新增工作不要复用这里的任何端点或 kv 键。
+
 mgr 是模型配置唯一真相源(D6),**per-profile**(unified Phase 4, D8):
 一套 profile = 一整份 CanonicalConfig(aio-models 不感知包装层),每个
 沙箱指派一套。三段式同步链,任何一段的字段名/语义漂移都会让拉取静默

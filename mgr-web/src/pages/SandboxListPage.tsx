@@ -4,9 +4,9 @@
 // Structure: toolbar (status segmented filter + name search) over a card
 // grid. Each card is the prototype's `.card.sbx`: header (live dot + name +
 // status badges + "open workspace"), body (entry URL, a facts grid —
-// image/resources/created/model-profile chip for native rows, registered +
-// profile for adopted ones —, installed services chips, runtime container
-// states), footer actions (start/stop/restart/edit/delete).
+// image/resources/created for native rows, registered for adopted ones —,
+// installed services chips, runtime container states), footer actions
+// (start/stop/restart/edit/delete).
 //
 // Status filtering follows the prototype's multi-membership semantics: an
 // adopted-and-running card matches BOTH the "running" and "external stack"
@@ -14,24 +14,23 @@
 // anything compose doesn't report as running). Search is a plain name
 // substring match, case-insensitive.
 //
-// The quick-assign popover (S2, 09-10) is upgraded to the prototype's
-// fixed-position `.pop`: profile select + agent checkboxes + save, fired at
-// the profile chip in the facts grid. Edits stay LOCAL until Save issues the
-// PUT; the 4s poll then refreshes the chip.
-//
 // Data contracts are unchanged: `live` merges compose ps state at read time,
 // the page auto-refreshes every 4s, start/stop/restart are synchronous
 // POSTs, delete is a confirm dialog (volumes checkbox for native rows —
 // compose down -v; adopted rows are a synchronous un-registration, dialog
 // says so, no JobView - types.ts DeleteReply branches on {ok} vs {job}).
+//
+// The model-profile quick-assign chip + popover are GONE (cc-switch refactor,
+// prd D1): each sandbox owns its agent configs end-to-end, and the mgr-side
+// PUT /api/sandboxes/:name/model_profile route is deleted. Agent config
+// moved to the sandbox detail page (Phase 4 of the refactor).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { deleteSandbox, listModelProfiles, listSandboxes, putSandboxModelProfile, sandboxAction, type ModelProfile } from "../api";
+import { deleteSandbox, listSandboxes, sandboxAction } from "../api";
 import { withMgrPort } from "./workspace/paneUrl";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
-import { AgentAssignControl, ASSIGN_AGENTS, agentLabel } from "../components/AgentAssignControl";
 import { isJobReply, type Sandbox } from "../types";
 
 const POLL_MS = 4000;
@@ -73,11 +72,6 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
   // Toolbar state (prototype: segmented status filter + name search).
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
-  // id -> display name for the cards' model-profile chip (D8); fetched once
-  // per mount - profile renames without a page visit are not a real case.
-  const [profileNames, setProfileNames] = useState<Record<string, string> | null>(null);
-  // Full profile list for the card popover's profile select (S2, design §4.2).
-  const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
 
   const fetchList = useCallback(async () => {
     try {
@@ -94,24 +88,6 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
     const timer = setInterval(() => void fetchList(), POLL_MS);
     return () => clearInterval(timer);
   }, [fetchList]);
-
-  useEffect(() => {
-    let cancelled = false;
-    listModelProfiles()
-      .then((r) => {
-        if (cancelled) return;
-        const names: Record<string, string> = {};
-        for (const p of r.profiles) names[p.id] = p.name;
-        setProfileNames(names);
-        setProfiles(r.profiles); // S2: card popover needs the id list too
-      })
-      .catch(() => {
-        /* advisory chip — an error surface here would be noise */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const act = async (sb: Sandbox, action: "start" | "stop" | "restart") => {
     if (busy !== "") return;
@@ -230,8 +206,6 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
                 key={sb.name}
                 sb={sb}
                 lang={lang}
-                profileNames={profileNames}
-                profiles={profiles}
                 busy={busy === sb.name}
                 onEnter={() => onEnter(sb.name)}
                 onAction={(a) => void act(sb, a)}
@@ -308,8 +282,6 @@ export function SandboxListPage({ lang, onEnter, onCreate, onAdopt, onEdit, onJo
 function SandboxCard({
   sb,
   lang,
-  profileNames,
-  profiles,
   busy,
   onEnter,
   onAction,
@@ -318,10 +290,6 @@ function SandboxCard({
 }: {
   sb: Sandbox;
   lang: Lang;
-  /** id -> display name for the model-profile chip; null = not loaded yet. */
-  profileNames: Record<string, string> | null;
-  /** Full profile list for the popover select (S2); null = not loaded yet. */
-  profiles: ModelProfile[] | null;
   busy: boolean;
   onEnter: () => void;
   onAction: (a: "start" | "stop" | "restart") => void;
@@ -330,71 +298,6 @@ function SandboxCard({
 }): JSX.Element {
   const created = new Date(sb.created_at * 1000);
   const running = sb.live === "running";
-  // S2 quick-assign popover state. Popover edits are LOCAL (profileSel /
-  // agentsSel) until Save fires the PUT; the card then refetches via the
-  // parent's 4s poll, so the chip reflects the change shortly after.
-  // `anchor !== null` doubles as the open flag (the chip's rect, captured
-  // on click — the .pop is fixed-positioned like the prototype's).
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const [profileSel, setProfileSel] = useState<string>(sb.model_profile ?? "");
-  const [agentsSel, setAgentsSel] = useState<string[] | null>(sb.model_agents ?? null);
-  const [saving, setSaving] = useState(false);
-  const [popErr, setPopErr] = useState("");
-  const popRef = useRef<HTMLDivElement>(null);
-  // Keep local state in sync when the polled payload changes (assignment
-  // edited elsewhere, or this popover's own save landing on the refresh).
-  useEffect(() => {
-    if (anchor === null) {
-      setProfileSel(sb.model_profile ?? "");
-      setAgentsSel(sb.model_agents ?? null);
-    }
-  }, [sb.model_profile, sb.model_agents, anchor]);
-
-  // Popover dismissal: Escape + outside pointerdown (the same contract as
-  // the prototype's document-level listeners, scoped to its open lifetime).
-  useEffect(() => {
-    if (anchor === null) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setAnchor(null);
-    };
-    const onDown = (e: PointerEvent): void => {
-      if (popRef.current !== null && !popRef.current.contains(e.target as Node)) setAnchor(null);
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onDown);
-    };
-  }, [anchor]);
-
-  const saveAssign = async () => {
-    if (saving) return;
-    setSaving(true);
-    setPopErr("");
-    try {
-      await putSandboxModelProfile(sb.name, profileSel === "" ? null : profileSel, agentsSel);
-      setAnchor(null);
-    } catch (e) {
-      setPopErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Chip label: "<profile> · <agents>" (null agents = all four, prototype
-  // spells them out; [] = none). `?? null` tolerates an older mgr-api that
-  // omits the field entirely (EditPage guards the same way).
-  const agentsText = ((sb.model_agents ?? null) === null
-    ? [...ASSIGN_AGENTS]
-    : sb.model_agents!
-  )
-    .map(agentLabel)
-    .join(", ");
-  const chipLabel =
-    sb.model_profile === null
-      ? t(lang, "sbProfileNone")
-      : `${profileNames?.[sb.model_profile] ?? sb.model_profile}${agentsText !== "" ? ` · ${agentsText}` : ""}`;
 
   // Resources line: "4 核 · 8192 MB" or the unlimited placeholder.
   const res =
@@ -428,25 +331,10 @@ function SandboxCard({
 
         <dl className="facts">
           {sb.adopted ? (
-            <>
-              <div>
-                <dt>{t(lang, "sbRegisteredAt")}</dt>
-                <dd>{created.toLocaleDateString()}</dd>
-              </div>
-              <div>
-                <dt>{t(lang, "mpAssignTo")}</dt>
-                <dd>
-                  <button
-                    type="button"
-                    className={`chip${sb.model_profile === null ? " off" : ""}`}
-                    title={t(lang, "mpQuickAssignHint")}
-                    onClick={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
-                  >
-                    {chipLabel}
-                  </button>
-                </dd>
-              </div>
-            </>
+            <div>
+              <dt>{t(lang, "sbRegisteredAt")}</dt>
+              <dd>{created.toLocaleDateString()}</dd>
+            </div>
           ) : (
             <>
               <div>
@@ -462,19 +350,6 @@ function SandboxCard({
               <div>
                 <dt>{t(lang, "sbCreated")}</dt>
                 <dd>{created.toLocaleDateString()}</dd>
-              </div>
-              <div>
-                <dt>{t(lang, "mpAssignTo")}</dt>
-                <dd>
-                  <button
-                    type="button"
-                    className={`chip${sb.model_profile === null ? " off" : ""}`}
-                    title={t(lang, "mpQuickAssignHint")}
-                    onClick={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
-                  >
-                    {chipLabel}
-                  </button>
-                </dd>
               </div>
             </>
           )}
@@ -549,57 +424,6 @@ function SandboxCard({
           {sb.adopted ? t(lang, "confirmUnadopt") : t(lang, "delete")}
         </button>
       </footer>
-
-      {/* Quick-assign popover (prototype .pop: fixed near the chip,
-       * clamped to the viewport; width ~280px, height bounded ~340px). */}
-      {anchor !== null && (
-        <div
-          ref={popRef}
-          className="pop open"
-          role="dialog"
-          aria-label={t(lang, "mpQuickAssign")}
-          style={{
-            position: "fixed",
-            left: Math.min(anchor.left, window.innerWidth - 300),
-            top: Math.min(anchor.bottom + 6, window.innerHeight - 340),
-          }}
-        >
-          <h4>
-            {t(lang, "mpQuickAssign")} · <span className="mono">{sb.name}</span>
-          </h4>
-          <div className="field">
-            <label>{t(lang, "mpProfile")}</label>
-            <select
-              className="input sm"
-              value={profileSel}
-              disabled={profiles === null}
-              onChange={(e) => setProfileSel(e.target.value)}
-            >
-              <option value="">{t(lang, "mpUnassigned")}</option>
-              {(profiles ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {profileSel !== "" && <AgentAssignControl lang={lang} value={agentsSel} onChange={setAgentsSel} />}
-          <p className="muted txs">{t(lang, "mpAgentsHint")}</p>
-          {popErr && (
-            <p className="txs" style={{ color: "var(--danger)", margin: 0 }}>
-              {popErr}
-            </p>
-          )}
-          <div className="dialog-actions" style={{ paddingTop: 0 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(null)}>
-              {t(lang, "cancel")}
-            </button>
-            <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveAssign()}>
-              {saving ? t(lang, "wzSubmitting") : t(lang, "mpQuickSave")}
-            </button>
-          </div>
-        </div>
-      )}
     </article>
   );
 }

@@ -6,6 +6,12 @@
 > [Model Config Guide](./model-config-guide.md)). The canonical store is a
 > single JSON file (`~/.aio/models.json`); opencode.db is read read-only for
 > usage stats — no write database.
+>
+> **10-04-cc-switch 重构注记**: app 层(沙箱)仍是 canonical store 模式,
+> Phase 2 将切换为 cc-switch 快照/增量模式。**mgr 层已切换**(Phase 1.2/3):
+> 不再有 profile 系统/canonical 上收;mgr 只保留供应商库
+> (`aio_models::template::ProviderLibrary`,kv 键 `models_library`),沙箱
+> 侧配置端点从 `GET /api/models/templates` 拉模板。
 
 ## Stack
 

@@ -1,616 +1,249 @@
-// ModelsPage — the mgr model-config page, redesigned per the 09-11 prototype
-// (docs/Web-Prototype/models.html).
+// ModelsPage — the mgr provider-library page, rewritten for the cc-switch
+// refactor (task 10-04-model-config-cc-switch Phase 3, prd R1/D6).
 //
-// Structure (prototype): page-head → .profile-bar (.segmented profile picker
-// with per-profile sandbox counts + rename/delete/new icon buttons +
-// unassigned-sandboxes hint) → .tabs (role=tablist, providers/pi/opencode/
-// Claude/Codex) → per-tab panels:
-//   providers → ProviderGrid (.pv-grid cards + .pv.add) + ProviderEditor drawer
-//   pi/opencode → AgentTabs (.strip + .two: .assign radio group + SandboxTable)
-//   claude/codex → PresetList (.strip + .two: .preset cards + SandboxTable)
+// Structure: page-head → MgrNotice (explaining the mgr/sandbox split) →
+// ProviderGrid (card wall) → ProviderEditorModal (center modal for both
+// "new provider" and "edit provider"). There are no profile tabs, no agent
+// tabs, no SandboxTable, no "import from pi" button, no models.dev catalog
+// — those all died with the profile system (prd "废弃的功能").
 //
-// EVERY tab edits the SELECTED profile (profileId state → ?profile= on every
-// config/import/discover/test call); the profile bar owns create/rename/
-// delete (mgr/src/models.rs profile routes). The agent tabs additionally
-// render a SandboxTable (per-sandbox assignment switches over
-// PUT /api/sandboxes/:name/model_profile — the contract SandboxListPage's
-// quick-assign popover already uses; assignment edits are committed
-// immediately per switch, unlike the canonical config's dirty-set save).
-//
-// API contract: GET/PUT /api/models/config(?profile=) + GET/POST
-// /api/models/profiles + PUT/DELETE /api/models/profiles/:id + POST
-// /api/models/import/pi + POST /api/models/discover + POST /api/models/test
-// + GET /api/models/catalog (mgr/src/models.rs) + GET /api/sandboxes +
-// PUT /api/sandboxes/:name/model_profile. Responses decode once in ./types
-// (or arrive as typed api.ts results); all rendering consumes the typed
-// CanonicalConfig.
+// API contract (mgr/src/models.rs):
+//   GET    /api/models/providers       — the masked provider library
+//   PUT    /api/models/providers       — masked-echo merge + replace-all
+//   POST   /api/models/providers       — add one provider
+//   PUT    /api/models/providers/:id   — update one provider
+//   DELETE /api/models/providers/:id   — remove one provider
+//   POST   /api/models/discover        — provider probe
+//   POST   /api/models/test            — minimal completion probe
 
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, PromptDialog } from "../../components/Dialogs";
+import { ConfirmDialog } from "../../components/Dialogs";
 import {
-  createModelProfile,
-  deleteModelProfile,
+  createProvider,
+  deleteProvider,
   discoverModels,
-  getModelsCatalog,
-  getModelsConfig,
-  importPiModels,
-  listModelProfiles,
-  listSandboxes,
-  putModelsConfig,
-  putSandboxModelProfile,
-  renameModelProfile,
+  getProviderLibrary,
   testModel,
-  type ModelProfile,
+  updateProvider,
 } from "../../api";
-import type { Sandbox } from "../../types";
-import { fmt, t, type Lang } from "../../i18n";
-import { Icon } from "../../icons";
-import { AgentTabs } from "./AgentTabs";
-import { PresetList } from "./PresetList";
-import { ProviderEditor } from "./ProviderEditor";
+import { t, type Lang } from "../../i18n";
+import { MgrNotice } from "./MgrNotice";
+import { ProviderEditorModal } from "./ProviderEditorModal";
 import { ProviderGrid } from "./ProviderGrid";
-import type { CatalogFillState } from "./ModelRow";
 import {
-  catalogRecommend,
-  decodeConfig,
+  deriveProviderIdFromName,
   emptyProvider,
   genProviderId,
-  deriveProviderIdFromName,
-  rebindAgentProviders,
   safeStringify,
-  type AgentTab,
-  type AnyPreset,
-  type CanonicalConfig,
-  type CatalogResponse,
-  type CostEntry,
   type DiscoverState,
-  type ModelEntry,
-  type PresetAgent,
-  type ProviderEntry,
-  type PutResponse,
+  type ProviderLibrary,
+  type ProviderTemplate,
+  type TemplateCost,
+  type TemplateModelEntry,
   type TestStateMap,
 } from "./types";
 
-type TabKey = "providers" | "pi" | "opencode" | "claude" | "codex";
-
-const TAB_KEYS: TabKey[] = ["providers", "pi", "opencode", "claude", "codex"];
-
-/** R1: which in-app dialog is open (replacing the native confirm()/prompt();
- * null = closed). All four flows act on the SELECTED profile. */
-type ProfileDialog = "import" | "create" | "rename" | "delete" | null;
-
-function tabLabel(lang: Lang, key: TabKey): string {
-  switch (key) {
-    case "providers":
-      return t(lang, "mcProviders");
-    case "pi":
-      return "pi";
-    case "opencode":
-      return "opencode";
-    case "claude":
-      return "Claude Code";
-    case "codex":
-      return "Codex";
-  }
+/** The editor modal's working state: the id being edited (or null = closed)
+ * plus the draft template. `isNew` distinguishes "add provider" from "edit
+ * provider" (the id field is editable only when isNew). */
+interface EditorState {
+  id: string;
+  draft: ProviderTemplate;
+  isNew: boolean;
 }
 
-export function ModelsPage({
-  lang,
-  onGoWorkspace,
-  onGoList,
-}: {
-  lang: Lang;
-  /** MgrNotice chip target (design §4.4): "去工作区" — navigates to the
-   * workspace page focused on that sandbox, replacing the old new-tab
-   * entry_url link. */
-  onGoWorkspace?: (name: string) => void;
-  /** SandboxTable "去指派" target — navigates to the sandbox list page
-   * (09-11 prototype: the unassigned row's action link). */
-  onGoList?: () => void;
-}): JSX.Element {
-  const [tab, setTab] = useState<TabKey>("providers");
-  const [config, setConfig] = useState<CanonicalConfig | null>(null);
+export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
+  const [library, setLibrary] = useState<ProviderLibrary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  // Profile state (D8): the list, the selected id (undefined until the
-  // first list lands — then the backend's first profile), and a transient
-  // message from create/rename/delete. Switching profiles reloads the
-  // config; every save goes back with the SAME ?profile=.
-  const [profiles, setProfiles] = useState<ModelProfile[] | null>(null);
-  const [profileId, setProfileId] = useState<string | undefined>(undefined);
-  const [profileMsg, setProfileMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // R1: in-app dialog for the profile-bar actions (import / create / rename /
-  // delete confirm + name prompts).
-  const [profileDialog, setProfileDialog] = useState<ProfileDialog>(null);
-
-  // Editor drawer state: `selectedId` non-null opens the drawer for that
-  // provider. It also carries the provider whose headers/compat textareas are
-  // live, and scopes the test-pill reset effect.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Editor modal state.
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [headersText, setHeadersText] = useState("");
-  const [compatText, setCompatText] = useState("");
+  const [headersText, setHeadersText] = useState("{}");
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Delete-confirm dialog (a separate ConfirmDialog on top of the editor).
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Per-(provider,model) test pills + discover modal state.
   const [testState, setTestState] = useState<TestStateMap>({});
   const [discover, setDiscover] = useState<DiscoverState | null>(null);
 
-  // models.dev catalog (lazy-fetched once, kept in memory for the page's
-  // lifetime — the catalog changes rarely, no refresh button needed).
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
-  const [catalogFillState, setCatalogFillState] = useState<
-    Record<string, CatalogFillState>
-  >({});
+  // ── load ──────────────────────────────────────────────────────────
 
-  // Agent-tab shared state: which agent has unsaved canonical edits + the
-  // last save message (shown in that tab's save bar).
-  const [agentDirty, setAgentDirty] = useState<Set<string>>(new Set());
-  const [agentSaveMsg, setAgentSaveMsg] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
-
-  // Full sandbox list (09-11 prototype): feeds the profile-bar's
-  // unassigned hint, the agent tabs' SandboxTable (assignment switches) and
-  // the MgrNotice running links. Fetched once on mount, refreshed whenever
-  // an agent tab is shown (assignments change as sandboxes start/stop).
-  const [sandboxList, setSandboxList] = useState<Sandbox[] | null>(null);
-  // Sandbox name with an assignment toggle in flight (row switch disabled).
-  const [sbxBusy, setSbxBusy] = useState("");
-
-  // ── profile list / selection (D8) ────────────────────────────────
-
-  const refreshProfiles = useCallback(async (): Promise<ModelProfile[]> => {
-    const r = await listModelProfiles();
-    setProfiles(r.profiles);
-    setProfileId((prev) => {
-      // Keep the selection when the profile still exists (rename/delete of
-      // another); else fall back to the first (backend order).
-      if (prev && r.profiles.some((p) => p.id === prev)) return prev;
-      return r.profiles[0]?.id;
-    });
-    return r.profiles;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    refreshProfiles()
-      .then((ps) => {
-        if (cancelled || ps.length === 0) return;
-      })
-      .catch((e) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshProfiles]);
-
-  // ── config fetch / save ─────────────────────────────────────────
-
-  const fetchConfig = useCallback(async (profile: string): Promise<void> => {
+  const reload = useCallback(async () => {
     try {
-      const cfg = decodeConfig(await getModelsConfig(profile));
-      setConfig(cfg);
-      setSelectedId((prev) =>
-        prev && prev in cfg.providers ? prev : null,
-      );
-      setDirty(false);
+      const lib = await getProviderLibrary();
+      setLibrary(lib);
+      setLoadError("");
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : String(e));
+      setLoadError(String(e));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // (Re)load the config whenever the selected profile resolves or changes.
   useEffect(() => {
-    if (profileId === undefined) return;
-    void fetchConfig(profileId);
-  }, [profileId, fetchConfig]);
+    reload();
+  }, [reload]);
 
-  // Sandbox list refresh: once on mount (profile-bar hint) and again
-  // whenever an agent tab is shown (the SandboxTable's switches and the
-  // MgrNotice links read live state).
-  useEffect(() => {
-    let cancelled = false;
-    listSandboxes()
-      .then((r) => {
-        if (!cancelled) setSandboxList(r.sandboxes);
-      })
-      .catch(() => {
-        /* advisory — keep whatever we had */
-      });
-    return () => {
-      cancelled = true;
+  // ── editor open/close ─────────────────────────────────────────────
+
+  const openEditor = (id: string, template: ProviderTemplate, isNew: boolean) => {
+    setEditor({ id, draft: structuredClone(template), isNew });
+    setHeadersText(safeStringify(template.headers, "{}"));
+    setDirty(false);
+    setSaveMsg(null);
+    setShowAdvanced(false);
+    setTestState({});
+  };
+
+  const closeEditor = () => {
+    setEditor(null);
+    setDiscover(null);
+  };
+
+  const onSelectProvider = (id: string) => {
+    if (!library) return;
+    const template = library.providers[id];
+    if (!template) return;
+    openEditor(id, template, false);
+  };
+
+  const onAddProvider = () => {
+    if (!library) return;
+    const id = genProviderId(library.providers);
+    openEditor(id, emptyProvider(), true);
+  };
+
+  // ── draft patching ────────────────────────────────────────────────
+
+  const patchDraft = (patch: Partial<ProviderTemplate>) => {
+    if (!editor) return;
+    setEditor({ ...editor, draft: { ...editor.draft, ...patch } });
+    setDirty(true);
+    // If the id is still the auto-generated placeholder, derive a meaningful
+    // one from the display name (same heuristic as the workbench).
+    if (patch.name !== undefined && editor.isNew) {
+      const next = deriveProviderIdFromName(
+        patch.name,
+        library?.providers ?? {},
+        editor.id,
+      );
+      if (next) setEditor((prev) => (prev ? { ...prev, id: next } : prev));
+    }
+  };
+
+  const patchModel = (idx: number, patch: Partial<TemplateModelEntry>) => {
+    if (!editor) return;
+    const models = editor.draft.models.slice();
+    models[idx] = { ...models[idx], ...patch };
+    patchDraft({ models });
+  };
+
+  const addModel = () => {
+    if (!editor) return;
+    patchDraft({ models: [...editor.draft.models, { id: "" }] });
+  };
+
+  const deleteModel = (idx: number) => {
+    if (!editor) return;
+    patchDraft({ models: editor.draft.models.filter((_, i) => i !== idx) });
+  };
+
+  const updateCost = (idx: number, field: keyof TemplateCost, val: string) => {
+    if (!editor) return;
+    const num = val === "" ? undefined : parseFloat(val);
+    const models = editor.draft.models.slice();
+    const m = models[idx];
+    models[idx] = {
+      ...m,
+      cost: { ...m.cost, [field]: num } as TemplateCost,
     };
-  }, [tab]);
+    patchDraft({ models });
+  };
 
-  // Sync the advanced JSON textareas when the selected provider changes.
-  useEffect(() => {
-    if (!config || !selectedId) return;
-    const p = config.providers[selectedId];
-    if (!p) return;
-    setHeadersText(safeStringify(p.headers));
-    setCompatText(safeStringify(p.compat));
-  }, [selectedId, config]);
-
-  // Reset all test pills for the selected provider when its identifying
-  // fields change (a stale pill would mislead).
-  useEffect(() => {
-    if (!selectedId) return;
-    setTestState((prev) => {
-      const prefix = `${selectedId}:`;
-      const has = Object.keys(prev).some((k) => k.startsWith(prefix));
-      if (!has) return prev;
-      const next: typeof prev = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (!k.startsWith(prefix)) next[k] = v;
-      }
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    selectedId,
-    config?.providers[selectedId ?? ""]?.baseUrl,
-    config?.providers[selectedId ?? ""]?.api,
-    config?.providers[selectedId ?? ""]?.apiKey,
-  ]);
-
-  // ── provider CRUD ───────────────────────────────────────────────
-
-  const updateProvider = useCallback(
-    (id: string, patch: Partial<ProviderEntry>): void => {
-      // While the key is still the auto `provider-N` placeholder, derive the
-      // id from the display name: pi/pi-web display the provider ID (never
-      // the node name), so the id must carry the name for it to show up
-      // anywhere (08-28-provider-id-from-name). Custom ids are never touched.
-      const derived =
-        patch.name !== undefined
-          ? deriveProviderIdFromName(patch.name, config?.providers ?? {}, id)
-          : "";
-      const renamed = derived && derived !== id ? { from: id, to: derived } : null;
-      if (renamed) {
-        setSelectedId((prev) => (prev === renamed.from ? renamed.to : prev));
-      }
-      setConfig((prev) => {
-        if (!prev) return prev;
-        const old = prev.providers[id];
-        if (!old) return prev;
-        const entry = { ...old, ...patch };
-        if (!renamed) {
-          return {
-            ...prev,
-            providers: { ...prev.providers, [id]: entry },
-          };
-        }
-        // Re-key + rebind agent references. If the derived key collided with
-        // a provider created since (rare typing race), keep the old key —
-        // the next keystroke re-derives.
-        if (renamed.to !== id && prev.providers[renamed.to]) {
-          return { ...prev, providers: { ...prev.providers, [id]: entry } };
-        }
-        const { [id]: _, ...rest } = prev.providers;
-        void _;
-        return {
-          ...prev,
-          providers: { ...rest, [renamed.to]: entry },
-          agents: rebindAgentProviders(prev.agents, renamed.from, renamed.to),
-        };
-      });
+  const onHeadersChange = (v: string) => {
+    setHeadersText(v);
+    // Validate + apply. Invalid JSON leaves the draft unchanged but still
+    // marks the page dirty (the user is mid-edit).
+    try {
+      const parsed = JSON.parse(v) as Record<string, string>;
+      patchDraft({ headers: parsed });
+    } catch {
       setDirty(true);
-    },
-    [config],
-  );
+    }
+  };
 
-  const updateModel = useCallback(
-    (providerId: string, idx: number, patch: Partial<ModelEntry>): void => {
-      setConfig((prev) => {
-        if (!prev) return prev;
-        const p = prev.providers[providerId];
-        if (!p) return prev;
-        const models = [...p.models];
-        models[idx] = { ...models[idx], ...patch };
-        return {
-          ...prev,
-          providers: { ...prev.providers, [providerId]: { ...p, models } },
-        };
-      });
-      setDirty(true);
-    },
-    [],
-  );
+  // ── save / delete ─────────────────────────────────────────────────
 
-  const addModel = useCallback((providerId: string): void => {
-    setConfig((prev) => {
-      if (!prev) return prev;
-      const p = prev.providers[providerId];
-      if (!p) return prev;
-      return {
-        ...prev,
-        providers: {
-          ...prev.providers,
-          [providerId]: { ...p, models: [...p.models, { id: "", reasoning: false }] },
-        },
-      };
-    });
-    setDirty(true);
-  }, []);
-
-  const deleteModel = useCallback((providerId: string, idx: number): void => {
-    setConfig((prev) => {
-      if (!prev) return prev;
-      const p = prev.providers[providerId];
-      if (!p) return prev;
-      const models = p.models.filter((_, i) => i !== idx);
-      return {
-        ...prev,
-        providers: { ...prev.providers, [providerId]: { ...p, models } },
-      };
-    });
-    setDirty(true);
-  }, []);
-
-  const addProvider = useCallback((): void => {
-    const base = config ?? { version: 1, providers: {}, agents: {} };
-    const id = genProviderId(base.providers);
-    setConfig({
-      ...base,
-      providers: { ...base.providers, [id]: emptyProvider() },
-    });
-    setSelectedId(id);
-    setDirty(true);
-  }, [config]);
-
-  const deleteProvider = useCallback((id: string): void => {
-    if (!config) return;
-    const { [id]: _, ...rest } = config.providers;
-    void _;
-    setConfig({ ...config, providers: rest });
-    setSelectedId((prev) => (prev === id ? null : prev));
-    setDirty(true);
-  }, [config]);
-
-  const updateCost = useCallback(
-    (providerId: string, idx: number, field: keyof CostEntry, val: string): void => {
-      setConfig((prev) => {
-        if (!prev) return prev;
-        const p = prev.providers[providerId];
-        if (!p) return prev;
-        const models = [...p.models];
-        const m = { ...models[idx] };
-        const cost = { ...(m.cost ?? {}) };
-        if (val === "") {
-          delete cost[field];
-        } else {
-          const n = parseFloat(val);
-          if (!isNaN(n)) cost[field] = n;
-        }
-        m.cost = Object.keys(cost).length > 0 ? cost : undefined;
-        models[idx] = m;
-        return {
-          ...prev,
-          providers: { ...prev.providers, [providerId]: { ...p, models } },
-        };
-      });
-      setDirty(true);
-    },
-    [],
-  );
-
-  const handleSave = useCallback(async (): Promise<void> => {
-    if (!config || !selectedId) return;
+  const onSave = async () => {
+    if (!editor) return;
     setSaving(true);
     setSaveMsg(null);
     try {
-      let headers: Record<string, string>;
-      let compat: unknown;
+      // Apply the headers textarea if it parses (it might be dirty without
+      // a successful patch).
+      let headers = editor.draft.headers;
       try {
-        headers = headersText.trim()
-          ? (JSON.parse(headersText) as Record<string, string>)
-          : {};
+        headers = JSON.parse(headersText) as Record<string, string>;
       } catch {
-        setSaveMsg({ ok: false, text: t(lang, "mcInvalidJson") + ": headers" });
-        setSaving(false);
-        return;
+        // keep the draft's last-good headers
       }
-      try {
-        compat = compatText.trim() ? JSON.parse(compatText) : {};
-      } catch {
-        setSaveMsg({ ok: false, text: t(lang, "mcInvalidJson") + ": compat" });
-        setSaving(false);
-        return;
+      const template = { ...editor.draft, headers };
+      if (editor.isNew) {
+        await createProvider(editor.id, template);
+      } else {
+        await updateProvider(editor.id, template);
       }
-      const body: CanonicalConfig = {
-        ...config,
-        providers: {
-          ...config.providers,
-          [selectedId]: { ...config.providers[selectedId], headers, compat },
-        },
-      };
-
-      const resp: PutResponse = await putModelsConfig(body, profileId);
-      setSaveMsg({
-        ok: true,
-        text:
-          resp.warnings?.length && resp.warnings.length > 0
-            ? resp.warnings.join("; ")
-            : t(lang, "mcSaved"),
-      });
-      if (profileId !== undefined) await fetchConfig(profileId);
+      setSaveMsg({ ok: true, text: t(lang, "mcSaved") });
+      setDirty(false);
+      await reload();
+      closeEditor();
     } catch (e) {
-      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+      setSaveMsg({ ok: false, text: String(e) });
     } finally {
       setSaving(false);
-      window.setTimeout(() => setSaveMsg(null), 3000);
     }
-  }, [config, selectedId, headersText, compatText, lang, fetchConfig, profileId]);
-
-  const handleImport = useCallback(async (): Promise<void> => {
-    if (profileId === undefined) return;
-    try {
-      const resp = await importPiModels(profileId);
-      setSaveMsg({
-        ok: true,
-        text: t(lang, "mcImportResult")
-          .replace("{imported}", String(resp.imported.length))
-          .replace("{skipped}", String(resp.skipped.length)),
-      });
-      await fetchConfig(profileId);
-    } catch (e) {
-      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      window.setTimeout(() => setSaveMsg(null), 5000);
-    }
-  }, [lang, fetchConfig, profileId]);
-
-  // ── profile CRUD (D8) ────────────────────────────────────────────
-
-  const flashProfileMsg = (ok: boolean, text: string): void => {
-    setProfileMsg({ ok, text });
-    window.setTimeout(() => setProfileMsg(null), 3000);
   };
 
-  // Profile prompts/confirmations go through the shared in-app dialogs (R1):
-  // the buttons below only OPEN the dialog; the do* callbacks run once the
-  // dialog's confirm/submit fires (empty prompt submissions no-op, matching
-  // the old native-prompt guard).
-  const handleCreateProfile = useCallback(async (raw: string): Promise<void> => {
-    const trimmed = raw.trim();
-    if (trimmed === "") return;
+  const onConfirmDelete = async () => {
+    if (!deleteConfirmId) return;
     try {
-      const created = await createModelProfile(trimmed);
-      const ps = await refreshProfiles();
-      // Select the new profile immediately (it is empty — the user just
-      // named it, editing it is the obvious next step).
-      setProfileId(ps.find((p) => p.id === created.id)?.id ?? ps[0]?.id);
-      flashProfileMsg(true, t(lang, "mpCreated"));
+      await deleteProvider(deleteConfirmId);
+      setDeleteConfirmId(null);
+      closeEditor();
+      await reload();
     } catch (e) {
-      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
+      setSaveMsg({ ok: false, text: String(e) });
+      setDeleteConfirmId(null);
     }
-  }, [lang, refreshProfiles]);
+  };
 
-  const handleRenameProfile = useCallback(
-    async (raw: string): Promise<void> => {
-      if (!profileId || !profiles) return;
-      const current = profiles.find((p) => p.id === profileId);
-      if (!current) return;
-      const trimmed = raw.trim();
-      if (trimmed === "" || trimmed === current.name) return;
-      try {
-        await renameModelProfile(profileId, trimmed);
-        await refreshProfiles();
-        flashProfileMsg(true, t(lang, "mcSaved"));
-      } catch (e) {
-        flashProfileMsg(false, e instanceof Error ? e.message : String(e));
-      }
-    },
-    [lang, profileId, profiles, refreshProfiles],
-  );
+  // ── discover + test ───────────────────────────────────────────────
 
-  const handleDeleteProfile = useCallback(async (): Promise<void> => {
-    if (!profileId) return;
-    try {
-      await deleteModelProfile(profileId);
-      await refreshProfiles();
-      flashProfileMsg(true, t(lang, "mpDeleted"));
-    } catch (e) {
-      // The backend refuses the last profile (400) — surfaced as-is.
-      flashProfileMsg(false, e instanceof Error ? e.message : String(e));
-    }
-  }, [lang, profileId, refreshProfiles]);
-
-  // ── test + discover ─────────────────────────────────────────────
-
-  /** True when the apiKey field holds a freshly typed literal (not the mask). */
-  const apiKeyDirty = useCallback((provider: ProviderEntry): boolean => {
-    const k = provider.apiKey ?? "";
-    return k.length > 0 && !k.includes("****");
-  }, []);
-
-  const handleTest = useCallback(
-    async (providerId: string, modelId: string): Promise<void> => {
-      if (!modelId) return;
-      const key = `${providerId}:${modelId}`;
-      setTestState((prev) => ({ ...prev, [key]: { status: "testing" } }));
-      const t0 = performance.now();
-      // Probe-body split, same policy as handleFetchModels: when the page is
-      // dirty AND the provider's key field holds a fresh literal (not the
-      // mask), go literal — the backend resolves ById against the store only,
-      // so an unsaved provider (or a re-typed key) would 404 / probe a stale
-      // key. A masked key never leaves as-is: it rides the stored plaintext
-      // via ById.
-      const provider = config?.providers[providerId];
-      let body: Parameters<typeof testModel>[0];
-      if (provider && dirty) {
-        body = apiKeyDirty(provider)
-          ? {
-              baseUrl: provider.baseUrl,
-              api: provider.api,
-              apiKey: provider.apiKey ?? undefined,
-              modelId,
-            }
-          : { providerId, modelId };
-      } else {
-        body = { providerId, modelId };
-      }
-      try {
-        const resp = await testModel(body, profileId);
-        setTestState((prev) => ({
-          ...prev,
-          [key]: {
-            status: resp.ok ? "ok" : "fail",
-            // Fall back to the client-measured round trip when the backend
-            // omits latencyMs so the pill still shows a real number.
-            latencyMs: resp.latencyMs ?? Math.round(performance.now() - t0),
-            statusHttp: resp.status,
-            error: resp.error,
-            responseText: resp.responseText,
-          },
-        }));
-      } catch (e) {
-        setTestState((prev) => ({
-          ...prev,
-          [key]: {
-            status: "fail",
-            error: e instanceof Error ? e.message : String(e),
-          },
-        }));
-      }
-    },
-    [profileId, config, dirty, apiKeyDirty],
-  );
-
-  const resetTest = useCallback((providerId: string, modelId: string): void => {
-    const key = `${providerId}:${modelId}`;
-    setTestState((prev) => {
-      if (!prev[key] || prev[key].status === "idle") return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
+  const onFetchModels = async () => {
+    if (!editor) return;
+    setDiscover({
+      loading: true,
+      error: "",
+      endpoint: "",
+      models: [],
+      filter: "",
+      selected: new Set(),
     });
-  }, []);
-
-  // Open the discover modal and fetch models for the selected provider.
-  const handleFetchModels = useCallback(async (): Promise<void> => {
-    if (!selectedId) return;
-    const provider = config?.providers[selectedId];
-    if (!provider) return;
-    setDiscover({ loading: true, error: "", endpoint: "", models: [], filter: "", selected: new Set() });
     try {
-      const resp = await discoverModels(
-        apiKeyDirty(provider)
-          ? { baseUrl: provider.baseUrl, api: provider.api, apiKey: provider.apiKey }
-          : { providerId: selectedId },
-        profileId,
-      );
+      // Probe with the DRAFT fields (the provider being edited, not yet
+      // saved) — the literal branch of /api/models/discover.
+      const body: { baseUrl: string; api: string; apiKey?: string } = {
+        baseUrl: editor.draft.baseUrl,
+        api: editor.draft.api,
+      };
+      if (editor.draft.apiKey) body.apiKey = editor.draft.apiKey;
+      const resp = await discoverModels(body);
       setDiscover({
         loading: false,
         error: "",
@@ -620,599 +253,170 @@ export function ModelsPage({
         selected: new Set(),
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setDiscover((d) => (d ? { ...d, loading: false, error: msg } : d));
+      setDiscover({
+        loading: false,
+        error: String(e),
+        endpoint: "",
+        models: [],
+        filter: "",
+        selected: new Set(),
+      });
     }
-  }, [selectedId, config, apiKeyDirty, profileId]);
-
-  // Merge the discover-selected models into the selected provider.
-  const handleDiscoverAddSelected = useCallback((): void => {
-    if (!selectedId || !discover) return;
-    const chosen = discover.models.filter((m) => discover.selected.has(m.id));
-    if (chosen.length === 0) return;
-    setConfig((prev) => {
-      if (!prev) return prev;
-      const p = prev.providers[selectedId];
-      if (!p) return prev;
-      const existing = new Set(p.models.map((m) => m.id));
-      const additions: ModelEntry[] = chosen
-        .filter((m) => !existing.has(m.id))
-        .map((m) => ({ id: m.id, name: m.name, reasoning: false }));
-      if (additions.length === 0) return prev;
-      return {
-        ...prev,
-        providers: {
-          ...prev.providers,
-          [selectedId]: { ...p, models: [...p.models, ...additions] },
-        },
-      };
-    });
-    setDirty(true);
-  }, [selectedId, discover]);
-
-  // Lazy-fetch the models.dev catalog once and cache it in state; subsequent
-  // fill clicks reuse it without another request (same policy as the
-  // workbench: never fetched until a fill button is clicked).
-  const fetchCatalogOnce = useCallback(async (): Promise<CatalogResponse | null> => {
-    if (catalog) return catalog;
-    try {
-      const c = await getModelsCatalog();
-      setCatalog(c);
-      return c;
-    } catch {
-      return null;
-    }
-  }, [catalog]);
-
-  const handleCatalogFill = useCallback(
-    async (providerId: string, idx: number): Promise<void> => {
-      const provider = config?.providers[providerId];
-      const model = provider?.models[idx];
-      if (!provider || !model || !model.id) return;
-      const key = `${providerId}:${model.id}`;
-      setCatalogFillState((prev) => ({ ...prev, [key]: "loading" }));
-      const c = await fetchCatalogOnce();
-      if (!c) {
-        setCatalogFillState((prev) => ({ ...prev, [key]: "error" }));
-        return;
-      }
-      const hit = catalogRecommend(c, provider.baseUrl, model.id);
-      if (!hit) {
-        setCatalogFillState((prev) => ({ ...prev, [key]: "notfound" }));
-        return;
-      }
-      setCatalogFillState((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      updateModel(providerId, idx, {
-        name: hit.name,
-        reasoning: hit.reasoning,
-        contextWindow: hit.contextWindow,
-        maxTokens: hit.maxTokens,
-        cost: hit.cost,
-      });
-    },
-    [config, fetchCatalogOnce, updateModel],
-  );
-
-  // ── agent assignments + presets (canonical edits only) ───────────
-
-  const updateAgentAssignment = useCallback(
-    (agent: "pi" | "opencode", patch: Record<string, unknown>): void => {
-      setConfig((prev) => {
-        if (!prev) return prev;
-        const current = prev.agents[agent];
-        const next = { ...(current ?? { provider: "", model: "" }), ...patch };
-        // When the provider changed, reset the model if it's not in the new
-        // provider's model list.
-        if (
-          patch.provider !== undefined &&
-          (!current || patch.provider !== current.provider)
-        ) {
-          const p = prev.providers[patch.provider as string];
-          const models = p?.models.map((m) => m.id) ?? [];
-          if (!models.includes(next.model)) {
-            next.model = models[0] ?? "";
-          }
-        }
-        return { ...prev, agents: { ...prev.agents, [agent]: next } };
-      });
-      setAgentDirty((prev) => new Set(prev).add(agent));
-    },
-    [],
-  );
-
-  /** Replace the preset list block for a switch-style agent. */
-  const setPresets = useCallback(
-    (
-      agent: PresetAgent,
-      build: (block: { presets: AnyPreset[]; current?: string | null } | undefined) => {
-        presets: AnyPreset[];
-        current?: string | null;
-      },
-    ): void => {
-      setConfig((prev) => {
-        if (!prev) return prev;
-        const existing =
-          agent === "claude" ? prev.agents.claude : prev.agents.codex;
-        const next = build(
-          existing
-            ? { presets: existing.presets, current: existing.current }
-            : undefined,
-        );
-        return {
-          ...prev,
-          agents: { ...prev.agents, [agent]: next },
-        };
-      });
-      setAgentDirty((prev) => new Set(prev).add(agent));
-    },
-    [],
-  );
-
-  const addPreset = useCallback(
-    (agent: PresetAgent, preset: AnyPreset): void => {
-      setPresets(agent, (block) => {
-        const presets = [...(block?.presets ?? []), preset];
-        // First preset auto-becomes current (sent as "" until the backend
-        // backfills the id). Otherwise leave current alone.
-        const current =
-          (block?.presets?.length ?? 0) === 0 ? "" : block?.current ?? null;
-        return { presets, current };
-      });
-    },
-    [setPresets],
-  );
-
-  const updatePreset = useCallback(
-    (agent: PresetAgent, id: string, preset: AnyPreset): void => {
-      setPresets(agent, (block) => {
-        const presets = (block?.presets ?? []).map((p) =>
-          p.id === id ? { ...preset, id } : p,
-        );
-        return { presets, current: block?.current ?? null };
-      });
-    },
-    [setPresets],
-  );
-
-  const deletePreset = useCallback(
-    (agent: PresetAgent, id: string): void => {
-      setPresets(agent, (block) => {
-        const presets = (block?.presets ?? []).filter((p) => p.id !== id);
-        // Deleting the current preset: shift current to the first remaining
-        // (or null). Never dangle.
-        let current = block?.current ?? null;
-        if (current === id) {
-          current = presets[0]?.id ?? null;
-        }
-        return { presets, current };
-      });
-    },
-    [setPresets],
-  );
-
-  const duplicatePreset = useCallback(
-    (agent: PresetAgent, id: string): void => {
-      setPresets(agent, (block) => {
-        const src = (block?.presets ?? []).find((p) => p.id === id);
-        if (!src) return { presets: block?.presets ?? [], current: block?.current ?? null };
-        // New id (backend backfills); name gets the copy suffix; insert right
-        // after the source so it appears adjacent.
-        const copy: AnyPreset = {
-          ...(src as object),
-          id: "",
-          name: `${src.name} ${t(lang, "maCopySuffix")}`,
-        } as AnyPreset;
-        const presets: AnyPreset[] = [];
-        for (const p of block?.presets ?? []) {
-          presets.push(p);
-          if (p.id === id) presets.push(copy);
-        }
-        return { presets, current: block?.current ?? null };
-      });
-    },
-    [setPresets, lang],
-  );
-
-  /** Switch = setCurrent + save, one click (the sandbox renders on pull). */
-  const handleSwitchPreset = useCallback(
-    async (agent: PresetAgent, id: string): Promise<void> => {
-      if (!config || id === "") return;
-      const block = agent === "claude" ? config.agents.claude : config.agents.codex;
-      if (id === (block?.current ?? null)) return; // already current
-      const next = {
-        ...config,
-        agents: { ...config.agents, [agent]: { ...block, current: id } },
-      };
-      setConfig(next);
-      setSaving(true);
-      setAgentSaveMsg(null);
-      try {
-        await putModelsConfig(next, profileId);
-        if (profileId !== undefined) await fetchConfig(profileId);
-        setAgentDirty((prev) => {
-          const n = new Set(prev);
-          n.delete(agent);
-          return n;
-        });
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setSaving(false);
-        window.setTimeout(() => setAgentSaveMsg(null), 3000);
-      }
-    },
-    [config, fetchConfig, profileId],
-  );
-
-  const handleSaveAssignment = useCallback(
-    async (agent: AgentTab): Promise<void> => {
-      if (!config) return;
-      setSaving(true);
-      setAgentSaveMsg(null);
-      try {
-        await putModelsConfig(config, profileId);
-        setAgentDirty((prev) => {
-          const n = new Set(prev);
-          n.delete(agent);
-          return n;
-        });
-        setAgentSaveMsg({ ok: true, text: t(lang, "mcSaved") });
-        if (profileId !== undefined) await fetchConfig(profileId);
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setSaving(false);
-        window.setTimeout(() => setAgentSaveMsg(null), 3000);
-      }
-    },
-    [config, lang, fetchConfig, profileId],
-  );
-
-  /** SandboxTable switch: flip one agent's membership in the sandbox's
-   * assignment subset and commit immediately (PUT /model_profile — the same
-   * contract as the list page's quick-assign popover; ~1min sandbox-side
-   * pull). `null` model_agents means ALL four agents — decode before
-   * toggling, re-encode all-four back to null (canonical "all"). */
-  const handleToggleSandboxAgent = useCallback(
-    async (name: string, agent: string, on: boolean): Promise<void> => {
-      if (!profileId || sbxBusy !== "") return;
-      const sb = sandboxList?.find((s) => s.name === name);
-      if (!sb || sb.model_profile !== profileId) return;
-      const ALL = ["pi", "opencode", "claude", "codex"];
-      const current = sb.model_agents ?? ALL;
-      const next = on
-        ? ALL.filter((a) => current.includes(a) || a === agent)
-        : current.filter((a) => a !== agent);
-      const wire = next.length === ALL.length ? null : next;
-      setSbxBusy(name);
-      setAgentSaveMsg(null);
-      try {
-        await putSandboxModelProfile(name, profileId, wire);
-        setSandboxList((prev) =>
-          prev
-            ? prev.map((s) =>
-                s.name === name ? { ...s, model_agents: wire } : s,
-              )
-            : prev,
-        );
-      } catch (e) {
-        setAgentSaveMsg({
-          ok: false,
-          text: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setSbxBusy("");
-        window.setTimeout(() => setAgentSaveMsg(null), 3000);
-      }
-    },
-    [profileId, sandboxList, sbxBusy],
-  );
-
-  /** Agent-tab "放弃": drop unsaved canonical edits by re-fetching the
-   * profile's config from mgr (the saved truth) and clearing the dirty bit. */
-  const handleDiscardAssignment = useCallback(
-    (agent: AgentTab): void => {
-      if (profileId === undefined) return;
-      void fetchConfig(profileId);
-      setAgentDirty((prev) => {
-        const n = new Set(prev);
-        n.delete(agent);
-        return n;
-      });
-    },
-    [profileId, fetchConfig],
-  );
-
-  // ── render ──────────────────────────────────────────────────────
-
-  const selected = config && selectedId ? config.providers[selectedId] : null;
-
-  // Profile-bar helpers (prototype renderProfiles): live count + hint.
-  const countAssigned = (id: string): number =>
-    (sandboxList ?? []).filter((s) => s.model_profile === id).length;
-  const unassigned = (sandboxList ?? []).filter((s) => !s.model_profile);
-  const unassignedHint = !sandboxList
-    ? ""
-    : unassigned.length > 0
-      ? t(lang, "mpUnassignedHint").replace("{names}", unassigned.map((s) => s.name).join(t(lang, "mpListSep")))
-      : t(lang, "mpAllAssigned");
-  const currentProfileName =
-    profiles?.find((p) => p.id === profileId)?.name ?? "";
-  const profileNames: Record<string, string> = {};
-  for (const p of profiles ?? []) profileNames[p.id] = p.name;
-
-  const jumpToAgent = (agent: AgentTab): void => {
-    setSelectedId(null);
-    setTab(agent);
   };
+
+  const onDiscoverAddSelected = () => {
+    if (!editor || !discover) return;
+    const existing = new Set(editor.draft.models.map((m) => m.id));
+    const additions = [...discover.selected]
+      .filter((id) => !existing.has(id))
+      .map((id) => {
+        const d = discover.models.find((m) => m.id === id);
+        return { id, name: d?.name };
+      });
+    patchDraft({ models: [...editor.draft.models, ...additions] });
+    setDiscover(null);
+  };
+
+  const onTest = async (modelId: string) => {
+    if (!editor) return;
+    const key = `${editor.id}:${modelId}`;
+    setTestState((prev) => ({
+      ...prev,
+      [key]: { status: "testing" },
+    }));
+    const start = performance.now();
+    try {
+      // Probe with the DRAFT fields (the provider being edited, not yet
+      // saved) — the literal branch of /api/models/test.
+      const body: {
+        baseUrl: string;
+        api: string;
+        apiKey?: string;
+        modelId: string;
+      } = {
+        baseUrl: editor.draft.baseUrl,
+        api: editor.draft.api,
+        modelId,
+      };
+      if (editor.draft.apiKey) body.apiKey = editor.draft.apiKey;
+      const resp = await testModel(body);
+      const latencyMs = Math.round(performance.now() - start);
+      setTestState((prev) => ({
+        ...prev,
+        [key]: resp.ok
+          ? { status: "ok", latencyMs, responseText: resp.responseText }
+          : {
+              status: "fail",
+              latencyMs,
+              statusHttp: resp.status,
+              error: resp.error ?? "unknown",
+              responseText: resp.responseText,
+            },
+      }));
+    } catch (e) {
+      setTestState((prev) => ({
+        ...prev,
+        [key]: { status: "fail", error: String(e) },
+      }));
+    }
+  };
+
+  const onResetTest = (providerId: string, modelId: string) => {
+    setTestState((prev) => {
+      const next = { ...prev };
+      delete next[`${providerId}:${modelId}`];
+      return next;
+    });
+  };
+
+  // ── render ────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="page models-page">
+        <p className="muted">{t(lang, "mcLoading")}</p>
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div className="page models-page">
+        <p className="ml-msg err">
+          {t(lang, "mcLoadFailed")}
+          {loadError}
+        </p>
+      </div>
+    );
+  }
+  if (!library) {
+    return (
+      <div className="page models-page">
+        <p className="muted">{t(lang, "mcLoadFailed")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="page models-page">
       <div className="page-head">
-        <h1>{t(lang, "navModels")}</h1>
+        <h1>{t(lang, "mcProviders")}</h1>
+        <p className="muted txs">{t(lang, "mcKeyHint")}</p>
       </div>
 
-      {/* Profile bar (D8 / prototype .profile-bar): every tab below edits
-       * the selected profile. The segmented picker shows per-profile
-       * sandbox counts (live from the sandbox list, not the profile row's
-       * `assigned` — both agree except during the 4s list poll window);
-       * rename/delete act on the selected profile only; the trailing hint
-       * lists unassigned sandboxes. */}
-      <div className="profile-bar">
-        <span className="lbl">{t(lang, "mpProfile")}</span>
-        <div
-          className="segmented"
-          role="group"
-          aria-label={t(lang, "mpPickProfile")}
-        >
-          {(profiles ?? []).map((p) => (
-            <button
-              key={p.id}
-              aria-pressed={p.id === profileId}
-              onClick={() => setProfileId(p.id)}
-            >
-              {p.name}
-              <span className="cnt">
-                {fmt(lang, "mpSegCount", countAssigned(p.id))}
-              </span>
-            </button>
-          ))}
-        </div>
-        <button
-          className="icon-btn"
-          title={t(lang, "mpRenameTitle")}
-          aria-label={t(lang, "mpRenameTitle")}
-          disabled={!profileId}
-          onClick={() => setProfileDialog("rename")}
-        >
-          <Icon name="edit" />
-        </button>
-        <button
-          className="icon-btn danger"
-          title={t(lang, "mpDeleteTitle")}
-          aria-label={t(lang, "mpDeleteTitle")}
-          disabled={!profileId || (profiles?.length ?? 0) <= 1}
-          onClick={() => setProfileDialog("delete")}
-        >
-          <Icon name="trash" />
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => setProfileDialog("create")}>
-          <Icon name="plus" />
-          {t(lang, "mpNew")}
-        </button>
-        <span className="hint">{unassignedHint}</span>
-        {profileMsg && (
-          <span className={`ml-msg${profileMsg.ok ? " ok" : " err"}`}>
-            {profileMsg.text}
-          </span>
-        )}
-      </div>
+      <MgrNotice lang={lang} />
 
-      <div className="tabs" role="tablist">
-        {TAB_KEYS.map((k) => (
-          <button
-            key={k}
-            role="tab"
-            aria-selected={tab === k}
-            onClick={() => setTab(k)}
-          >
-            {tabLabel(lang, k)}
-            {k === "providers" && config && (
-              <span className="cnt">{Object.keys(config.providers).length}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="ml-loading">{t(lang, "mcLoading")}</div>
-      ) : loadError ? (
-        <div className="ml-error">{t(lang, "mcLoadFailed") + loadError}</div>
-      ) : tab === "claude" || tab === "codex" ? (
-        <PresetList
-          agent={tab}
-          config={config ?? { version: 1, providers: {}, agents: {} }}
-          agentDirty={agentDirty}
-          saving={saving}
-          agentSaveMsg={agentSaveMsg}
-          profileId={profileId ?? ""}
-          profileName={currentProfileName}
-          profileNames={profileNames}
-          sandboxList={sandboxList}
-          sbxBusy={sbxBusy}
-          onGoWorkspace={onGoWorkspace}
-          onGoList={onGoList}
-          onGoProfile={(id) => setProfileId(id)}
-          onToggleSandboxAgent={(name, agent, on) =>
-            void handleToggleSandboxAgent(name, agent, on)
-          }
-          onAddPreset={addPreset}
-          onUpdatePreset={updatePreset}
-          onDeletePreset={deletePreset}
-          onDuplicatePreset={duplicatePreset}
-          onSwitchPreset={(a, id) => void handleSwitchPreset(a, id)}
-          onSaveAssignment={(a) => void handleSaveAssignment(a)}
-          onDiscardAssignment={handleDiscardAssignment}
+      {Object.keys(library.providers).length === 0 ? (
+        <p className="muted">{t(lang, "mcNoProviders")}</p>
+      ) : (
+        <ProviderGrid
+          library={library}
+          onSelect={onSelectProvider}
+          onAdd={onAddProvider}
           lang={lang}
         />
-      ) : tab !== "providers" ? (
-        <AgentTabs
-          agent={tab as "pi" | "opencode"}
-          config={config ?? { version: 1, providers: {}, agents: {} }}
-          agentDirty={agentDirty}
-          saving={saving}
-          agentSaveMsg={agentSaveMsg}
-          profileId={profileId ?? ""}
-          profileName={currentProfileName}
-          profileNames={profileNames}
-          sandboxList={sandboxList}
-          sbxBusy={sbxBusy}
-          onGoWorkspace={onGoWorkspace}
-          onGoList={onGoList}
-          onGoProfile={(id) => setProfileId(id)}
-          onToggleSandboxAgent={(name, agent, on) =>
-            void handleToggleSandboxAgent(name, agent, on)
-          }
-          onUpdateAssignment={updateAgentAssignment}
-          onSaveAssignment={(a) => void handleSaveAssignment(a)}
-          onDiscardAssignment={handleDiscardAssignment}
-          lang={lang}
-        />
-      ) : config ? (
-        <div className="tab-panel active">
-          <div className="sec-head">
-            <div>
-              <h2>{t(lang, "mcProviders")}</h2>
-            </div>
-            <div className="sec-acts">
-              <button className="btn btn-secondary" onClick={() => setProfileDialog("import")}>
-                {t(lang, "mcImportPi")}
-              </button>
-              <button className="btn btn-primary" onClick={addProvider}>
-                <Icon name="plus" />
-                {t(lang, "mcAddProvider")}
-              </button>
-            </div>
-          </div>
-          <ProviderGrid
-            config={config}
-            profileId={profileId ?? ""}
-            profiles={profiles ?? []}
-            onSelect={setSelectedId}
-            onAdd={addProvider}
-            lang={lang}
-          />
-        </div>
-      ) : null}
+      )}
 
-      {/* The drawer + scrim are viewport-fixed (see ProviderEditor); rendered
-       * as a sibling of the tab content so they cover the whole page. */}
-      {tab === "providers" && config && selectedId && selected && (
-        <ProviderEditor
-          providerId={selectedId}
-          provider={selected}
-          config={config}
+      {editor && (
+        <ProviderEditorModal
+          providerId={editor.id}
+          provider={editor.draft}
+          isNew={editor.isNew}
           dirty={dirty}
           saving={saving}
           saveMsg={saveMsg}
           headersText={headersText}
-          compatText={compatText}
           showAdvanced={showAdvanced}
           testState={testState}
           discover={discover}
-          catalogFillState={catalogFillState}
-          onClose={() => setSelectedId(null)}
-          onPatchProvider={(patch) => updateProvider(selectedId, patch)}
-          onPatchModel={(idx, patch) => updateModel(selectedId, idx, patch)}
-          onAddModel={() => addModel(selectedId)}
-          onDeleteModel={(idx) => deleteModel(selectedId, idx)}
-          onUpdateCost={(idx, field, val) => updateCost(selectedId, idx, field, val)}
-          onHeadersChange={setHeadersText}
-          onCompatChange={setCompatText}
+          onClose={closeEditor}
+          onPatchProvider={patchDraft}
+          onPatchModel={patchModel}
+          onAddModel={addModel}
+          onDeleteModel={deleteModel}
+          onUpdateCost={updateCost}
+          onHeadersChange={onHeadersChange}
           onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-          onSave={() => void handleSave()}
-          onTest={(modelId) => void handleTest(selectedId, modelId)}
-          onResetTest={resetTest}
-          onFetchModels={() => void handleFetchModels()}
+          onSave={onSave}
+          onTest={onTest}
+          onResetTest={onResetTest}
+          onFetchModels={onFetchModels}
           onDiscoverSet={setDiscover}
-          onDiscoverAddSelected={handleDiscoverAddSelected}
-          onFillFromCatalog={(idx) => void handleCatalogFill(selectedId, idx)}
-          onJumpToAgent={jumpToAgent}
-          onDeleteProvider={() => deleteProvider(selectedId)}
+          onDiscoverAddSelected={onDiscoverAddSelected}
+          onDeleteProvider={
+            editor.isNew ? null : () => setDeleteConfirmId(editor.id)
+          }
           lang={lang}
         />
       )}
 
-      {/* R1: in-app dialogs for the profile bar + pi import (native
-       * confirm()/prompt() removed). Rendered as a page-level sibling so the
-       * overlay covers everything regardless of the active tab. */}
-      {profileDialog === "import" && (
+      {deleteConfirmId && (
         <ConfirmDialog
           lang={lang}
-          title={t(lang, "mcImportPi")}
-          desc={t(lang, "mcImportConfirm")}
-          onConfirm={() => {
-            setProfileDialog(null);
-            void handleImport();
-          }}
-          onCancel={() => setProfileDialog(null)}
-        />
-      )}
-      {profileDialog === "create" && (
-        <PromptDialog
-          lang={lang}
-          title={t(lang, "mpNew")}
-          desc={t(lang, "mpNewName")}
-          confirmLabel={t(lang, "mpNew")}
-          onSubmit={(v) => {
-            setProfileDialog(null);
-            void handleCreateProfile(v);
-          }}
-          onCancel={() => setProfileDialog(null)}
-        />
-      )}
-      {profileDialog === "rename" && (
-        <PromptDialog
-          lang={lang}
-          title={t(lang, "mpRenameTitle")}
-          desc={t(lang, "mpRenamePrompt")}
-          defaultValue={profiles?.find((p) => p.id === profileId)?.name ?? ""}
-          onSubmit={(v) => {
-            setProfileDialog(null);
-            void handleRenameProfile(v);
-          }}
-          onCancel={() => setProfileDialog(null)}
-        />
-      )}
-      {profileDialog === "delete" && (
-        <ConfirmDialog
-          lang={lang}
+          title={t(lang, "mcDeleteProvider")}
+          desc={t(lang, "mcDeleteProviderConfirm")}
           danger
-          title={t(lang, "mpDeleteTitle")}
-          desc={
-            (profiles?.find((p) => p.id === profileId)?.assigned.length ?? 0) > 0
-              ? t(lang, "mpDeleteConfirmAssigned").replace(
-                  "{n}",
-                  String(profiles?.find((p) => p.id === profileId)?.assigned.length ?? 0),
-                )
-              : t(lang, "mpDeleteConfirm")
-          }
-          confirmLabel={t(lang, "delete")}
-          onConfirm={() => {
-            setProfileDialog(null);
-            void handleDeleteProfile();
-          }}
-          onCancel={() => setProfileDialog(null)}
+          onConfirm={onConfirmDelete}
+          onCancel={() => setDeleteConfirmId(null)}
         />
       )}
     </div>

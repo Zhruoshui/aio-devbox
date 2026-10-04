@@ -27,8 +27,8 @@ WorkspacePage.tsx` (golden-layout owner), `pages/workspace/paneUrl.ts`
 / `CodeServerPane` — generic panes by service type, each bound to its
 sandbox), `pages/workspace/SandboxTree.tsx` (sandbox tree panel: search,
 status dots, manifest lazy-load, button registration) + `NodeMenu.tsx`
-(fixed-position `更多` menu), `pages/models/` (model config: profile bar +
-five tabs, D8). Admin pages in `pages/` (list/create/adopt/edit/job/images/
+(fixed-position `更多` menu), `pages/models/` (cc-switch refactor: provider library only, no profile
+bar, no five tabs; Phase 1.2/3). Admin pages in `pages/` (list/create/adopt/edit/job/images/
 usage) all use the `.page` container (max-width 1200px) + `.page-head` header
 scaffold. `types.ts`/`api.ts` mirror the mgr control-plane API —
 backend/api-contracts.md.
@@ -48,8 +48,9 @@ child windows still render the lone workspace without the shell
 - `"web"` → `IframePane` (containerized service in an iframe; TCP-probed `enabled`).
 - `"agent"` → `XtermPane` (pty CLI over the mgr proxy; `enabled` = `command_exists`).
 - `"page"` pane type is RETIRED with web/ (09-09 D1/D8): the in-sandbox model
-  config UI is gone — model config lives in mgr-web's Models page (per-profile,
-  契约 7). Do not re-introduce `"page"` panes.
+  config UI is gone — model config lives in mgr-web's Models page (provider
+  library after cc-switch refactor; per-sandbox agent config will live on the
+  sandbox detail page in Phase 4). Do not re-introduce `"page"` panes.
 
 ## Guidelines Index
 

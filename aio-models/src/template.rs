@@ -100,6 +100,22 @@ pub fn mask_library(library: &mut ProviderLibrary) {
     }
 }
 
+impl Default for ProviderTemplate {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            base_url: String::new(),
+            api: "openai-completions".into(),
+            api_key: None,
+            headers: BTreeMap::new(),
+            models: Vec::new(),
+            website_url: None,
+            category: None,
+            notes: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,21 +175,5 @@ mod tests {
             lib.providers["test"].api_key.as_deref(),
             Some("sk-t****3456")
         );
-    }
-}
-
-impl Default for ProviderTemplate {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            base_url: String::new(),
-            api: "openai-completions".into(),
-            api_key: None,
-            headers: BTreeMap::new(),
-            models: Vec::new(),
-            website_url: None,
-            category: None,
-            notes: None,
-        }
     }
 }

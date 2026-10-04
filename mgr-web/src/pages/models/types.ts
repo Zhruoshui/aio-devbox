@@ -1,116 +1,87 @@
-// Shared types + decoders for the models config page — ported from
-// web/src/panes/models/types.ts (sandbox-mgr Phase 4c).
+// Shared types + decoders for the mgr models config page (cc-switch refactor,
+// task 10-04-model-config-cc-switch Phase 3).
 //
 // Single boundary owner (cross-layer-thinking-guide): every /api/models/* and
 // /api/usage response is decoded exactly once here, and all rendering consumes
-// the typed CanonicalConfig / CatalogResponse / UsageFanout — never raw JSON.
+// the typed ProviderLibrary / UsageFanout — never raw JSON.
 //
-// Mirrors aio-models crate shapes (mgr/src/models.rs contract-locks them to
-// app/src/routes/models/*) plus the mgr-only /api/usage fan-out wrapper
-// (mgr/src/usage.rs: {sandboxes: [{name, error, usage}]} where `usage` is the
-// app's /api/models/usage payload passed through verbatim).
+// Mirrors aio-models crate shapes:
+//   - aio-models/src/template.rs — ProviderTemplate / TemplateModelEntry /
+//     TemplateCost / ProviderLibrary (the mgr-side provider library)
+//   - The mgr routes (mgr/src/models.rs) contract-lock the wire shape.
 //
-// Trimmed vs the workbench copy (mgr has no sandbox-local agent APIs):
-// AgentsResponse/AgentStatus/AgentLive, ApplyResponse, live-match helpers.
-// The canonical `agents` block (assignments + presets) stays fully editable.
+// Removed in the cc-switch refactor (prd "废弃的功能"):
+//   - CanonicalConfig / AgentsConfig / ClaudePreset / CodexPreset (profile
+//     system + agent assignments — each sandbox owns its agent config now)
+//   - CatalogResponse / catalogRecommend (models.dev proxy — deleted)
+//   - ImportResponse (pi import — deleted)
+//   - rebindAgentProviders / bindingAgents / currentPreset / incompatibleReason
+//     (agent-binding helpers — no more agent bindings at the mgr layer)
+//   - AgentTab / PresetAgent / AnyPreset (agent-tab unions — deleted)
+//
+// What stays:
+//   - ProviderLibrary / ProviderTemplate / TemplateModelEntry / TemplateCost
+//   - Discover / Test request-response types (probes are still mgr-side)
+//   - Usage types (UsageRow / UsageFanout / DayUsage / SandboxTotal) + the
+//     usage fan-out decoder — the Usage page is unchanged by this refactor
+//   - Small helpers used by the provider editor (genProviderId, slugify,
+//     protocolLabel, isMaskedKey, safeStringify, API_PROTOCOLS)
+//   - Usage formatting helpers (fmtTokens / fmtCost / fmtPct / cacheHit*)
 
-// ── canonical config types (mirror aio-models/store.rs) ───────────
+// ── provider library types (mirror aio-models/template.rs) ────────
 
-export interface CanonicalConfig {
-  version: number;
-  providers: Record<string, ProviderEntry>;
-  agents: AgentsConfig;
-}
-
-export interface ProviderEntry {
-  name: string;
-  baseUrl: string;
-  api: string;
-  apiKey?: string;
-  headers: Record<string, string>;
-  compat: unknown;
-  models: ModelEntry[];
-}
-
-export interface ModelEntry {
-  id: string;
-  name?: string;
-  api?: string;
-  reasoning?: boolean;
-  contextWindow?: number;
-  maxTokens?: number;
-  cost?: CostEntry;
-}
-
-export interface CostEntry {
+export interface TemplateCost {
   input?: number;
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
 }
 
-/** claude is a switch-style agent: N presets, one `current` takes effect. */
-export interface ClaudePreset {
-  /** Backend-generated short id; "" on a freshly-created preset (backfilled on PUT). */
+export interface TemplateModelEntry {
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: TemplateCost;
+}
+
+
+export interface ProviderTemplate {
+  name: string;
+  baseUrl: string;
+  api: string;
+  apiKey?: string;
+  headers: Record<string, string>;
+  models: TemplateModelEntry[];
+  websiteUrl?: string;
+  category?: string;
+  notes?: string;
+}
+
+export interface ProviderLibrary {
+  version: number;
+  providers: Record<string, ProviderTemplate>;
+}
+
+/** One row of GET /api/models/templates — the public template list for
+ * sandbox-side pickers. Same shape as ProviderTemplate but WITHOUT the
+ * apiKey field at all (not even masked): the sandbox user pastes their own
+ * key after copying the template. */
+export interface ProviderTemplatePublic {
   id: string;
   name: string;
-  provider: string;
-  model: string;
-  haikuModel?: string | null;
-  sonnetModel?: string | null;
-  opusModel?: string | null;
-  authField: string;
+  baseUrl: string;
+  api: string;
+  models: TemplateModelEntry[];
+  websiteUrl?: string;
+  category?: string;
+  notes?: string;
 }
 
-export interface ClaudePresets {
-  presets: ClaudePreset[];
-  /** id of the active preset; unset or dangling => the sandbox-side apply refuses. */
-  current?: string | null;
-}
-
-/** codex is a switch-style agent (mirror of ClaudePresets). */
-export interface CodexPreset {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  reasoningEffort?: string | null;
-  wireApi: string;
-}
-
-export interface CodexPresets {
-  presets: CodexPreset[];
-  current?: string | null;
-}
-
-/** pi/opencode keep a single assignment (incremental agents). */
-export interface AgentAssignment {
-  provider: string;
-  model: string;
-}
-
-export interface AgentsConfig {
-  pi?: AgentAssignment;
-  opencode?: AgentAssignment;
-  claude?: ClaudePresets;
-  codex?: CodexPresets;
-}
-
-/** The preset-list agents (switch-style); narrows the AgentTab union. */
-export type PresetAgent = "claude" | "codex";
-
-/** Union of both preset shapes, keyed by agent for generic helpers. */
-export type AnyPreset = ClaudePreset | CodexPreset;
-
-export interface PutResponse {
-  ok: boolean;
-  warnings?: string[];
-}
-
-export interface ImportResponse {
-  ok: boolean;
-  imported: string[];
-  skipped: string[];
+export interface TemplatesResponse {
+  version: number;
+  templates: ProviderTemplatePublic[];
 }
 
 // ── discover + test types ──────────────────────────────────────────
@@ -210,33 +181,6 @@ export interface UsageResponse {
   generatedAt: string;
 }
 
-/** The four agent tabs that carry a provider/model assignment. */
-export type AgentTab = "pi" | "opencode" | "claude" | "codex";
-
-// ── models.dev catalog types ───────────────────────────────────────
-
-export interface CatalogModel {
-  id: string;
-  name?: string;
-  reasoning?: boolean;
-  input?: string[];
-  contextWindow?: number;
-  maxTokens?: number;
-  cost?: CostEntry;
-}
-
-export interface CatalogProvider {
-  id: string;
-  name: string;
-  /** Official API base URL from models.dev (absent on ~1/4 of providers). */
-  api?: string;
-  models: CatalogModel[];
-}
-
-export interface CatalogResponse {
-  providers: CatalogProvider[];
-}
-
 // ── decoders (single boundary owner) ───────────────────────────────
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -245,6 +189,102 @@ function isObj(v: unknown): v is Record<string, unknown> {
 
 function asU64(v: unknown): number {
   return typeof v === "number" && v >= 0 ? Math.floor(v) : 0;
+}
+
+function asCost(v: unknown): TemplateCost | undefined {
+  if (!isObj(v)) return undefined;
+  return {
+    input: typeof v.input === "number" ? v.input : undefined,
+    output: typeof v.output === "number" ? v.output : undefined,
+    cacheRead: typeof v.cacheRead === "number" ? v.cacheRead : undefined,
+    cacheWrite: typeof v.cacheWrite === "number" ? v.cacheWrite : undefined,
+  };
+}
+
+function asTemplateModel(v: unknown): TemplateModelEntry | null {
+  if (!isObj(v) || typeof v.id !== "string") return null;
+  return {
+    id: v.id,
+    name: typeof v.name === "string" ? v.name : undefined,
+    reasoning: typeof v.reasoning === "boolean" ? v.reasoning : undefined,
+    contextWindow: typeof v.contextWindow === "number" ? v.contextWindow : undefined,
+    maxTokens: typeof v.maxTokens === "number" ? v.maxTokens : undefined,
+    cost: asCost(v.cost),
+  };
+}
+
+function asTemplate(v: unknown): ProviderTemplate | null {
+  if (!isObj(v)) return null;
+  if (typeof v.name !== "string") return null;
+  if (typeof v.baseUrl !== "string") return null;
+  if (typeof v.api !== "string") return null;
+  const headers: Record<string, string> = {};
+  if (isObj(v.headers)) {
+    for (const [k, val] of Object.entries(v.headers)) {
+      if (typeof val === "string") headers[k] = val;
+    }
+  }
+  const models: TemplateModelEntry[] = [];
+  if (Array.isArray(v.models)) {
+    for (const m of v.models) {
+      const parsed = asTemplateModel(m);
+      if (parsed) models.push(parsed);
+    }
+  }
+  return {
+    name: v.name,
+    baseUrl: v.baseUrl,
+    api: v.api,
+    apiKey: typeof v.apiKey === "string" ? v.apiKey : undefined,
+    headers,
+    models,
+    websiteUrl: typeof v.websiteUrl === "string" ? v.websiteUrl : undefined,
+    category: typeof v.category === "string" ? v.category : undefined,
+    notes: typeof v.notes === "string" ? v.notes : undefined,
+  };
+}
+
+/** Decode GET /api/models/providers — the masked provider library. */
+export function decodeLibrary(json: unknown): ProviderLibrary {
+  const o = isObj(json) ? json : {};
+  const providers: Record<string, ProviderTemplate> = {};
+  if (isObj(o.providers)) {
+    for (const [k, v] of Object.entries(o.providers)) {
+      const parsed = asTemplate(v);
+      if (parsed) providers[k] = parsed;
+    }
+  }
+  return {
+    version: typeof o.version === "number" ? o.version : 1,
+    providers,
+  };
+}
+
+/** Decode GET /api/models/templates — the public template list (no apiKey). */
+export function decodeTemplates(json: unknown): TemplatesResponse {
+  const o = isObj(json) ? json : {};
+  const templates: ProviderTemplatePublic[] = [];
+  if (Array.isArray(o.templates)) {
+    for (const t of o.templates) {
+      if (!isObj(t) || typeof t.id !== "string") continue;
+      const parsed = asTemplate(t);
+      if (!parsed) continue;
+      templates.push({
+        id: t.id,
+        name: parsed.name,
+        baseUrl: parsed.baseUrl,
+        api: parsed.api,
+        models: parsed.models,
+        websiteUrl: parsed.websiteUrl,
+        category: parsed.category,
+        notes: parsed.notes,
+      });
+    }
+  }
+  return {
+    version: typeof o.version === "number" ? o.version : 1,
+    templates,
+  };
 }
 
 /** Decode one app /api/models/usage payload (rows + generatedAt). */
@@ -330,158 +370,6 @@ export function decodeUsageFanout(json: unknown): UsageFanout {
   return { sandboxes, totals };
 }
 
-export function decodeConfig(json: unknown): CanonicalConfig {
-  const o = isObj(json) ? json : {};
-  const rawProviders = isObj(o.providers) ? o.providers : {};
-  const providers: Record<string, ProviderEntry> = {};
-  for (const [k, v] of Object.entries(rawProviders)) {
-    if (isObj(v)) providers[k] = v as unknown as ProviderEntry;
-  }
-  return {
-    version: typeof o.version === "number" ? o.version : 1,
-    providers,
-    agents: isObj(o.agents) ? (o.agents as AgentsConfig) : {},
-  };
-}
-
-/** Decode the GET /api/models/catalog response (single boundary owner). */
-export function decodeCatalog(json: unknown): CatalogResponse {
-  const o = isObj(json) ? json : {};
-  const rawProviders = Array.isArray(o.providers) ? o.providers : [];
-  const providers: CatalogProvider[] = [];
-  for (const rp of rawProviders) {
-    if (!isObj(rp)) continue;
-    const rawModels = Array.isArray(rp.models) ? rp.models : [];
-    const models: CatalogModel[] = [];
-    for (const rm of rawModels) {
-      if (!isObj(rm) || typeof rm.id !== "string") continue;
-      const cost = isObj(rm.cost)
-        ? ({
-            input: typeof rm.cost.input === "number" ? rm.cost.input : undefined,
-            output: typeof rm.cost.output === "number" ? rm.cost.output : undefined,
-            cacheRead:
-              typeof rm.cost.cacheRead === "number" ? rm.cost.cacheRead : undefined,
-            cacheWrite:
-              typeof rm.cost.cacheWrite === "number" ? rm.cost.cacheWrite : undefined,
-          } as CostEntry)
-        : undefined;
-      models.push({
-        id: rm.id,
-        name: typeof rm.name === "string" ? rm.name : undefined,
-        reasoning: typeof rm.reasoning === "boolean" ? rm.reasoning : undefined,
-        input: Array.isArray(rm.input) ? rm.input.filter((x): x is string => typeof x === "string") : undefined,
-        contextWindow: typeof rm.contextWindow === "number" ? rm.contextWindow : undefined,
-        maxTokens: typeof rm.maxTokens === "number" ? rm.maxTokens : undefined,
-        cost,
-      });
-    }
-    if (typeof rp.id === "string" && typeof rp.name === "string") {
-      providers.push({
-        id: rp.id,
-        name: rp.name,
-        api: typeof rp.api === "string" ? rp.api : undefined,
-        models,
-      });
-    }
-  }
-  return { providers };
-}
-
-/** Fallback provider-baseUrl-hostname -> models.dev provider id mapping for
- * `catalogRecommend`. The primary host→provider index is built data-driven
- * from each catalog provider's own `api` base URL; this table only covers
- * providers whose catalog entry has NO `api` (openai, anthropic, google, …)
- * and regional host variants models.dev doesn't list.
- * NB: ids must match models.dev's provider keys (e.g. `moonshotai`, NOT
- * `moonshot`). */
-const CATALOG_HOST_HINTS: Record<string, string> = {
-  "api.openai.com": "openai",
-  "api.anthropic.com": "anthropic",
-  "generativelanguage.googleapis.com": "google",
-  "api.x.ai": "xai",
-  "api.groq.com": "groq",
-  "api.mistral.ai": "mistral",
-  "api.cerebras.ai": "cerebras",
-  // regional variants (catalog `api` carries only the .com/.intl host)
-  "api.moonshot.cn": "moonshotai",
-  "dashscope.aliyuncs.com": "alibaba",
-};
-
-/** Find the models.dev catalog entry for a model, given the provider being
- *  edited and the model id to fill (see the workbench copy for the full
- *  matching-order rationale — identical here). */
-export function catalogRecommend(
-  catalog: CatalogResponse,
-  baseUrl: string,
-  modelId: string,
-): CatalogModel | null {
-  let host = "";
-  try {
-    host = new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-  const needle = modelId.toLowerCase();
-
-  // 1. host → catalog provider (data-driven index, then static fallback)
-  const derived: [string, string][] = [];
-  for (const p of catalog.providers) {
-    if (!p.api) continue;
-    try {
-      derived.push([new URL(p.api).hostname.toLowerCase(), p.id]);
-    } catch {
-      /* malformed api URL upstream — skip that entry */
-    }
-  }
-  const staticHints = Object.entries(CATALOG_HOST_HINTS);
-  let hintedProviderId: string | null = null;
-  for (const entries of [derived, staticHints]) {
-    hintedProviderId =
-      entries.find(([h]) => host === h)?.[1] ??
-      entries.find(([h]) => host.endsWith(`.${h}`))?.[1] ??
-      null;
-    if (hintedProviderId) break;
-  }
-  const byProviderId = (pid: string): CatalogModel | null =>
-    catalog.providers
-      .find((p) => p.id === pid)
-      ?.models.find((m) => m.id.toLowerCase() === needle) ?? null;
-  if (hintedProviderId) {
-    const hit = byProviderId(hintedProviderId);
-    if (hit) return hit;
-  }
-
-  // Shared disambiguation for the cross-provider sweeps below.
-  const pick = (
-    hits: { m: CatalogModel; pid: string }[],
-  ): CatalogModel | null => {
-    if (hits.length === 0) return null;
-    if (hits.length === 1) return hits[0].m;
-    if (hintedProviderId) {
-      const hinted = hits.find((h) => h.pid === hintedProviderId);
-      if (hinted) return hinted.m;
-    }
-    return hits[0].m; // catalog order = provider-id order (deterministic)
-  };
-
-  // 2. exact model id across all providers
-  const idHits = catalog.providers.flatMap((p) =>
-    p.models
-      .filter((m) => m.id.toLowerCase() === needle)
-      .map((m) => ({ m, pid: p.id })),
-  );
-  const byId = pick(idHits);
-  if (byId) return byId;
-
-  // 3. model display-name fallback
-  const nameHits = catalog.providers.flatMap((p) =>
-    p.models
-      .filter((m) => (m.name ?? "").toLowerCase() === needle)
-      .map((m) => ({ m, pid: p.id })),
-  );
-  return pick(nameHits);
-}
-
 // ── helpers ────────────────────────────────────────────────────────
 
 export const API_PROTOCOLS = [
@@ -515,11 +403,9 @@ export function slugifyProviderName(name: string): string {
 }
 
 /** While a provider's key is still the auto-generated `provider-N`
- *  placeholder, derive a meaningful id from its display name (pi's TUI and
- *  pi-web display the provider ID everywhere — the node `name` never reaches
- *  those UIs). Returns "" when the id was user-customized (not a placeholder)
- *  or the name has no slug; `-2`/`-3`… suffixes resolve collisions.
- *  (08-28-provider-id-from-name) */
+ *  placeholder, derive a meaningful id from its display name. Returns "" when
+ *  the id was user-customized (not a placeholder) or the name has no slug;
+ *  `-2`/`-3`… suffixes resolve collisions. */
 export function deriveProviderIdFromName(
   name: string,
   existing: Record<string, unknown>,
@@ -531,117 +417,6 @@ export function deriveProviderIdFromName(
   let id = slug;
   for (let n = 2; id in existing; n++) id = `${slug}-${n}`;
   return id;
-}
-
-/** Re-point every agent reference at a renamed provider id (pi/opencode
- * single assignments + claude/codex preset references). */
-export function rebindAgentProviders(
-  agents: AgentsConfig,
-  from: string,
-  to: string,
-): AgentsConfig {
-  const next: AgentsConfig = { ...agents };
-  if (next.pi?.provider === from) next.pi = { ...next.pi, provider: to };
-  if (next.opencode?.provider === from)
-    next.opencode = { ...next.opencode, provider: to };
-  if (next.claude) {
-    next.claude = {
-      ...next.claude,
-      presets: next.claude.presets.map((p) =>
-        p.provider === from ? { ...p, provider: to } : p,
-      ),
-    };
-  }
-  if (next.codex) {
-    next.codex = {
-      ...next.codex,
-      presets: next.codex.presets.map((p) =>
-        p.provider === from ? { ...p, provider: to } : p,
-      ),
-    };
-  }
-  return next;
-}
-
-export function emptyProvider(): ProviderEntry {
-  return {
-    name: "",
-    baseUrl: "",
-    api: "openai-completions",
-    apiKey: undefined,
-    headers: {},
-    compat: {},
-    models: [],
-  };
-}
-
-/**
- * Why a provider can't be assigned to an agent (compat matrix). Returns null
- * when compatible. claude requires anthropic-messages; codex rejects it.
- */
-export function incompatibleReason(
-  agent: AgentTab,
-  provider: ProviderEntry,
-): string | null {
-  if (agent === "claude" && provider.api !== "anthropic-messages") {
-    return "incompatible-claude";
-  }
-  if (agent === "codex" && provider.api === "anthropic-messages") {
-    return "incompatible-codex";
-  }
-  return null;
-}
-
-/** Which agents bind a given provider id (for card chips + editor overview).
- *  For switch-style agents, a provider is "bound" when ANY preset references it. */
-export function bindingAgents(
-  config: CanonicalConfig,
-  providerId: string,
-): AgentTab[] {
-  const out: AgentTab[] = [];
-  const a = config.agents;
-  if (a.pi?.provider === providerId) out.push("pi");
-  if (a.opencode?.provider === providerId) out.push("opencode");
-  if (a.claude?.presets.some((p) => p.provider === providerId)) out.push("claude");
-  if (a.codex?.presets.some((p) => p.provider === providerId)) out.push("codex");
-  return out;
-}
-
-/** The currently-effective preset for a switch-style agent (null when unset/dangling). */
-export function currentPreset(
-  config: CanonicalConfig,
-  agent: PresetAgent,
-): AnyPreset | null {
-  const block =
-    agent === "claude" ? config.agents.claude : config.agents.codex;
-  if (!block || !block.current) return null;
-  return block.presets.find((p) => p.id === block.current) ?? null;
-}
-
-/** A blank claude preset (id empty - backend backfills on PUT). */
-export function emptyClaudePreset(): ClaudePreset {
-  return {
-    id: "",
-    name: "",
-    provider: "",
-    model: "",
-    haikuModel: null,
-    sonnetModel: null,
-    opusModel: null,
-    authField: "AUTH_TOKEN",
-  };
-}
-
-/** A blank codex preset (id empty - backend backfills on PUT). */
-export function emptyCodexPreset(): CodexPreset {
-  return {
-    id: "",
-    name: "",
-    provider: "",
-    model: "",
-    reasoningEffort: null,
-    wireApi: "responses",
-  };
 }
 
 /** Short human label for a provider protocol. */
@@ -676,6 +451,18 @@ export function protocolBadge(p: string): string {
 /** Whether a string looks like a server-side masked apiKey (has "****"). */
 export function isMaskedKey(k: string | undefined): boolean {
   return !!k && k.includes("****");
+}
+
+/** A blank provider template for the editor's "new" flow. */
+export function emptyProvider(): ProviderTemplate {
+  return {
+    name: "",
+    baseUrl: "",
+    api: "openai-completions",
+    apiKey: undefined,
+    headers: {},
+    models: [],
+  };
 }
 
 // ── usage formatting helpers (shared by the usage page) ────────────

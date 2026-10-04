@@ -254,15 +254,13 @@ mgr-web 列表页数据源;DB status 是"意图"(creating/running/error),`live`
 
 ### 3. Contracts
 
-列表项字段(14, S1 起): `name/status/live/adopted/created_at/cpus/mem_mb/
-env/image/entry_url/piweb_url/model_profile/services[]/installed_services`。
+列表项字段(12, S1 起;cc-switch Phase 1.2b 起移除 model_profile/
+model_agents): `name/status/live/adopted/created_at/cpus/mem_mb/
+env/image/entry_url/piweb_url/services[]/installed_services`。
 URL 字段在 payload 里内联生成(`http://sbx-<name>.mgr.localhost/`),sbx-
 前缀与 caddy.rs render 及 composegen 网络别名三方共享同一身份——改前缀
 必须三处同改。
-`model_profile`: 所指派 profile id 或 `null`(未指派 = 沙箱保持本地
-models.json;unified Phase 4/D8)。指派解析**每次列表调用读一次** store
-(一次解析,非每行——models store 可能不小),详情逐行读。
-`services[]`: compose ps 的**运行时容器**列表(字段 13,命名被占用,所以
+`services[]`: compose ps 的**运行时容器**列表(字段 11,命名被占用,所以
 服务开关字段不得叫 `services`——见下)。
 `installed_services`: **装了什么服务**的只读四开关
 `{code_server, vnc, pi, pi_web}`(S1,任务 09-10-mgr-create-services),
@@ -315,23 +313,6 @@ null 方案下 UI 无法区分"未更改"与"清除"。创建侧对偶:`0`/null 
 无限制。负数 400(`check_limits`)。改 env 走 recreate job(202 + `{job}`),
 卷保留。
 
-## PUT /api/sandboxes/:name/model_profile — 指派语义(unified Phase 4, D8; S2 增 agents)
-
-Body `{"profile": "<id>" | null, "agents": <subset> | null}`:
-- `profile`: 指派 id;null/缺失 = 解绑。
-- `agents`(S2, D4c): **整份替换**语义——缺省 = 全指派,`[]` = 零指派
-  (沙箱拉取 404 → 保持本地),数组 = 精确子集(仅渲染勾选 agent)。
-  **必须始终随 PUT 携带**,省略会让后端 serde default 把已有子集悄悄放大
-  为全指派(frontend 编辑页/快捷指派都显式传)。
-- **纯 kv 写,同步返回,绝不触发 recreate job**——沙箱的 60s 拉取自然生效;
-  这是它与 `PUT /api/sandboxes/:name`(env 改动走 recreate)被刻意拆成两条
-  路由的全部理由,不得合并。未知沙箱 400(`require_row` 同形);未知
-  profile id 404;agent 名不在 {pi,claude,codex,opencode} 白名单内 400
-  (models.rs `VALID_AGENTS`,`set_assignment`)。响应增
-  `model_agents`(与 body 同形);`GET /api/sandboxes`/`:name` 的
-  `sandbox_json` 增 `model_agents`(null = 全指派,旧数据兼容,AC4)。
-  错误矩阵与写路径细节见 [sandbox-mgr-ops.md 契约 7](./sandbox-mgr-ops.md)。
-
 ## POST /api/sandboxes/:name/service/:service/start — 按需单服务拉起(unified Phase 3, D4)
 
 Synchronous(compose `up -d <svc>`,秒级),无 job。`service` 白名单当前仅
@@ -376,6 +357,37 @@ R3(picker UX)起 `upsert_image` 为 7 参:追加 `env_json` / `services_json`
 错误行裁掉。注意失败路径写入的是 `docker::build` 错误里的 merged tail
 (2KB,`docker.rs` 的 `tail_str`),因为同一字符串还要进 job.error
 (1.5s 轮询 + jobs 表落库),不能放大。
+
+## /api/models/providers + /api/models/templates — cc-switch 供应商库(10-04-model-config-cc-switch Phase 1.2/3)
+
+cc-switch 重构后 mgr 只保留**供应商库**(共享模板源)。旧 profile 系统、
+mgr 侧 canonical config、`import/pi`、`catalog`、`PUT /api/sandboxes/:name/
+model_profile` 全部移除(prd D1/D6)。
+
+- **存储**: kv 键 `models_library`,值 = `aio_models::template::ProviderLibrary`
+  `{version: u32, providers: BTreeMap<id, ProviderTemplate>}`。`ProviderTemplate`
+  形状见 `aio-models/src/template.rs`(name/baseUrl/api/apiKey/headers/models/
+  websiteUrl/category/notes,全 camelCase 序列化)。
+- **迁移**: 读路径在 `models_library` 缺失时自动从旧 `models_profiles`(multi-profile)
+  或更老的 `models_config`(Phase 4a)提取 providers 写入新键并删旧键
+  (models.rs `read_library`)。
+- **masked-echo 契约**: GET `/api/models/providers` 返回 mask 后 key
+  (`<first4>****<last4>`,短 key 全 `****`);PUT/POST 回传 mask = 保留原值,
+  `""` = 清除,其它 = 替换,**缺失 = 保留 stored plaintext**(merge_api_keys
+  语义,与 canonical 时代一致)。
+- **路由**:
+  - `GET /api/models/providers` — masked 全库
+  - `PUT /api/models/providers` — 整体替换(merge + validate + 版本 +1)
+  - `POST /api/models/providers` — `{id, ...template}` 新增(id 由前端 slug,
+    重复 id 400)
+  - `PUT /api/models/providers/:id` — 单条更新(同样 masked-echo;404 未知 id)
+  - `DELETE /api/models/providers/:id` — 单条删除(404 未知 id)
+  - `GET /api/models/templates` — 公共模板列表 **不带 apiKey 字段**(连 mask
+    都不传),供沙箱侧 picker 用;响应 `{version, templates: [{id, name,
+    baseUrl, api, models, websiteUrl?, category?, notes?}]}`
+  - `POST /api/models/discover` + `POST /api/models/test` — 纯 HTTP 探测,与
+    profile 无关,保留不变(ById/Literal untagged 两形态,详见 Model Config
+    Guide 的 discover/test 节)
 
 ## GET /api/models/usage (app) — byDay 序列(S4,D5)
 

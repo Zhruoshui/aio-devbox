@@ -243,16 +243,6 @@ pub fn list_sandboxes(conn: &Connection) -> Result<Vec<SandboxRow>> {
         .map_err(Into::into)
 }
 
-/// Just the names, sorted (the model-profile migration assigns every
-/// existing sandbox to the migrated "default" profile — it never needs the
-/// full rows).
-pub fn list_sandbox_names(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT name FROM sandboxes ORDER BY name")?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
 pub fn update_sandbox_status(conn: &Connection, name: &str, status: &str) -> Result<()> {
     conn.execute(
         "UPDATE sandboxes SET status = ?2 WHERE name = ?1",

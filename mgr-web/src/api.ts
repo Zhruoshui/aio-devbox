@@ -21,14 +21,13 @@ import {
   type UserToolsFile,
 } from "./types";
 import {
-  decodeCatalog,
-  decodeConfig,
+  decodeLibrary,
+  decodeTemplates,
   decodeUsageFanout,
-  type CanonicalConfig,
-  type CatalogResponse,
   type DiscoverResponse,
-  type ImportResponse,
-  type PutResponse,
+  type ProviderLibrary,
+  type ProviderTemplate,
+  type TemplatesResponse,
   type TestResponse,
   type UsageFanout,
 } from "./pages/models/types";
@@ -216,56 +215,71 @@ export function getFullImageLog(envHash: string): Promise<LogChunk> {
   return readAllLog((offset) => getImageLogPage(envHash, offset));
 }
 
-// ── models / usage (Phase 4c; mirrors mgr/src/models.rs + usage.rs) ─
+// ── models / usage (cc-switch refactor; mirrors mgr/src/models.rs) ─
 //
 // Error bodies here are mgr's {"error": "..."} JSON (models.rs ApiError) -
 // apiError() surfaces the message, so callers only ever handle exceptions.
-// Payloads whose shape the workbench also decoded (config / catalog / usage)
-// decode through pages/models/types.ts; the small literal replies (put /
-// import / discover / test) are typed casts, same as web's ModelsPane.
+// Payloads decode through pages/models/types.ts (single boundary owner).
 //
-// Multi-profile (unified Phase 4, D8): the config/import/discover/test calls
-// take an OPTIONAL profile id -> ?profile= on the wire (models.rs
-// ProfileQuery; absent = the first profile). Callers that always know the
-// selection (ModelsPage) pass it explicitly once >1 profile exists.
+// Phase 1.2/3 boundary: mgr keeps ONLY the provider library. The profile
+// system, the mgr-side canonical config, the pi import, the models.dev
+// catalog, and the sandbox assignment routes are all gone (prd D1/D6).
+// Each sandbox owns its agent configs end-to-end; the mgr library is a
+// TEMPLATE source that sandbox-side pickers read via /api/models/templates.
 
-export function getModelsConfig(profile?: string): Promise<CanonicalConfig> {
-  return get<unknown>(`/api/models/config${profile ? `?profile=${enc(profile)}` : ""}`).then(
-    decodeConfig,
-  );
+/** GET /api/models/providers — the masked provider library. The plaintext
+ * apiKey never crosses this route; PUT/POST echo the mask back. */
+export function getProviderLibrary(): Promise<ProviderLibrary> {
+  return get<unknown>("/api/models/providers").then(decodeLibrary);
 }
 
-export function putModelsConfig(
-  config: CanonicalConfig,
-  profile?: string,
-): Promise<PutResponse> {
-  return send(
-    `/api/models/config${profile ? `?profile=${enc(profile)}` : ""}`,
-    "PUT",
-    config,
-  );
+/** PUT /api/models/providers — masked-echo merge + validate + whole-library
+ * replace (the page saves the edited grid in one shot). */
+export function putProviderLibrary(library: ProviderLibrary): Promise<{ ok: boolean }> {
+  return send("/api/models/providers", "PUT", library);
 }
 
-export function importPiModels(profile?: string): Promise<ImportResponse> {
-  return send(`/api/models/import/pi${profile ? `?profile=${enc(profile)}` : ""}`, "POST");
+/** POST /api/models/providers — add one provider ({id, ...template}). The
+ * id comes from the caller (the frontend generates a slug); a duplicate id
+ * is a 400. */
+export function createProvider(
+  id: string,
+  template: ProviderTemplate,
+): Promise<{ ok: boolean; id: string }> {
+  return send("/api/models/providers", "POST", { id, ...template });
 }
 
-/** Discover body: `{providerId}` resolves from the store; the literal form
+/** PUT /api/models/providers/:id — masked-echo merge on the apiKey
+ * (empty clears, mask restores plaintext, absent keeps, other replaces). */
+export function updateProvider(
+  id: string,
+  template: ProviderTemplate,
+): Promise<{ ok: boolean; id: string }> {
+  return send(`/api/models/providers/${enc(id)}`, "PUT", template);
+}
+
+/** DELETE /api/models/providers/:id. */
+export function deleteProvider(id: string): Promise<{ ok: boolean; id: string }> {
+  return send(`/api/models/providers/${enc(id)}`, "DELETE");
+}
+
+/** GET /api/models/templates — the PUBLIC template list (apiKey stripped
+ * entirely) for sandbox-side pickers. */
+export function getProviderTemplates(): Promise<TemplatesResponse> {
+  return get<unknown>("/api/models/templates").then(decodeTemplates);
+}
+
+/** Discover body: `{providerId}` resolves from the library; the literal form
  * probes a provider being edited (with a freshly typed key) before saving. */
 export function discoverModels(
   body: { providerId: string } | { baseUrl: string; api: string; apiKey?: string },
-  profile?: string,
 ): Promise<DiscoverResponse> {
-  return send(
-    `/api/models/discover${profile ? `?profile=${enc(profile)}` : ""}`,
-    "POST",
-    body,
-  );
+  return send("/api/models/discover", "POST", body);
 }
 
-/** Test body: `{providerId, modelId}` resolves the provider from the store;
- * the literal form probes a provider being edited (with a freshly typed
- * key) before saving — same split as {@link discoverModels}. */
+/** Test body: `{providerId, modelId}` resolves the provider from the
+ * library; the literal form probes a provider being edited (with a freshly
+ * typed key) before saving — same split as {@link discoverModels}. */
 export function testModel(
   body:
     | { providerId: string; modelId: string; protocol?: string }
@@ -276,74 +290,8 @@ export function testModel(
         modelId: string;
         protocol?: string;
       },
-  profile?: string,
 ): Promise<TestResponse> {
-  return send(
-    `/api/models/test${profile ? `?profile=${enc(profile)}` : ""}`,
-    "POST",
-    body,
-  );
-}
-
-export function getModelsCatalog(): Promise<CatalogResponse> {
-  return get<unknown>("/api/models/catalog").then(decodeCatalog);
-}
-
-// ── model profiles (unified Phase 4, D8; mirrors mgr/src/models.rs) ─
-
-/** One row of GET /api/models/profiles: identity + usage, NO config (the
- * page fetches the selected profile's config separately). `assigned` is the
- * list of sandbox names on this profile. */
-export interface ModelProfile {
-  id: string;
-  name: string;
-  version: number;
-  assigned: string[];
-}
-
-export interface ModelProfileList {
-  profiles: ModelProfile[];
-}
-
-export function listModelProfiles(): Promise<ModelProfileList> {
-  return get("/api/models/profiles");
-}
-
-/** POST /api/models/profiles {name} — the backend owns the id. */
-export function createModelProfile(name: string): Promise<{ id: string; name: string }> {
-  return send("/api/models/profiles", "POST", { name });
-}
-
-/** PUT /api/models/profiles/:id — rename and/or replace the config (the
- * config branch is the same masked-echo merge pipeline as putModelsConfig;
- * ModelsPage uses the dedicated putModelsConfig with ?profile= instead, so
- * callers here only rename). */
-export function renameModelProfile(id: string, name: string): Promise<PutResponse> {
-  return send(`/api/models/profiles/${enc(id)}`, "PUT", { name });
-}
-
-/** DELETE refuses the last profile (backend 400s) and unassigns every
- * sandbox pointing at the deleted one. */
-export function deleteModelProfile(id: string): Promise<{ ok: boolean; id: string }> {
-  return send(`/api/models/profiles/${enc(id)}`, "DELETE");
-}
-
-/** PUT /api/sandboxes/:name/model_profile — assign (`{profile: id}`) or
- * UNassign (`{profile: null}`). A pure kv write on the backend: the
- * sandbox's 60s pull picks it up, no recreate job.
- *
- * S2 agent subset: `agents` narrows which agent configs the pull renders —
- * null/absent = all four (legacy wire shape), [] = zero agents (the sandbox
- * keeps its local configs untouched), an array = the explicit subset. */
-export function putSandboxModelProfile(
-  name: string,
-  profile: string | null,
-  agents?: string[] | null,
-): Promise<{ ok: boolean; name: string; model_profile: string | null }> {
-  return send(`/api/sandboxes/${enc(name)}/model_profile`, "PUT", {
-    profile,
-    ...(agents !== undefined ? { agents } : {}),
-  });
+  return send("/api/models/test", "POST", body);
 }
 
 export function getUsage(window: "today" | "7d" | "all"): Promise<UsageFanout> {

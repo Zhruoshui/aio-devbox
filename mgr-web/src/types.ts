@@ -8,8 +8,6 @@
 //   GET  /api/sandboxes      routes.rs sandbox_json   (db::SandboxRow + ps)
 //   GET  /api/sandboxes/:n   same shape as the list item
 //   PUT  /api/sandboxes/:n   jobs.rs (async) -> {job, name}
-//   PUT  /api/sandboxes/:n/model_profile  routes.rs put_model_profile (sync
-//                            kv write, never a job - unified Phase 4, D8)
 //   POST /api/sandboxes      same -> {job, name}
 //   POST /api/sandboxes/adopt  routes.rs adopt_sandbox (sync) -> {name,
 //                            entry_url, piweb_url}
@@ -81,14 +79,6 @@ export interface Sandbox {
   image: string;
   entry_url: string;
   piweb_url: string;
-  /** Assigned model profile id, null = unassigned (the sandbox keeps its
-   * local models.json; mgr never overwrites it - unified Phase 4, D8). */
-  model_profile: string | null;
-  /** Agent subset of the assignment (S2, D4): null = ALL four agents
-   * (legacy rows and older backends omit the field - read it via
-   * `?? null` at the use site); an array is the explicit subset; [] = zero
-   * agents (the sandbox's 60s pull sees a 404 and keeps everything local). */
-  model_agents: string[] | null;
   /** Runtime container states (compose ps per service). */
   services: SandboxService[];
   /** S1: services installed at create time (read-only — fixed by the image

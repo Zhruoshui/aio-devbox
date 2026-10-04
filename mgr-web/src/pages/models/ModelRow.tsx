@@ -1,40 +1,40 @@
-// ModelRow — single-model collapsed/expanded row. Ported verbatim from
-// web/src/panes/models/ModelRow.tsx (Phase 4c): chevron + editable mono id +
-// name + test pill + delete collapsed; full field editor + catalog fill
-// expanded. All edits patch canonical state through ModelsPage callbacks.
+// ModelRow — single-model collapsed/expanded row (cc-switch refactor,
+// task 10-04-model-config-cc-switch Phase 3). Ported from the pre-redesign
+// ModelRow with the catalog-fill button dropped (the models.dev proxy is
+// gone — prd D6): chevron + editable mono id + name + test pill + delete
+// collapsed; full field editor expanded. All edits patch library state
+// through ModelsPage callbacks.
 
 import { useState } from "react";
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
-import { API_PROTOCOLS, type CostEntry, type ModelEntry, type TestStateMap } from "./types";
-
-export type CatalogFillState = "loading" | "notfound" | "error" | undefined;
+import {
+  type TemplateCost,
+  type TemplateModelEntry,
+  type TestStateMap,
+} from "./types";
 
 export function ModelRow({
   providerId,
   model,
   idx,
   testState,
-  catalogFillState,
   onPatchModel,
   onDeleteModel,
   onUpdateCost,
   onTest,
   onResetTest,
-  onFillFromCatalog,
   lang,
 }: {
   providerId: string;
-  model: ModelEntry;
+  model: TemplateModelEntry;
   idx: number;
   testState: TestStateMap;
-  catalogFillState: CatalogFillState;
-  onPatchModel: (idx: number, patch: Partial<ModelEntry>) => void;
+  onPatchModel: (idx: number, patch: Partial<TemplateModelEntry>) => void;
   onDeleteModel: (idx: number) => void;
-  onUpdateCost: (idx: number, field: keyof CostEntry, val: string) => void;
+  onUpdateCost: (idx: number, field: keyof TemplateCost, val: string) => void;
   onTest: (modelId: string) => void;
   onResetTest: (providerId: string, modelId: string) => void;
-  onFillFromCatalog: (idx: number) => void;
   lang: Lang;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
@@ -65,9 +65,7 @@ export function ModelRow({
             className={`ml-test-pill${ts?.status === "ok" ? " ok" : ts?.status === "fail" ? " fail" : ""}`}
             onClick={() => onTest(model.id)}
             disabled={!model.id || ts?.status === "testing"}
-            title={
-              ts?.status === "fail" ? (ts.error ?? undefined) : undefined
-            }
+            title={ts?.status === "fail" ? (ts.error ?? undefined) : undefined}
           >
             {ts?.status === "testing" ? (
               <span className="spin" aria-hidden="true" />
@@ -98,35 +96,16 @@ export function ModelRow({
 
       {expanded && (
         <div className="ml-model-row-body">
-          {/* name + protocol override side by side */}
-          <div className="field-row">
-            <div className="field">
-              <label>{t(lang, "mcModelName")}</label>
-              <input
-                className="input"
-                value={model.name ?? ""}
-                onChange={(e) =>
-                  onPatchModel(idx, { name: e.target.value || undefined })
-                }
-              />
-            </div>
-            <div className="field">
-              <label>{t(lang, "mcApi")}</label>
-              <select
-                className="input"
-                value={model.api ?? ""}
-                onChange={(e) =>
-                  onPatchModel(idx, { api: e.target.value || undefined })
-                }
-              >
-                <option value="">{t(lang, "mcApiInherit")}</option>
-                {API_PROTOCOLS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* name */}
+          <div className="field">
+            <label>{t(lang, "mcModelName")}</label>
+            <input
+              className="input"
+              value={model.name ?? ""}
+              onChange={(e) =>
+                onPatchModel(idx, { name: e.target.value || undefined })
+              }
+            />
           </div>
 
           {/* ctx / maxOut / reasoning */}
@@ -219,31 +198,6 @@ export function ModelRow({
               />
             </div>
           </div>
-
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={!model.id || catalogFillState === "loading"}
-            title={
-              catalogFillState === "notfound"
-                ? t(lang, "mcCatalogNotFound")
-                : catalogFillState === "error"
-                  ? t(lang, "mcCatalogError")
-                  : undefined
-            }
-            onClick={() => onFillFromCatalog(idx)}
-          >
-            <Icon name="download" />
-            {catalogFillState === "loading"
-              ? t(lang, "mcLoading")
-              : t(lang, "mcCatalogFill")}
-          </button>
-          {(catalogFillState === "notfound" || catalogFillState === "error") && (
-            <span className="ml-hint ml-catalog-hint">
-              {catalogFillState === "notfound"
-                ? t(lang, "mcCatalogNotFound")
-                : t(lang, "mcCatalogError")}
-            </span>
-          )}
         </div>
       )}
     </div>

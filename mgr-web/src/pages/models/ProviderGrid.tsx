@@ -1,60 +1,36 @@
-// ProviderGrid — the providers tab's card wall, redesigned per the 09-11
-// prototype (docs/Web-Prototype/models.html .pv-grid).
+// ProviderGrid — the provider library's card wall (cc-switch refactor,
+// task 10-04-model-config-cc-switch Phase 3).
 //
-// Each provider is the prototype's `.card.pv` BUTTON: head (name + protocol
-// badge), mono baseUrl, model-id chips, and a "used by" footer (key state +
-// which agent/profile pairs bind this provider across ALL profiles — the
-// prototype's usedBy() walks every profile's pi/opencode assignments and
-// claude/codex current presets; here the canonical config only carries the
-// SELECTED profile, so cross-profile usage is derived from the profile rows'
-// sandbox counts: "agent (profile)" pairs are shown for the selected
-// profile, other profiles render as "profile · N 沙箱"). A trailing
-// `.pv.add` ghost card opens the drawer on a blank provider.
+// Each provider is a `.card.pv` BUTTON: head (name + protocol badge), mono
+// baseUrl, model-id chips, and a "key configured" footer. A trailing
+// `.pv.add` ghost card opens the editor modal on a blank provider.
 //
-// Data flow unchanged: read-only view over the canonical config; edits
-// (including delete) happen in the ProviderEditor drawer.
+// Read-only view over the provider library; edits (including delete) happen
+// in the ProviderEditorModal. There is no agent-binding footer anymore: the
+// cc-switch refactor drops mgr-side agent bindings entirely (each sandbox
+// owns its agent configs end-to-end).
 
 import { Icon } from "../../icons";
 import { t, type Lang } from "../../i18n";
-import type { ModelProfile } from "../../api";
-import {
-  bindingAgents,
-  protocolBadge,
-  type AgentTab,
-  type CanonicalConfig,
-} from "./types";
-
-const AGENT_LABEL: Record<AgentTab, string> = {
-  pi: "pi",
-  opencode: "opencode",
-  claude: "Claude",
-  codex: "Codex",
-};
+import { protocolBadge, type ProviderLibrary } from "./types";
 
 export function ProviderGrid({
-  config,
-  profileId,
-  profiles,
+  library,
   onSelect,
   onAdd,
   lang,
 }: {
-  config: CanonicalConfig;
-  /** Selected profile id — scopes the "used by" pairs' agent part. */
-  profileId: string;
-  /** All profile rows — other profiles render as usage count chips. */
-  profiles: ModelProfile[];
+  library: ProviderLibrary;
   onSelect: (id: string) => void;
   onAdd: () => void;
   lang: Lang;
 }): JSX.Element {
-  const ids = Object.keys(config.providers);
+  const ids = Object.keys(library.providers);
 
   return (
     <div className="pv-grid">
       {ids.map((id) => {
-        const p = config.providers[id];
-        const bound = bindingAgents(config, id);
+        const p = library.providers[id];
         return (
           <button
             key={id}
@@ -80,7 +56,10 @@ export function ProviderGrid({
                 ))
               )}
               {p.models.length > 12 && (
-                <span className="chip off mono" title={p.models.slice(12).map((m) => m.id).join("\n")}>
+                <span
+                  className="chip off mono"
+                  title={p.models.slice(12).map((m) => m.id).join("\n")}
+                >
                   +{p.models.length - 12}
                 </span>
               )}
@@ -97,27 +76,18 @@ export function ProviderGrid({
                   <span>{t(lang, "mcNoKey")}</span>
                 </>
               )}
-              <span>·</span>
-              {bound.length > 0 ? (
-                <span>
-                  {t(lang, "mcUsedBy")}{" "}
-                  <b>
-                    {bound
-                      .map((a) => `${AGENT_LABEL[a]} (${profileId})`)
-                      .join(t(lang, "mpListSep"))}
-                  </b>
-                  {profiles.length > 1 &&
-                    ` ${t(lang, "mcOtherProfiles").replace("{n}", String(profiles.length - 1))}`}
-                </span>
-              ) : (
-                <span>{t(lang, "mcNoBoundAgents")}</span>
+              {p.category && (
+                <>
+                  <span>·</span>
+                  <span className="badge badge-neutral">{p.category}</span>
+                </>
               )}
             </div>
           </button>
         );
       })}
 
-      {/* trailing add-provider ghost card (click → blank editor drawer) */}
+      {/* trailing add-provider ghost card (click → blank editor modal) */}
       <button className="card pv add" onClick={onAdd}>
         <Icon name="plus" />
         <span className="tsm">{t(lang, "mcAddProvider")}</span>
