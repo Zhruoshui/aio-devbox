@@ -66,6 +66,27 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             conn.execute_batch(&format!("ALTER TABLE images ADD COLUMN {col} TEXT"))?;
         }
     }
+    // R3: images.job_id (the create/recreate job whose full log this row's
+    // build produced) - NULL on pre-R3 rows, the log endpoint then falls back
+    // to the build_log column.
+    let has_job_id: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'job_id'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_job_id == 0 {
+        conn.execute_batch("ALTER TABLE images ADD COLUMN job_id INTEGER")?;
+    }
+    // R3: jobs.log_path (full on-disk log of a create/recreate job) - NULL on
+    // pre-R3 rows, the log endpoint then serves the in-memory tail.
+    let has_log_path: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = 'log_path'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_log_path == 0 {
+        conn.execute_batch("ALTER TABLE jobs ADD COLUMN log_path TEXT")?;
+    }
     Ok(())
 }
 
@@ -89,7 +110,8 @@ CREATE TABLE IF NOT EXISTS images (
   build_log TEXT,                   -- last build output tail (failure display)
   combo TEXT,                       -- S3: readable combo description; NULL = pre-S3
   env_json TEXT,                    -- R3: build-time SandboxEnv JSON; NULL = pre-R3
-  services_json TEXT                -- R3: build-time Services JSON; NULL = pre-R3
+  services_json TEXT,               -- R3: build-time Services JSON; NULL = pre-R3
+  job_id INTEGER                    -- R3: job whose full log built this; NULL = pre-R3
 );
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +120,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   status TEXT NOT NULL,
   error TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  log_path TEXT                     -- R3: full on-disk log; NULL = memory tail only
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 ";
@@ -271,7 +294,12 @@ pub fn delete_sandbox(conn: &Connection, name: &str) -> Result<()> {
 /// reuse re-writes the same description; a config change hashes differently
 /// and lands a fresh row with its own combo). `env_json`/`services_json`
 /// (R3) are the structured detail source for the images page - written on
-/// every upsert (never log-coupled, same reasoning as combo).
+/// every upsert (never log-coupled, same reasoning as combo). `job_id` (R3)
+/// is the job whose full log built this image; it follows the build_log
+/// preservation rule - an empty-log upsert (same-env reuse, nothing rebuilt)
+/// must NOT repoint an existing row at the no-op reuse job, or the images page
+/// would serve "already exists, skip" instead of the original build.
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_image(
     conn: &Connection,
     env_hash: &str,
@@ -280,23 +308,26 @@ pub fn upsert_image(
     combo: Option<&str>,
     env_json: &str,
     services_json: &str,
+    job_id: Option<i64>,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO images (env_hash, tag, built_at, build_log, combo, env_json, services_json) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7)
+        "INSERT INTO images (env_hash, tag, built_at, build_log, combo, env_json, services_json, job_id) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
          ON CONFLICT(env_hash) DO UPDATE SET
            built_at = CASE WHEN ?4 = '' THEN images.built_at ELSE ?3 END,
            build_log = CASE WHEN ?4 = '' THEN images.build_log ELSE ?4 END,
            combo = COALESCE(?5, images.combo),
            env_json = CASE WHEN ?6 = '' THEN images.env_json ELSE ?6 END,
-           services_json = CASE WHEN ?7 = '' THEN images.services_json ELSE ?7 END",
-        params![env_hash, tag, chrono_now_secs(), build_log, combo, env_json, services_json],
+           services_json = CASE WHEN ?7 = '' THEN images.services_json ELSE ?7 END,
+           job_id = CASE WHEN ?4 = '' THEN images.job_id ELSE ?8 END",
+        params![env_hash, tag, chrono_now_secs(), build_log, combo, env_json, services_json, job_id],
     )?;
     Ok(())
 }
 
 /// One images-table row: (env_hash, tag, built_at, build_log, combo,
-/// env_json, services_json). env_json/services_json are NULL on pre-R3 rows.
+/// env_json, services_json, job_id). env_json/services_json/job_id are NULL
+/// on pre-R3 rows.
 pub type ImageRow = (
     String,
     String,
@@ -305,11 +336,12 @@ pub type ImageRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<i64>,
 );
 
 pub fn list_images(conn: &Connection) -> Result<Vec<ImageRow>> {
     let mut stmt = conn.prepare(
-        "SELECT env_hash, tag, built_at, build_log, combo, env_json, services_json \
+        "SELECT env_hash, tag, built_at, build_log, combo, env_json, services_json, job_id \
          FROM images ORDER BY built_at DESC",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -321,6 +353,7 @@ pub fn list_images(conn: &Connection) -> Result<Vec<ImageRow>> {
             r.get(4)?,
             r.get(5)?,
             r.get(6)?,
+            r.get(7)?,
         ))
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -357,10 +390,36 @@ pub fn insert_job(conn: &Connection, kind: &str, sandbox: Option<&str>) -> Resul
 
 pub fn persist_job(conn: &Connection, job: &JobShared) -> Result<()> {
     conn.execute(
-        "UPDATE jobs SET status = ?2, error = ?3, updated_at = ?4 WHERE id = ?1",
-        params![job.id, job.status, job.error, chrono_now_secs()],
+        // log_path is COALESCEd: None (a short job / legacy cell) must not
+        // wipe a path written earlier by set_job_log_path.
+        "UPDATE jobs SET status = ?2, error = ?3, updated_at = ?4, \
+         log_path = COALESCE(?5, log_path) WHERE id = ?1",
+        params![job.id, job.status, job.error, chrono_now_secs(), job.log_path],
     )?;
     Ok(())
+}
+
+/// R3: record the full-log file a job opened, as soon as it is open (not at
+/// job end) - a crash mid-build must still leave the path findable, and the
+/// image-log lookup reads it straight from the jobs table.
+pub fn set_job_log_path(conn: &Connection, id: i64, path: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE jobs SET log_path = ?2 WHERE id = ?1",
+        params![id, path],
+    )?;
+    Ok(())
+}
+
+/// R3: the stored full-log path for a job. Used by the image-log endpoint,
+/// which has no in-memory job map entry to consult (it may run after an mgr
+/// restart, when only the durable jobs row survives).
+pub fn job_log_path(conn: &Connection, id: i64) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT log_path FROM jobs WHERE id = ?1")?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(r) => Ok(r.get(0)?),
+        None => Ok(None),
+    }
 }
 
 /// On startup: any job left `running` by a previous mgr process is dead -
@@ -508,9 +567,10 @@ mod tests {
             Some("a+b (cs,vnc)"),
             r#"{"scenarios":["a","b"],"versions":{}}"#,
             r#"{"code_server":true,"vnc":true}"#,
+            Some(7),
         )
         .unwrap();
-        upsert_image(&conn, "h1", "sandbox-base-h1", "", None, "", "").unwrap();
+        upsert_image(&conn, "h1", "sandbox-base-h1", "", None, "", "", None).unwrap();
         let (built_at, build_log, combo) = conn
             .query_row(
                 "SELECT built_at, build_log, combo FROM images WHERE env_hash = 'h1'",
@@ -531,13 +591,22 @@ mod tests {
             Some("a+b (cs,vnc)"),
             "combo survives a same-env reuse (log empty but description kept)"
         );
+        // R3: the same rule keeps the ORIGINAL build's job_id - the reuse job
+        // logged "exists, skip", so pointing the row at it would make the
+        // images page serve a no-op log as this image's build output.
+        let job_id: Option<i64> = conn
+            .query_row("SELECT job_id FROM images WHERE env_hash = 'h1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(job_id, Some(7), "job_id survives a same-env reuse");
     }
 
     #[test]
     fn upsert_image_real_rebuild_replaces_log() {
         let conn = mem_db();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "old", None, "", "").unwrap();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "new log", None, "", "").unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "old", None, "", "", Some(1)).unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "new log", None, "", "", Some(2)).unwrap();
         let build_log: String = conn
             .query_row(
                 "SELECT build_log FROM images WHERE env_hash = 'h2'",
@@ -546,6 +615,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(build_log, "new log");
+        let job_id: Option<i64> = conn
+            .query_row("SELECT job_id FROM images WHERE env_hash = 'h2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(job_id, Some(2), "a real rebuild repoints job_id");
     }
 
     #[test]
@@ -553,7 +628,7 @@ mod tests {
         // No prior row: the empty-log preservation branch must not swallow
         // the INSERT (CASE only fires on conflict).
         let conn = mem_db();
-        upsert_image(&conn, "h3", "sandbox-base-h3", "", Some("x+y"), "", "").unwrap();
+        upsert_image(&conn, "h3", "sandbox-base-h3", "", Some("x+y"), "", "", None).unwrap();
         let (tag, build_log): (String, String) = conn
             .query_row(
                 "SELECT tag, build_log FROM images WHERE env_hash = 'h3'",
@@ -634,13 +709,15 @@ mod tests {
             Some("a (vnc)"),
             r#"{"scenarios":["a"],"versions":{}}"#,
             r#"{"code_server":false,"vnc":true}"#,
+            Some(11),
         )
         .unwrap();
-        upsert_image(&conn, "h2", "sandbox-base-h2", "log2", None, "", "").unwrap();
+        upsert_image(&conn, "h2", "sandbox-base-h2", "log2", None, "", "", None).unwrap();
         // Simulate a pre-R3 row: the columns did not exist then, so a real
         // old row reads NULL (the ''-preserve branch above keeps it NULL).
         conn.execute(
-            "UPDATE images SET env_json = NULL, services_json = NULL WHERE env_hash = 'h2'",
+            "UPDATE images SET env_json = NULL, services_json = NULL, job_id = NULL \
+             WHERE env_hash = 'h2'",
             [],
         )
         .unwrap();
@@ -659,13 +736,83 @@ mod tests {
             Some(r#"{"code_server":false,"vnc":true}"#),
             "services_json read back"
         );
+        assert_eq!(h1.7, Some(11), "job_id read back");
         let h2 = rows.iter().find(|(h, ..)| h == "h2").unwrap();
         assert_eq!(h2.4, None, "NULL combo on pre-existing rows");
         assert_eq!(h2.5, None, "NULL env_json on pre-existing rows");
+        assert_eq!(h2.7, None, "NULL job_id on pre-existing rows");
 
         // delete_image_row: existing -> true, gone -> false.
         assert!(delete_image_row(&conn, "h1").unwrap());
         assert!(!delete_image_row(&conn, "h1").unwrap());
         assert_eq!(list_images(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn init_schema_adds_job_id_and_log_path_to_preexisting_tables() {
+        // R3 migrations: fresh schema carries both columns, and re-running
+        // init_schema is idempotent (the pragma-probe ALTER fires on real
+        // pre-R3 state.db files).
+        let conn = mem_db();
+        for (table, col) in [("images", "job_id"), ("jobs", "log_path")] {
+            let has: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{col}'"
+                    ),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(has, 1, "fresh db creates {table}.{col}");
+        }
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
+        let has: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = 'log_path'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has, 1, "init_schema is idempotent on jobs.log_path");
+    }
+
+    #[test]
+    fn job_log_path_roundtrips_and_persist_job_keeps_it() {
+        // R3: set_job_log_path writes the path mid-build; persist_job (the
+        // job-end write, whose JobShared may carry None for short jobs) must
+        // COALESCE rather than wipe it.
+        let conn = mem_db();
+        let id = insert_job(&conn, "create", Some("sbx-a")).unwrap();
+        assert_eq!(job_log_path(&conn, id).unwrap(), None);
+
+        set_job_log_path(&conn, id, "/data/jobs/1.log").unwrap();
+        let mut job = JobShared {
+            id,
+            kind: "create".into(),
+            sandbox: Some("sbx-a".into()),
+            status: "running".into(),
+            error: None,
+            log: String::new(),
+            log_path: None,
+        };
+        persist_job(&conn, &job).unwrap();
+        assert_eq!(
+            job_log_path(&conn, id).unwrap().as_deref(),
+            Some("/data/jobs/1.log"),
+            "persist_job must not wipe a path written mid-build"
+        );
+
+        // A job that DOES carry the path persists it too.
+        job.status = "ok".into();
+        job.log_path = Some("/data/jobs/1.log".into());
+        persist_job(&conn, &job).unwrap();
+        assert_eq!(
+            job_log_path(&conn, id).unwrap().as_deref(),
+            Some("/data/jobs/1.log")
+        );
+        // Unknown job -> None (the image-log endpoint's fallback branch).
+        assert_eq!(job_log_path(&conn, 999).unwrap(), None);
     }
 }

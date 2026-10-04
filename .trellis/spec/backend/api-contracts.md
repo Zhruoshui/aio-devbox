@@ -442,6 +442,88 @@ R3(picker UX)起 `upsert_image` 为 7 参:追加 `env_json` / `services_json`
   removed, M failed, reclaimed X bytes of images`。
 - rmi 安全:只允许 `image_tags(hash)` 产出的 `sandbox-` 前缀 tag
   (`docker::is_owned_image_tag`),任意 tag 注入被拒。
+- R3 起 `GET /api/images` 行增 `job_id`(该行构建 job;pre-R3 行 null)。
+  `job_id → jobs.log_path` 是完整构建日志的寻址路径,见下节。
+
+## 完整构建日志端点(R3,09-23-image-detail-tools-log)
+
+create/recreate job 的**完整**输出落盘在 `<data>/jobs/<id>.log`(短周期
+job —— delete / image-delete / image-cleanup —— 不落盘,内存尾即全文),
+jobs 表 `log_path` 列在构建**开始前**写入(`set_job_log_path`;`persist_job`
+用 `COALESCE` 保留,不被 job 结束时的空值抹掉),因此 images 行能在 mgr
+重启后仍找到自己的构建日志。
+
+- `GET /api/jobs/:id/log?offset=&limit=&tail=`(owner `routes.rs::job_log`)
+  与 `GET /api/images/:env_hash/log?offset=&limit=&tail=`(owner
+  `routes.rs::image_log`)返回同一形态:
+  `{data, total_size, next_offset, log_path, complete}`。
+- **offset/limit/tail 全是 BYTE**,不是 JS 字符数。`data` 两端都被走到
+  char 边界(`jobs::log_page`),分页必须按 `next_offset` 前进——
+  用 `data.length` 计数会漏/重(UTF-16 != 字节)。`complete:false`
+  = 来源是内存尾/`build_log` 列回退,不是完整文件(前端据此标注"尾部")。
+- 取值优先级:job 侧 = 内存单元的 `log_path` → jobs 表 `log_path` → 内存
+  log 尾;image 侧 = `images.job_id` → jobs 表 `log_path` → `build_log`
+  列。文件缺失/不可读与"没有文件"同路(debug/warn 后回退),**不 5xx**。
+- 上限:`limit` 缺省 256KB,clamp 到 [1, 4MB](`LOG_PAGE_MAX`);文件读在
+  `spawn_blocking` 上(4MB+ 读不占 reactor)。job 不存在 → 400
+  (lifecycle 的 400-shaped not-found,与 `GET /api/jobs/:id` 一致);
+  image 侧 env_hash 非 64 hex 或行不存在 → 400。
+- 内存尾 cap `LOG_TAIL` = 64KB,images 表 `build_log` cap
+  `BUILD_LOG_TAIL` = 4MB;两者截断都走 `keep_tail`(向前对齐 char 边界,
+  多字节输出不再 panic)。
+- create job 的**所有**行(含 docker build 逐行输出与 job 自己的行)都经
+  **同一个有序 drain 队列**写入内存尾与磁盘,R3 的 `flush_chunks` 是屏障:
+  写 images 行(job_id 指向该日志)与返回 ok/error 之前必须已落盘,
+  否则镜像页会看到缺尾的日志。
+- 测试:`jobs.rs`(keep_tail/log_page char 边界与 panic 回归、落盘全文 vs
+  内存尾、flush 屏障)、`routes.rs`(分页跨多字节重建、>256KB、回退矩阵、
+  seam 不吞这两个路由)、`db.rs`(job_id 保留语义 / 迁移幂等)。
+
+## user-tools fragment 编辑器(R2,09-23-image-detail-tools-log)
+
+mgr 对 `state.repo` **唯一**的写路径(其余全部只读,契约 1):WebUI 编辑
+`scenarios/user-tools/fragment.Dockerfile`(L2 用户自定义工具层)。三个
+静态路由,owner `routes.rs` + `mgr/src/usertools.rs`(后者独占文件**格式**):
+
+- `GET /api/user-tools` → `{content, entries, parse_note, path}`。
+  `content` = 文件原文;`entries` = 表单解析结果,**null = 文件含表单无法
+  表达的指令**(页面据此禁用表单、切直接编辑),`[]` = 空表单态;
+  `parse_note` 为 `null` 时表示解析成功。字段名沿用 mgr 的 snake_case
+  (设计稿里的 `parseNote` 只是 JS 侧草写)。**文件缺失不是错误** → `""`
+  + `entries: []`(首次保存时创建)。
+- `PUT /api/user-tools` body `{content}` → `{ok:true}`;**原文入库**
+  (注释/空行逐字节保留,AC5)。只做静态校验,不做规范化。
+- `PUT /api/user-tools/entries` body `{entries: ToolEntry[]}` → 由后端
+  `render` 生成完整 fragment 后原子写入。**空数组 = 写回"无自定义工具"
+  占位 RUN**(不是空文件)。
+
+`ToolEntry`: `{name, install: "apt"|"tarball"|"script", version?, url?,
+install_path, test_cmd?}`。表单与直接编辑**读写同一份文件**,单向生成 +
+回落——解析不出条目就禁用表单,不做双向同步。
+
+校验矩阵(违反 → 400 `{"error": …}`,两条写路由同一套硬规则的执行点):
+
+- 空内容 400。
+- **/root 写入 400**:`WORKDIR`/`COPY`/`ADD` 目标、`RUN` 的任意 token 指向
+  `/root` 或 `~`。检查作用于**逻辑指令**(`\` 续行合并、续行里的注释行
+  跳过)——安装步骤的常见形态就是 `RUN … \` + 后续物理行,按物理行扫描
+  会正好漏掉写入点。`COPY` 的 `/root` **源**允许(构建期该层自有)。
+  注释行始终豁免(文件自身的硬规则说明就引用了 `/root`)。
+- 表单字段级:`name` `^[A-Za-z0-9][A-Za-z0-9._-]*$`(与页面 `rowError`
+  等价,前端先拒、后端兜底);`install_path` 闭集
+  `/usr/local/bin`|`/opt`;tarball/script 必填 `https://` URL;
+  `version` 不含空白。渲染结果再过一遍原文守卫(纵深防御)。
+- 写盘失败(容器里 repo 是 ro)→ **500**,anyhow 链尾带 OS 错误与
+  "repo must be mounted read-write" 提示;绝不做"静默接受"。
+
+容器形态的挂载:`mgr/compose.yml` 保持 `${PWD}:${PWD}:ro`,**另加**
+`${PWD}/scenarios/user-tools` 的嵌套 rw bind(同宿主路径,路径一致性)。
+挂**目录**而非单文件:保存是 temp + rename 原子替换(`write_atomic`),
+换 inode 会让单文件 bind 失效。
+
+测试:`usertools.rs`(render↔parse 全 kind 往返、续行 /root 守卫、原子写
+无残留、名称与 URL 矩阵)、`routes.rs`(三个端点 + 缺失文件 + 原文入库 +
+拒 /root + seam 不吞)。
 
 ## /api seam 404(app 与 mgr 同构)
 

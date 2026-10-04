@@ -1,0 +1,4 @@
+{"type":"spec","path":".trellis/spec/backend/api-contracts.md","note":"Existing API contracts for models endpoints - will need major updates for the new /api/models/providers and /api/models/templates endpoints"}
+{"type":"research","path":".trellis/tasks/archive/2026-08/08-26-unified-model-config/research/cc-switch-config-model.md","note":"cc-switch configuration model research - the reference implementation for this refactor, covering provider snapshots, switching mechanisms, and UI patterns"}
+{"type":"research","path":".trellis/tasks/archive/2026-08/08-26-unified-model-config/research/aio-integration-and-usage-sources.md","note":"Previous research on aio integration and usage tracking sources - relevant for the simplified Usage statistics implementation"}
+{"type":"spec","path":".trellis/spec/frontend/index.md","note":"Frontend development specifications - will guide the React component architecture for the new model config pages"}

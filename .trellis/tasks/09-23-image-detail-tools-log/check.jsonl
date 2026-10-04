@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "校验新增 API 的响应形态、错误格式、seam 404 行为符合契约"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "校验 usertools.rs 校验错误、落盘失败的降级路径符合错误处理规范"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "校验新页面/弹窗遵循 mgr-web 既有组件与 CSS 分层"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验 Rust 端代码质量（测试覆盖、clippy）"}

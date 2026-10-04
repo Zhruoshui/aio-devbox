@@ -56,7 +56,20 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/images", get(list_images))
         .route("/api/images/cleanup", post(cleanup_images))
         .route("/api/images/:env_hash/delete", post(delete_image))
+        // R3: the FULL build log of an image, read from the create job's
+        // on-disk log (falling back to the images.build_log column tail).
+        .route("/api/images/:env_hash/log", get(image_log))
         .route("/api/jobs/:id", get(get_job))
+        // R3: paged access to a job's full on-disk log
+        // (?offset=<byte>&limit=<byte>&tail=<byte>).
+        .route("/api/jobs/:id/log", get(job_log))
+        // R2 + 修正 2/3: the user-tools fragment (the one repo subtree mgr
+        // WRITES - the WebUI editor). Static path, so it wins over the /api
+        // seam regardless of order.
+        .route(
+            "/api/user-tools",
+            get(get_user_tools).put(put_user_tools),
+        )
         // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
         // Each module owns its sub-router; merge keeps them ahead of the
         // /api seam below (static segments win either way - merge is the
@@ -185,6 +198,23 @@ async fn scenarios(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_j
             })
         })
         .collect();
+    // 修正 3 (R4): custom tools are NOT scenario-catalog entries (they live
+    // under usertools/<id>/ with metadata in mgr-data) - but the create
+    // wizard's EnvPicker needs them as L5 (category "service") rows. Synthesize
+    // the same wire shape from picker_tools so the frontend needs zero
+    // special-casing. id-sorted within the layer by the sort below (stable).
+    for t in crate::usertools::picker_tools(&state.repo) {
+        list.push(json!({
+            "id": t.id,
+            "name": t.name,
+            "description": "用户自定义工具（usertools/<id>/fragment.Dockerfile）",
+            "category": "service",
+            "installer": "custom",
+            "always_on": false,
+            "default_version": null,
+            "versions": Vec::<String>::new(),
+        }));
+    }
     // Layer order like the TUI grouping (scenario.rs category_rank).
     list.sort_by_key(|v| {
         let cat = v["category"].as_str().unwrap_or_default().to_string();
@@ -261,6 +291,8 @@ fn normalize_services(
     let env2 = envhash::SandboxEnv {
         scenarios,
         versions: env.versions,
+        // 修正 3: custom tools are not service switches - they pass through untouched.
+        user_tools: env.user_tools,
     };
     let services = db::Services {
         code_server: b.code_server,
@@ -1168,7 +1200,7 @@ async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde
         db::list_images(&conn)?
     };
     let mut out = Vec::with_capacity(rows.len());
-    for (env_hash, tag, built_at, build_log, combo, env_json, services_json) in rows {
+    for (env_hash, tag, built_at, build_log, combo, env_json, services_json, job_id) in rows {
         let refcount = {
             let conn = state.db.lock().unwrap();
             db::image_refcount(&conn, &env_hash)?
@@ -1192,6 +1224,9 @@ async fn list_images(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde
             "env": env,
             "services": services,
             "size_bytes": size_bytes,
+            // R3: the build job whose FULL log is on disk (GET
+            // /api/images/:env_hash/log). null on pre-R3 rows.
+            "job_id": job_id,
         }));
     }
     Ok(Json(json!({ "images": out })))
@@ -1261,6 +1296,300 @@ async fn get_job(
         }
         None => Err(ApiError::bad(format!("job {id} not found"))),
     }
+}
+
+// ── R3 full build logs ─────────────────────────────────────────────
+
+/// Default page size of the log endpoints (256KB); the frontend asks for
+/// more when prefetching a whole log.
+const LOG_PAGE_DEFAULT: u64 = 256 * 1024;
+
+/// Hard per-request window cap. Logs are read by paging (the frontend walks
+/// `next_offset`); without a ceiling a single `limit` could pin a huge
+/// response body in memory for one request.
+const LOG_PAGE_MAX: u64 = 4 * 1024 * 1024;
+
+/// The effective window of a log request: defaulted + clamped.
+fn page_limit(q: &LogQuery) -> u64 {
+    q.limit.unwrap_or(LOG_PAGE_DEFAULT).clamp(1, LOG_PAGE_MAX)
+}
+
+/// Query of GET /api/jobs/:id/log and /api/images/:env_hash/log. All fields
+/// optional: `offset`/`limit` page through the log, `tail=N` asks for the
+/// last N bytes instead (the "just show me the end" case).
+#[derive(Debug, Deserialize)]
+struct LogQuery {
+    offset: Option<u64>,
+    limit: Option<u64>,
+    tail: Option<u64>,
+}
+
+/// What a log read produced: the file's total byte size plus the requested
+/// window. `data` is byte-offset-addressed, so `next_offset` (not the string
+/// length) is what a pager advances by - see jobs::log_page.
+struct LogChunk {
+    data: String,
+    total: u64,
+    next_offset: u64,
+}
+
+/// Read a window out of a job's FULL on-disk log (`<data>/jobs/<id>.log`).
+/// `None` when no file is known / readable - the caller falls back to the
+/// in-memory tail (a running short job) or the build_log column.
+///
+/// The read runs on the blocking pool: a 4MB+ log read on the async reactor
+/// would stall every other request for the duration of the IO.
+async fn read_job_log_file(path: &str, q: &LogQuery) -> Option<LogChunk> {
+    let path = PathBuf::from(path);
+    let offset = q.offset;
+    let limit = page_limit(q);
+    let tail_n = q.tail;
+    match tokio::task::spawn_blocking(move || -> std::io::Result<LogChunk> {
+        let bytes = std::fs::read(&path)?;
+        // The byte window is decoded lossily and re-walked on char
+        // boundaries: the file is build output (valid UTF-8 in practice) but
+        // a window can land mid-char, and a split char must never 500 a log
+        // view. The offset SPACE is the decoded string's, so `total` is its
+        // length, not the file's: a lossy substitution of invalid bytes makes
+        // the two differ, and a pager that mixed them would stop short of the
+        // real end. (Identical for well-formed output.)
+        let s = String::from_utf8_lossy(&bytes).into_owned();
+        let total = s.len() as u64;
+        // A `tail` request is a window at the END: resolve it to an offset up
+        // front so the rest of the logic is one path.
+        let start = match tail_n {
+            Some(n) => total.saturating_sub(n),
+            None => offset.unwrap_or(0),
+        };
+        let (data, _, next) = crate::jobs::log_page(&s, start, limit);
+        Ok(LogChunk {
+            data,
+            total,
+            next_offset: next,
+        })
+    })
+    .await
+    {
+        Ok(Ok(chunk)) => Some(chunk),
+        // Missing file (a job that never opened one) is the CALLER's
+        // fallback signal, not an error; a genuine IO failure is warned and
+        // treated the same way so the page still shows the column tail.
+        Ok(Err(e)) => {
+            tracing::debug!(error = %e, "job log file unreadable, falling back");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "job log read task failed");
+            None
+        }
+    }
+}
+
+/// Build the shared log JSON body (both log endpoints).
+fn log_json(
+    data: &str,
+    total: u64,
+    next_offset: u64,
+    log_path: Option<&str>,
+    complete: bool,
+) -> serde_json::Value {
+    json!({
+        "data": data,
+        "total_size": total,
+        "next_offset": next_offset,
+        "log_path": log_path,
+        // false = the caller is looking at the capped memory tail / column
+        // fallback rather than the full on-disk log (the UI labels it "tail").
+        "complete": complete,
+    })
+}
+
+/// GET /api/jobs/:id/log?offset=&limit=&tail= - R3: the full build log of a
+/// create/recreate job, read from disk so nothing is truncated at the 64KB
+/// memory tail. Falls back to that tail when the job has no on-disk log
+/// (a short lifecycle job) or the file is gone. Unknown job -> 404-shaped 400
+/// (the same ApiError::bad shape get_job uses).
+async fn job_log(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Query(q): Query<LogQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // The on-disk path is the durable source; the in-memory cell is the
+    // fallback (and the only source for a job that never opened a file).
+    let cell = {
+        let jobs = state.jobs.lock().unwrap();
+        jobs.get(&id).cloned()
+    };
+    let memory: Option<(String, Option<String>)> = match &cell {
+        Some(c) => {
+            let j = c.lock().await;
+            Some((j.log.clone(), j.log_path.clone()))
+        }
+        None => None,
+    };
+    let path = match &memory {
+        Some((_, Some(p))) => Some(p.clone()),
+        // Legacy/in-memory job: the jobs row may still know the path (set
+        // before the build, survives an mgr restart).
+        _ => db::job_log_path(&state.db.lock().unwrap(), id)?,
+    };
+    if let Some(path) = &path {
+        if let Some(chunk) = read_job_log_file(path, &q).await {
+            return Ok(Json(log_json(
+                &chunk.data,
+                chunk.total,
+                chunk.next_offset,
+                Some(path),
+                true,
+            )));
+        }
+    }
+    match memory {
+        Some((log, _)) => {
+            // Honour `tail` here too: the memory tail is one fixed buffer, so
+            // a tail request is the same slice as for a file.
+            let total = log.len() as u64;
+            let start = match q.tail {
+                Some(n) => total.saturating_sub(n),
+                None => q.offset.unwrap_or(0),
+            };
+            let (data, _, next) = crate::jobs::log_page(&log, start, page_limit(&q));
+            Ok(Json(log_json(&data, total, next, None, false)))
+        }
+        None => Err(ApiError::bad(format!("job {id} not found"))),
+    }
+}
+
+/// GET /api/images/:env_hash/log?offset=&limit=&tail= - R3: the FULL build
+/// log behind an image. Sources in order: the create job's on-disk log
+/// (images.job_id -> jobs.log_path), then the images.build_log column tail
+/// (pre-R3 rows / pruned files). Paging reads the whole string and windows
+/// it, so image logs and job logs share one contract.
+async fn image_log(
+    State(state): State<Arc<AppState>>,
+    Path(h): Path<String>,
+    Query(q): Query<LogQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if !valid_env_hash(&h) {
+        return Err(ApiError::bad("env_hash must be 64 hex chars"));
+    }
+    let row = {
+        let conn = state.db.lock().unwrap();
+        db::list_images(&conn)?
+            .into_iter()
+            .find(|r| r.0 == h)
+            .map(|r| (r.3, r.7))
+    };
+    let (build_log, job_id) = match row {
+        Some(v) => v,
+        None => return Err(ApiError::bad(format!("image {h} not found"))),
+    };
+    // Prefer the full on-disk log via the recorded job.
+    if let Some(job_id) = job_id {
+        let path = db::job_log_path(&state.db.lock().unwrap(), job_id)?;
+        if let Some(path) = &path {
+            if let Some(chunk) = read_job_log_file(path, &q).await {
+                return Ok(Json(log_json(
+                    &chunk.data,
+                    chunk.total,
+                    chunk.next_offset,
+                    Some(path),
+                    true,
+                )));
+            }
+        }
+    }
+    // Fallback: the column tail (capped, no log_path).
+    let total = build_log.len() as u64;
+    let start = match q.tail {
+        Some(n) => total.saturating_sub(n),
+        None => q.offset.unwrap_or(0),
+    };
+    let (data, _, next) = crate::jobs::log_page(&build_log, start, page_limit(&q));
+    Ok(Json(log_json(&data, total, next, None, false)))
+}
+
+// ── R2 user-tools fragment ─────────────────────────────────────────
+//
+// mgr is otherwise read-only against `state.repo` (contract 1: the repo is
+// mounted read-only in the containerized form). These two handlers are the
+// deliberate exception: the user-tools fragment is the user's own L2 escape
+// hatch, and the deployed mgr has no code-server-only workaround. The
+// container MUST therefore mount the repo read-write for this route to work;
+// a read-only mount surfaces as a 500 with the OS error in the anyhow chain
+// (the honest failure - silently accepting the write is worse).
+
+/// GET /api/user-tools - the current fragment + the tool list it encodes +
+/// the picker tool list. `tools` (from the fragment's `# --- tool:` blocks)
+/// drives the editor's "contains N tools" label; `picker` is the L5 tool list
+/// (meta ∩ on-disk fragment) offered by the create wizard.
+async fn get_user_tools(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
+    let path = crate::usertools::fragment_path(&state.repo);
+    let content = std::fs::read_to_string(&path)
+        // A missing fragment is NOT an error: the editor starts empty and the
+        // first save creates the file.
+        .unwrap_or_else(|_| String::new());
+    let tools: Vec<crate::usertools::UserTool> = crate::usertools::list_tools(&content)
+        .into_iter()
+        .map(|name| crate::usertools::UserTool {
+            id: crate::usertools::slug(&name).unwrap_or_else(|| name.to_ascii_lowercase()),
+            name,
+        })
+        .collect();
+    let picker = crate::usertools::picker_tools(&state.repo);
+    Ok(Json(json!({
+        "content": content,
+        "tools": tools,
+        "picker": picker,
+        "path": path.display().to_string(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct UserToolsContentBody {
+    content: String,
+}
+
+/// PUT /api/user-tools - direct-editor save. Static validation (the `/root`
+/// hard rule + marker-block well-formedness), then the content is stored
+/// verbatim (hand-written comments / blank lines round-trip exactly) and the
+/// per-tool fragment dirs + metadata are re-synced so the L5 picker sees the
+/// new tool set immediately.
+async fn put_user_tools(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<UserToolsContentBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if let Err(msg) = crate::usertools::validate(&body.content) {
+        return Err(ApiError::bad(msg));
+    }
+    if let Err(msg) = crate::usertools::blocks_well_formed(&body.content) {
+        return Err(ApiError::bad(msg));
+    }
+    let tools = write_fragment_and_sync(&state, &body.content)?;
+    Ok(Json(json!({ "ok": true, "tools": tools })))
+}
+
+/// Atomic write of the fragment + re-sync of the per-tool fragment dirs and
+/// the tool metadata. The repo-write failure is made explicit (the container's
+/// read-only repo mount is the expected cause).
+fn write_fragment_and_sync(
+    state: &Arc<AppState>,
+    content: &str,
+) -> Result<Vec<crate::usertools::UserTool>, ApiError> {
+    let path = crate::usertools::fragment_path(&state.repo);
+    crate::usertools::write_atomic(&path, content).map_err(|e| {
+        ApiError::from(anyhow::anyhow!(
+            "write {} failed ({e:#}) - in the containerized form the repo must be mounted read-write for this route",
+            path.display()
+        ))
+    })?;
+    let tools = crate::usertools::sync_scenario_dirs(&state.repo, content).map_err(|e| {
+        ApiError::from(anyhow::anyhow!("sync usertools dirs: {e:#}"))
+    })?;
+    let meta = crate::usertools::ToolMeta { tools: tools.clone() };
+    crate::usertools::save_meta(&state.data, &meta)
+        .map_err(|e| ApiError::from(anyhow::anyhow!("write usertools meta: {e:#}")))?;
+    Ok(tools)
 }
 
 #[cfg(test)]
@@ -1341,6 +1670,7 @@ mod tests {
         envhash::SandboxEnv {
             scenarios: scenarios.iter().map(|s| s.to_string()).collect(),
             versions: Default::default(),
+            user_tools: vec![],
         }
     }
 
@@ -1629,6 +1959,493 @@ mod tests {
             service: service.into(),
             state: state.into(),
             status: String::new(),
+        }
+    }
+
+    // ── R3 full-log endpoints ───────────────────────────────────────
+
+    /// A state whose data root is a fresh temp dir (the log endpoints read
+    /// `<data>/jobs/<id>.log`; new_for_test's shared /tmp would let parallel
+    /// tests collide on the same path).
+    fn log_state(tag: &str) -> Arc<AppState> {
+        let mut state = AppState::new_for_test();
+        let dir = std::env::temp_dir().join(format!("mgr-r3-log-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp data dir");
+        state.data = dir;
+        Arc::new(state)
+    }
+
+    /// A 64-hex env_hash (valid_env_hash's alphabet).
+    fn hex_hash(byte: u8) -> String {
+        format!("{byte:02x}").repeat(32)
+    }
+
+    /// Write `<data>/jobs/<id>.log`, exactly as run_create does.
+    fn write_job_log(state: &AppState, job_id: i64, body: &str) -> String {
+        let dir = state.data.join("jobs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{job_id}.log"));
+        std::fs::write(&path, body).unwrap();
+        path.display().to_string()
+    }
+
+    #[tokio::test]
+    async fn job_log_serves_the_full_file_beyond_the_memory_tail() {
+        // AC6/AC8: the file holds the WHOLE build output; the endpoint pages
+        // it by byte offset instead of the 64KB memory tail.
+        let state = log_state("job-full");
+        let body = format!("{}\nBUILD FAILED HERE\n", "line\n".repeat(20_000));
+        assert!(body.len() > 64 * 1024, "fixture exceeds LOG_TAIL");
+        let job_id = {
+            let conn = state.db.lock().unwrap();
+            db::insert_job(&conn, "create", Some("sbx-a")).unwrap()
+        };
+        let path = write_job_log(&state, job_id, &body);
+        db::set_job_log_path(&state.db.lock().unwrap(), job_id, &path).unwrap();
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .get(format!("{base}/api/jobs/{job_id}/log?limit=1000000"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), body, "nothing is truncated");
+        assert_eq!(v["total_size"].as_u64().unwrap(), body.len() as u64);
+        assert_eq!(v["next_offset"].as_u64().unwrap(), body.len() as u64);
+        assert_eq!(v["complete"], true);
+        assert_eq!(v["log_path"].as_str().unwrap(), path);
+
+        // `tail=N` is the last-N-bytes convenience.
+        let r = state
+            .http
+            .get(format!("{base}/api/jobs/{job_id}/log?tail=18"))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), "BUILD FAILED HERE\n");
+
+        // Unknown job: the same 400-shaped not-found as GET /api/jobs/:id.
+        let r = state
+            .http
+            .get(format!("{base}/api/jobs/987654/log"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn job_log_pages_across_multibyte_boundaries() {
+        // AC8 + AC9 over HTTP: a log well past the old 256KB column cap, paged
+        // in odd-sized windows whose edges land inside CJK / emoji chars, must
+        // reconstruct byte-for-byte, never panic, and never stall.
+        let state = log_state("job-page");
+        let body = "中文🎉ok\n".repeat(40_000); // ~400KB, 4 bytes/char groups
+        let job_id = {
+            let conn = state.db.lock().unwrap();
+            db::insert_job(&conn, "create", Some("sbx-a")).unwrap()
+        };
+        let path = write_job_log(&state, job_id, &body);
+        db::set_job_log_path(&state.db.lock().unwrap(), job_id, &path).unwrap();
+        let base = serve(&state).await;
+
+        let mut out = String::new();
+        let mut off = 0u64;
+        loop {
+            let r = state
+                .http
+                .get(format!("{base}/api/jobs/{job_id}/log?offset={off}&limit=1021"))
+                .send()
+                .await
+                .unwrap();
+            assert!(r.status().is_success(), "mid-char offset must not 500");
+            let v: serde_json::Value = r.json().await.unwrap();
+            out.push_str(v["data"].as_str().unwrap());
+            let total = v["total_size"].as_u64().unwrap();
+            let next = v["next_offset"].as_u64().unwrap();
+            assert!(next > off || next >= total, "page must make progress");
+            if next >= total {
+                break;
+            }
+            off = next;
+        }
+        assert_eq!(out, body, "pages concatenate into the whole log");
+        assert!(body.len() > 256 * 1024, "fixture exceeds the old column cap");
+
+        // The hand-made request that used to panic the handler: an offset that
+        // splits a char with a tiny limit.
+        let r = state
+            .http
+            .get(format!("{base}/api/jobs/{job_id}/log?offset=1&limit=1"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), "文");
+    }
+
+    #[tokio::test]
+    async fn job_log_falls_back_to_the_memory_tail() {
+        // A short lifecycle job (delete / image-*) opens no file: the endpoint
+        // still serves its in-memory log, flagged complete=false so the UI can
+        // label it a tail.
+        let state = log_state("job-mem");
+        let job_id = {
+            let conn = state.db.lock().unwrap();
+            db::insert_job(&conn, "delete", Some("sbx-a")).unwrap()
+        };
+        let cell = Arc::new(tokio::sync::Mutex::new(crate::state::JobShared {
+            id: job_id,
+            kind: "delete".into(),
+            sandbox: Some("sbx-a".into()),
+            status: "running".into(),
+            error: None,
+            log: "compose down output\n".into(),
+            log_path: None,
+        }));
+        state.jobs.lock().unwrap().insert(job_id, cell);
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .get(format!("{base}/api/jobs/{job_id}/log"))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), "compose down output\n");
+        assert_eq!(v["complete"], false);
+        assert!(v["log_path"].is_null());
+    }
+
+    #[tokio::test]
+    async fn image_log_prefers_the_job_file_and_falls_back_to_the_column() {
+        // AC8: the images page loads the FULL build output of the job behind
+        // the row; a pre-R3 row (no job_id) still serves its column tail.
+        let state = log_state("img-log");
+        // > 256KB (the pre-R3 build_log cap) on purpose: AC8 is precisely
+        // "the images page can load more than the old column kept".
+        let big = format!("{}\nboom\n", "step\n".repeat(60_000));
+        let job_id = {
+            let conn = state.db.lock().unwrap();
+            db::insert_job(&conn, "create", Some("sbx-a")).unwrap()
+        };
+        let path = write_job_log(&state, job_id, &big);
+        {
+            let conn = state.db.lock().unwrap();
+            db::set_job_log_path(&conn, job_id, &path).unwrap();
+            db::upsert_image(
+                &conn,
+                &hex_hash(0xaa),
+                "sandbox-base-aa",
+                "column tail",
+                None,
+                "",
+                "",
+                Some(job_id),
+            )
+            .unwrap();
+            db::upsert_image(
+                &conn,
+                &hex_hash(0xbb),
+                "sandbox-base-bb",
+                "legacy column tail",
+                None,
+                "",
+                "",
+                None,
+            )
+            .unwrap();
+        }
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .get(format!("{base}/api/images/{}/log?limit=1000000", hex_hash(0xaa)))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), big, "full file, not the column");
+        assert_eq!(v["complete"], true);
+        assert_eq!(v["total_size"].as_u64().unwrap(), big.len() as u64);
+
+        // No job_id (pre-R3 row): the build_log column is the source.
+        let r = state
+            .http
+            .get(format!("{base}/api/images/{}/log", hex_hash(0xbb)))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["data"].as_str().unwrap(), "legacy column tail");
+        assert_eq!(v["complete"], false);
+
+        // Malformed / unknown env_hash stay in the ApiError shape.
+        let r = state
+            .http
+            .get(format!("{base}/api/images/nothex/log"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let r = state
+            .http
+            .get(format!("{base}/api/images/{}/log", hex_hash(0xcc)))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn images_payload_carries_job_id() {
+        // The frontend mirror (types.ts Image.job_id) drives the "is there a
+        // full log to load?" decision - the field must survive the row
+        // destructuring in list_images.
+        let state = log_state("img-payload");
+        {
+            let conn = state.db.lock().unwrap();
+            db::upsert_image(
+                &conn,
+                &hex_hash(0x11),
+                "sandbox-base-11",
+                "log",
+                None,
+                "",
+                "",
+                Some(42),
+            )
+            .unwrap();
+            db::upsert_image(&conn, &hex_hash(0x22), "sandbox-base-22", "log", None, "", "", None)
+                .unwrap();
+        }
+        let base = serve(&state).await;
+        let r = state
+            .http
+            .get(format!("{base}/api/images"))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let rows = v["images"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let with_job = rows
+            .iter()
+            .find(|r| r["env_hash"] == hex_hash(0x11).as_str())
+            .unwrap();
+        assert_eq!(with_job["job_id"], 42);
+        let without = rows
+            .iter()
+            .find(|r| r["env_hash"] == hex_hash(0x22).as_str())
+            .unwrap();
+        assert!(without["job_id"].is_null(), "pre-R3 row: no job link");
+    }
+
+    // ── R2 + 修正 2/3 user-tools endpoints ──────────────────────────
+
+    /// A temp repo + data dir; the repo's `usertools/` holds `body` (or nothing).
+    fn usertools_state(tag: &str, body: Option<&str>) -> Arc<AppState> {
+        let dir = std::env::temp_dir().join(format!("mgr-usertools-rt-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let repo = dir.join("repo");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        let mut state = AppState::new_for_test();
+        state.repo = repo;
+        state.data = data;
+        if let Some(b) = body {
+            let path = crate::usertools::fragment_path(&state.repo);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b).unwrap();
+        }
+        Arc::new(state)
+    }
+
+    fn fragment_of(state: &AppState) -> String {
+        std::fs::read_to_string(crate::usertools::fragment_path(&state.repo)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn user_tools_get_returns_content_tools_and_picker() {
+        let content = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n";
+        let state = usertools_state("get", Some(content));
+        let base = serve(&state).await;
+
+        let r = state
+            .http
+            .get(format!("{base}/api/user-tools"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["content"].as_str().unwrap(), content);
+        assert_eq!(v["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(v["tools"][0]["name"], "RipGrep");
+        assert_eq!(v["tools"][0]["id"], "ripgrep");
+        // No save has run yet, so the picker (meta ∩ on-disk fragment) is empty.
+        assert_eq!(v["picker"].as_array().unwrap().len(), 0);
+        assert!(v["path"].as_str().unwrap().ends_with("usertools/fragment.Dockerfile"));
+    }
+
+    #[tokio::test]
+    async fn user_tools_get_missing_file_is_empty_not_an_error() {
+        let state = usertools_state("missing", None);
+        let base = serve(&state).await;
+        let r = state
+            .http
+            .get(format!("{base}/api/user-tools"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["content"], "");
+        assert_eq!(v["tools"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn user_tools_put_stores_content_verbatim() {
+        // Hand-written comments / blank lines survive a save (no reformatting).
+        let state = usertools_state("raw-save", Some("old\n"));
+        let base = serve(&state).await;
+        let hand = "# my note\n\nRUN install -m 0755 /tmp/x /usr/local/bin/x\n\n# tail note\n";
+        let r = state
+            .http
+            .put(format!("{base}/api/user-tools"))
+            .json(&serde_json::json!({ "content": hand }))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(fragment_of(&state), hand);
+    }
+
+    #[tokio::test]
+    async fn user_tools_put_syncs_tool_dirs_and_meta() {
+        // 修正 3 (AC7): a save makes the new tool set visible to the picker
+        // immediately (per-tool dirs + meta, no mgr restart).
+        let state = usertools_state("sync", Some("old\n"));
+        let base = serve(&state).await;
+        let content = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n\
+                       # --- tool: fd ---\nRUN curl -fsSL https://example.com/fd.tgz | tar -xz -C /opt\n# --- /tool ---\n";
+        let r = state
+            .http
+            .put(format!("{base}/api/user-tools"))
+            .json(&serde_json::json!({ "content": content }))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["tools"].as_array().unwrap().len(), 2);
+        assert!(crate::usertools::tool_dir(&state.repo, "ripgrep")
+            .join("fragment.Dockerfile")
+            .is_file());
+        assert!(crate::usertools::tool_dir(&state.repo, "fd")
+            .join("fragment.Dockerfile")
+            .is_file());
+        assert_eq!(crate::usertools::load_meta(&state.data).tools.len(), 2);
+
+        // Re-save with one tool removed: its dir is pruned, the picker shrinks.
+        let trimmed = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n";
+        let r = state
+            .http
+            .put(format!("{base}/api/user-tools"))
+            .json(&serde_json::json!({ "content": trimmed }))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        assert!(!crate::usertools::tool_dir(&state.repo, "fd").exists());
+        let picker = crate::usertools::picker_tools(&state.repo);
+        assert_eq!(picker.len(), 1);
+        assert_eq!(picker[0].id, "ripgrep");
+    }
+
+    #[tokio::test]
+    async fn user_tools_put_rejects_root_writes() {
+        let state = usertools_state("raw-root", Some("old\n"));
+        let base = serve(&state).await;
+        for bad in [
+            "WORKDIR /root\n",
+            "RUN mkdir -p /root/bin\n",
+            "RUN set -eux; \\\n    install -d /root/bin\n",
+            "RUN echo a \\\n/root\n",
+        ] {
+            let r = state
+                .http
+                .put(format!("{base}/api/user-tools"))
+                .json(&serde_json::json!({ "content": bad }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad}");
+            let v: serde_json::Value = r.json().await.unwrap();
+            assert!(v["error"].as_str().unwrap().contains("/root"));
+        }
+        assert_eq!(fragment_of(&state), "old\n", "rejected saves never touch disk");
+    }
+
+    #[tokio::test]
+    async fn user_tools_put_rejects_malformed_marker_blocks() {
+        // A save must not produce per-tool fragments from an unterminated /
+        // nested marker block (the picker would be lying about what builds).
+        let state = usertools_state("malformed", Some("old\n"));
+        let base = serve(&state).await;
+        for bad in [
+            "# --- tool: x ---\nRUN true\n",                       // unterminated
+            "# --- /tool ---\n",                                   // close without open
+            "# --- tool: x ---\n# --- tool: y ---\n# --- /tool ---\n# --- /tool ---\n", // nested
+        ] {
+            let r = state
+                .http
+                .put(format!("{base}/api/user-tools"))
+                .json(&serde_json::json!({ "content": bad }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad}");
+        }
+        assert_eq!(fragment_of(&state), "old\n", "a rejected save never touches disk");
+    }
+
+    #[tokio::test]
+    async fn user_tools_routes_beat_the_api_seam() {
+        // Static segments, so the /api/*rest 404 seam must not swallow them.
+        let state = usertools_state("seam", Some(""));
+        let base = serve(&state).await;
+        let r = state.http.get(format!("{base}/api/user-tools")).send().await.unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_ne!(v["error"], "no such API route", "GET fell through");
+    }
+
+    #[tokio::test]
+    async fn log_routes_beat_the_api_seam() {
+        // Both routes are static-suffixed (:env_hash/log, :id/log), so they
+        // must be matched by the router - never by the /api/*rest 404 seam.
+        let state = log_state("seam");
+        let base = serve(&state).await;
+        for path in ["/api/jobs/1/log", "/api/images/aa/log"] {
+            let r = state
+                .http
+                .get(format!("{base}{path}"))
+                .send()
+                .await
+                .unwrap();
+            let v: serde_json::Value = r.json().await.unwrap();
+            assert_ne!(
+                v["error"], "no such API route",
+                "{path} fell through to the seam"
+            );
         }
     }
 }

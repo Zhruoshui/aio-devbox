@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "mgr 控制面 API 契约（ApiError 形态、/api seam 404 纪律、live 四态），R2/R3 新增端点必须遵循"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "mgr 运行时约定（repo/data 目录职责、docker socket 路径），R3 落盘路径选择依据"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web 前端结构（页面/组件/CSS 分层、i18n、api.ts/types.ts 边界），R1/R2 新页面与弹窗遵循同一模式"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "mgr/src 各文件职责，新增 usertools.rs 的落点参考"}

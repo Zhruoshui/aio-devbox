@@ -15,8 +15,12 @@ import { t, type Lang } from "../i18n";
  * a frame), close on Escape, and restore focus to the opener when the
  * dialog unmounts (dialogs are conditionally rendered, so unmount IS the
  * close path). `selectOnFocus` additionally selects the input's contents
- * (PromptDialog: the default value is a suggestion, ready to overwrite). */
-function useDialogChrome(
+ * (PromptDialog: the default value is a suggestion, ready to overwrite).
+ *
+ * Exported for dialogs that own a custom content area instead of the fixed
+ * Confirm/Prompt bodies (ImageDetailDialog) - they get the identical chrome
+ * rather than a second copy of it. */
+export function useDialogChrome(
   onClose: () => void,
   firstRef: React.RefObject<HTMLElement | null>,
   selectOnFocus = false,

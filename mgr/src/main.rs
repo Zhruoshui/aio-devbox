@@ -32,6 +32,7 @@ mod proxy;
 mod routes;
 mod state;
 mod usage;
+mod usertools;
 
 use std::path::PathBuf;
 use std::sync::Arc;

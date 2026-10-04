@@ -13,10 +13,12 @@ import {
   type ImageList,
   type Job,
   type JobReply,
+  type LogChunk,
   type PutBody,
   type Sandbox,
   type SandboxList,
   type ScenarioList,
+  type UserToolsFile,
 } from "./types";
 import {
   decodeCatalog,
@@ -127,6 +129,91 @@ export function cleanupImages(): Promise<{ ok: boolean; job: number }> {
 
 export function getJob(id: number): Promise<Job> {
   return get(`/api/jobs/${id}`);
+}
+
+// ── user-tools fragment (R2, 修正 2 simplified; mirrors mgr/src/usertools.rs) ──
+//
+// Single direct-edit view: the save stores `content` verbatim (comments and
+// blank lines round-trip), then the backend re-syncs the per-tool scenario
+// dirs. The save is followed by a re-GET so the page always renders the
+// file's actual state (and the tool list reflects the just-written markers).
+
+export function getUserTools(): Promise<UserToolsFile> {
+  return get("/api/user-tools");
+}
+
+/** Direct-editor save. The backend 400s on the `/root` hard rule with a
+ * line-numbered message; on success it also syncs the per-tool scenario
+ * dirs under scenarios/. */
+export function putUserTools(content: string): Promise<{ ok: boolean }> {
+  return send("/api/user-tools", "PUT", { content });
+}
+
+// R3: full build logs. The backend keeps the COMPLETE output on disk
+// (`<data>/jobs/<id>.log`) and serves it through two byte-addressed
+// endpoints; the job view's live tail and the images page's column are just
+// the fallbacks.
+
+/** One page of a job's on-disk log (?offset/&limit are BYTES). */
+export function getJobLog(id: number, offset = 0, limit = LOG_PAGE): Promise<LogChunk> {
+  return get(`/api/jobs/${id}/log?offset=${offset}&limit=${limit}`);
+}
+
+/** One page of an image's build log (the file behind images.job_id, or the
+ * build_log column when the row predates R3). */
+export function getImageLogPage(
+  envHash: string,
+  offset = 0,
+  limit = LOG_PAGE,
+): Promise<LogChunk> {
+  return get(`/api/images/${enc(envHash)}/log?offset=${offset}&limit=${limit}`);
+}
+
+/** Bytes per request. The server's own cap is 4MB (routes.rs LOG_PAGE_MAX);
+ * 1MB keeps a single response snappy while making a multi-MB log a handful
+ * of round trips. */
+const LOG_PAGE = 1024 * 1024;
+/** Page ceiling: 64MB of log is far past anything a browser <pre> should
+ * hold, and bounds the loop against a server that never reports the end. */
+const LOG_MAX_PAGES = 64;
+
+/** Follow a paged log endpoint to the end, concatenating the pages. Returns
+ * the SAME LogChunk shape with the whole (or page-capped) content; `complete`
+ * stays false when the source itself is a fallback, and is downgraded to
+ * false when the page ceiling truncated the result. */
+async function readAllLog(fetchPage: (offset: number) => Promise<LogChunk>): Promise<LogChunk> {
+  const parts: string[] = [];
+  let offset = 0;
+  let last: LogChunk | null = null;
+  for (let i = 0; i < LOG_MAX_PAGES; i++) {
+    const page = await fetchPage(offset);
+    last = page;
+    parts.push(page.data);
+    if (page.next_offset >= page.total_size) {
+      return { ...page, data: parts.join("") };
+    }
+    if (page.next_offset <= offset) break; // no progress: bail, never spin
+    offset = page.next_offset;
+  }
+  const fallback: LogChunk = last ?? {
+    data: "",
+    total_size: 0,
+    next_offset: 0,
+    log_path: null,
+    complete: false,
+  };
+  return { ...fallback, data: parts.join(""), complete: false };
+}
+
+/** The FULL build log of a job (R3), paged to the end. */
+export function getFullJobLog(id: number): Promise<LogChunk> {
+  return readAllLog((offset) => getJobLog(id, offset));
+}
+
+/** The FULL build log behind an image row (R3): the create job's on-disk log,
+ * or the images.build_log column tail for pre-R3 rows. */
+export function getFullImageLog(envHash: string): Promise<LogChunk> {
+  return readAllLog((offset) => getImageLogPage(envHash, offset));
 }
 
 // ── models / usage (Phase 4c; mirrors mgr/src/models.rs + usage.rs) ─

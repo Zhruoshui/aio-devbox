@@ -709,6 +709,15 @@ body {
 .status.error {
   color: var(--danger);
 }
+/* R2: the user-tools page's two advisory states (save succeeded / the form
+ * was switched to raw mode). Without these the modifier is a no-op and both
+ * render as ordinary muted text. */
+.status.ok {
+  color: var(--success);
+}
+.status.warn {
+  color: var(--warn);
+}
 .status code {
   font-family: var(--font-mono);
   font-size: 0.9em;
@@ -1634,6 +1643,20 @@ body {
   font-weight: 500;
   color: var(--muted);
 }
+/* R3: the log panel's control row (label left, "jump to top" / "back to
+ * bottom" right) sits directly above the <pre>; the label below the <pre>
+ * doubles as the follow-state readout. */
+.job-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+.job-log-controls {
+  display: flex;
+  gap: var(--space-2);
+}
 .job-log {
   margin: 0;
   padding: var(--space-3);
@@ -1698,10 +1721,6 @@ body {
   font-size: var(--text-sm);
   line-height: 1.5;
 }
-.img-detail-title {
-  margin: 0 0 var(--space-2);
-  font-weight: 600;
-}
 .img-detail-sec {
   margin: var(--space-2) 0 var(--space-1);
   font-size: var(--text-xs);
@@ -1724,6 +1743,97 @@ body {
 .img-detail-note {
   margin: 0;
   color: var(--muted);
+}
+
+/* R1: the combo detail is a modal now (ImageDetailDialog). Wider than the
+ * default .dialog (the shared rule caps at 440px, so both width and
+ * max-width must be overridden) and it leads with a metadata block. */
+.dialog.img-detail-dialog {
+  width: min(680px, 92vw);
+  max-width: min(680px, 92vw);
+}
+.img-detail-meta-block {
+  padding: var(--space-3);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* ─── R2 user-tools editor (UserToolsPage) ───────────────────────── */
+/* The hard-rules block mirrors .img-detail-note's role (an advisory panel
+ * above the editor) but leads with a title, so it needs its own spacing. */
+.ut-note {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.ut-note-title {
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+}
+.ut-note ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--space-1);
+}
+.ut-note code {
+  overflow-wrap: anywhere;
+}
+.ut-path {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.ut-tabs {
+  margin-bottom: var(--space-4);
+}
+.ut-form {
+  display: grid;
+  gap: var(--space-3);
+  align-items: start;
+}
+/* One row per tool; auto-fit keeps the wide rows from overflowing the page
+ * (the URL column only exists for tarball/script, so the count varies). */
+.ut-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  padding: var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-ring);
+}
+.ut-row .ut-col-wide {
+  grid-column: span 2;
+}
+.ut-remove {
+  justify-self: start;
+  align-self: end;
+  color: var(--danger);
+}
+.ut-empty,
+.ut-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+/* Raw editor: monospace, comfortably large, scrolls internally so a long
+ * fragment never pushes the save button out of the viewport (the shipped
+ * fragment is ~50 lines of docs before the first instruction). */
+.ut-textarea {
+  width: 100%;
+  min-height: 46vh;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+}
+.ut-saved code {
+  overflow-wrap: anywhere;
 }
 
 /* ─── responsive guard ───────────────────────────────────────────── */

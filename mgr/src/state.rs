@@ -2,9 +2,12 @@
 //
 // mgr owns two roots:
 //   repo - the AIO repo checkout (scenarios/, Dockerfile.base.head/tail,
-//          app|code-server|vnc Dockerfiles). Read-only usage + docker build
-//          context. Containerized form mounts it read-only - the build
-//          context is shipped over the docker socket, so ro is enough.
+//          app|code-server|vnc Dockerfiles). Nearly read-only: read for the
+//          scenario catalog / build context, WRITTEN only by the user-tools
+//          editor (修正 2/3: usertools/fragment.Dockerfile + usertools/<tool>/,
+//          usertools.rs). The containerized form keeps the repo ro and adds
+//          a nested rw bind for that one subtree (mgr/compose.yml) - the
+//          build context itself still ships over the docker socket.
 //   data - mgr-data/, mgr's own runtime state (state.db + per-sandbox
 //          instances/<name>/{Dockerfile.base, compose.yml, gateway/}).
 //          Never committed (gitignored).
@@ -72,8 +75,15 @@ pub struct JobShared {
     /// "running" | "ok" | "error"
     pub status: String,
     pub error: Option<String>,
-    /// Tail of the build/compose output for the progress view (design §3.6).
+    /// Tail of the build/compose output for the progress view (design §3.6),
+    /// capped at jobs.rs LOG_TAIL (R3: 64KB).
     pub log: String,
+    /// R3: the FULL on-disk log (`<data>/jobs/<id>.log`) when this job
+    /// streamed one; `None` = short lifecycle job / legacy row, and the
+    /// frontend's log endpoint falls back to the in-memory tail above.
+    /// Mirrored into the jobs table (`db::set_job_log_path`) so an image row
+    /// can still find its build's log after an mgr restart.
+    pub log_path: Option<String>,
 }
 
 impl AppState {

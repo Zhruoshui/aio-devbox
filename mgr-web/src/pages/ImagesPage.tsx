@@ -12,37 +12,64 @@
 // .card (right-aligned numeric cells via .r); the head/actions already use
 // the component layer (.page-head/.sec-acts/.dialog).
 //
-// R3: the combo cell becomes a toggle that expands a STRUCTURED detail
-// panel (build-time scenarios + versions, always-on set, service switches)
-// from the new /api/images `env`/`services` fields. The build-log toggle
-// and the combo toggle share ONE expansion slot per row (a row shows
-// either the detail panel or the log, never both at once). Rows recorded
-// before R3 have env === null and fall back to a plain note.
+// R3: the combo cell becomes a button opening a STRUCTURED detail dialog
+// (build-time scenarios + versions, always-on set, service switches) from the
+// new /api/images `env`/`services` fields. R1 (this task): that detail moved
+// from an inline expansion slot into ImageDetailDialog, so the row's single
+// expansion slot belongs to the build log alone.
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
-import { cleanupImages, deleteImage, getJob, listImages, listScenarios } from "../api";
+import {
+  cleanupImages,
+  deleteImage,
+  getFullImageLog,
+  getJob,
+  listImages,
+  listScenarios,
+} from "../api";
 import { t, type Lang } from "../i18n";
 import { Icon } from "../icons";
 import type { Image, Scenario } from "../types";
+import { fmtBytes, ImageDetailDialog } from "./ImageDetailDialog";
 
-/** The single per-row expansion slot: "" = collapsed; otherwise names the
- * panel kind and the row's env_hash ("combo:<h>" / "log:<h>"). One slot
- * keeps the expanded row unambiguous (a row can show its detail panel OR
- * its build log, never both). */
-type OpenPanel = "" | `combo:${string}` | `log:${string}`;
+/** The combo column is now purely a click-to-open affordance for the
+ * ImageDetailDialog — the full combo lives there, so the row shows nothing
+ * but a neutral "view details" label. The previous `comboShort` truncation
+ * was dropped on 09-23. */
+type OpenPanel = "" | `log:${string}`;
+
+/** R3: one row's loaded FULL log (the create job's on-disk file, or the
+ * build_log column for pre-R3 rows). Loaded on first expand, then cached for
+ * the lifetime of the page (a build log does not change under a finished
+ * image). */
+interface RowLog {
+  loading: boolean;
+  error: string;
+  /** false = the source was the capped fallback, not the complete file. */
+  complete: boolean;
+  data: string;
+}
 
 export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
   const [images, setImages] = useState<Image[] | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<OpenPanel>("");
+  // R1: the row whose combo detail dialog is open (null = no dialog).
+  const [detailFor, setDetailFor] = useState<Image | null>(null);
   // S3: which env_hash is being deleted right now (its row shows a spinner)
   const [deleting, setDeleting] = useState("");
   // S3: a one-shot cleanup job in flight (progress surface at the top)
   const [cleaning, setCleaning] = useState<{ job: number; done: boolean; error: string } | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "delete" | "cleanup"; envHash?: string; tag?: string } | null>(null);
+  // R3: per-row full build logs, keyed by env_hash (missing = not loaded).
+  const [logs, setLogs] = useState<Record<string, RowLog>>({});
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror of `logs` for toggleLog's "already loaded?" read: the fetch's
+  // .then closure would otherwise capture the state from ITS render, and a
+  // refresh mid-load (the list polls) re-triggers the whole fetch.
+  const logsRef = useRef<Record<string, RowLog>>({});
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -128,64 +155,31 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
     }
   };
 
-  const fmtBytes = (b: number): string => {
-    if (b >= 1 << 30) return `${(b / (1 << 30)).toFixed(1)} GiB`;
-    if (b >= 1 << 20) return `${(b / (1 << 20)).toFixed(1)} MiB`;
-    if (b >= 1024) return `${(b / 1024).toFixed(1)} KiB`;
-    return `${b} B`;
-  };
-
-  const toggle = (panel: "combo" | "log", hash: string): void => {
-    const want = `${panel}:${hash}` as OpenPanel;
-    setOpen((cur) => (cur === want ? "" : want));
-  };
-
-  /** R3 structured combo detail. env/services are null on pre-R3 rows. */
-  const comboDetail = (img: Image): JSX.Element => {
-    if (img.env === null || img.services === null) {
-      return <p className="img-detail-note">{t(lang, "imgDetailEmpty")}</p>;
-    }
-    const byId = new Map(scenarios.map((s) => [s.id, s]));
-    const alwaysOn = scenarios.filter((s) => s.always_on && !["pi", "pi-web"].includes(s.id));
-    const svc = (on: boolean): string => (on ? "✓" : "✗");
-    return (
-      <div className="img-detail">
-        <p className="img-detail-title">{t(lang, "imgDetail")}</p>
-        <p className="img-detail-sec">{t(lang, "imgScenarios")}</p>
-        {img.env.scenarios.length === 0 && (
-          <p className="img-detail-note">{t(lang, "imgNoSelection")}</p>
-        )}
-        {img.env.scenarios.map((id) => {
-          const s = byId.get(id);
-          const label = img.env!.versions[id];
-          return (
-            <p key={id} className="img-detail-row">
-              <span className="img-detail-name">{s?.name ?? id}</span>
-              <span className="img-detail-meta mono">
-                {s && s.name !== id ? id : ""}
-                {label ? ` · ${label}` : ""}
-              </span>
-            </p>
-          );
-        })}
-        <p className="img-detail-sec">{t(lang, "imgAlwaysOn")}</p>
-        {alwaysOn.map((s) => {
-          const label = img.env!.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
-          return (
-            <p key={s.id} className="img-detail-row">
-              <span className="img-detail-name">{s.name}</span>
-              <span className="img-detail-meta mono">{label}</span>
-            </p>
-          );
-        })}
-        <p className="img-detail-sec">{t(lang, "imgServices")}</p>
-        <p className="img-detail-row mono">
-          code-server {svc(img.services.code_server)} · vnc {svc(img.services.vnc)} · pi{" "}
-          {svc(img.env.scenarios.includes("pi"))} · pi-web{" "}
-          {svc(img.env.scenarios.includes("pi-web"))}
-        </p>
-      </div>
-    );
+  /** R3: expand a row's log, loading the FULL output from the log endpoint on
+   * first open (the row's `build_log` column is only a capped fallback).
+   * Loaded rows are cached - a finished image's log never changes. */
+  const toggleLog = (img: Image): void => {
+    const want = `log:${img.env_hash}` as OpenPanel;
+    const willOpen = open !== want;
+    setOpen(willOpen ? want : "");
+    if (!willOpen || logsRef.current[img.env_hash]) return;
+    const put = (entry: RowLog): void => {
+      logsRef.current = { ...logsRef.current, [img.env_hash]: entry };
+      setLogs(logsRef.current);
+    };
+    put({ loading: true, error: "", complete: false, data: "" });
+    getFullImageLog(img.env_hash)
+      .then((chunk) => {
+        put({ loading: false, error: "", complete: chunk.complete, data: chunk.data });
+      })
+      .catch((e) => {
+        put({
+          loading: false,
+          error: e instanceof Error ? e.message : String(e),
+          complete: false,
+          data: "",
+        });
+      });
   };
 
   return (
@@ -232,8 +226,8 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
               const built = img.built_at !== null ? new Date(img.built_at * 1000) : null;
               const referenced = img.refcount > 0;
               const busy = deleting === img.env_hash;
-              const comboOpen = open === `combo:${img.env_hash}`;
               const logOpen = open === `log:${img.env_hash}`;
+              const rowLog: RowLog | undefined = logs[img.env_hash];
               return (
                 <Fragment key={img.env_hash}>
                   <tr>
@@ -244,11 +238,10 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                     <td className="mono">
                       <button
                         className="img-log-toggle"
-                        aria-expanded={comboOpen}
-                        title={img.combo ?? img.env_hash}
-                        onClick={() => toggle("combo", img.env_hash)}
+                        aria-haspopup="dialog"
+                        onClick={() => setDetailFor(img)}
                       >
-                        {img.combo ?? img.env_hash.slice(0, 12)}
+                        {t(lang, "imgComboView")}
                       </button>
                     </td>
                     <td className="r">
@@ -260,8 +253,11 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                       <button
                         className="img-log-toggle"
                         aria-expanded={logOpen}
-                        disabled={img.build_log === ""}
-                        onClick={() => toggle("log", img.env_hash)}
+                        // Loadable when EITHER source exists: the on-disk
+                        // log behind job_id or the build_log column tail
+                        // (job_id is undefined against an older backend).
+                        disabled={img.build_log === "" && !img.job_id}
+                        onClick={() => toggleLog(img)}
                       >
                         {t(lang, "imgLog")}
                       </button>
@@ -282,13 +278,25 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
                       </button>
                     </td>
                   </tr>
-                  {(comboOpen || logOpen) && (
+                  {logOpen && (
                     <tr>
                       <td className="img-log-cell" colSpan={8}>
-                        {comboOpen ? (
-                          comboDetail(img)
+                        {rowLog === undefined || rowLog.loading ? (
+                          <p className="img-detail-note">{t(lang, "imgLogLoading")}</p>
+                        ) : rowLog.error ? (
+                          <>
+                            <p className="img-detail-note">
+                              {t(lang, "loadFailed")}
+                              {rowLog.error}
+                            </p>
+                            {/* The row's own column tail still beats nothing. */}
+                            <pre className="img-log">{img.build_log}</pre>
+                          </>
                         ) : (
-                          <pre className="img-log">{img.build_log}</pre>
+                          <pre className="img-log">{rowLog.data}</pre>
+                        )}
+                        {rowLog !== undefined && !rowLog.loading && !rowLog.complete && (
+                          <p className="img-detail-note">{t(lang, "imgLogTailOnly")}</p>
                         )}
                       </td>
                     </tr>
@@ -337,6 +345,16 @@ export function ImagesPage({ lang }: { lang: Lang }): JSX.Element {
             </div>
           </div>
         </div>
+      )}
+
+      {/* R1: combo detail modal (replaces the old inline expansion slot) */}
+      {detailFor !== null && (
+        <ImageDetailDialog
+          img={detailFor}
+          scenarios={scenarios}
+          lang={lang}
+          onClose={() => setDetailFor(null)}
+        />
       )}
     </div>
   );

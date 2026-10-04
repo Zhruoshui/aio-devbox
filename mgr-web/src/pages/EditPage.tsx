@@ -337,10 +337,11 @@ export function EditPage({
 }
 
 /** Canonical env comparison (envhash.rs canonical_json semantics: sorted,
- * deduped scenario ids + key-ordered versions). */
+ * deduped scenario ids + key-ordered versions + sorted user_tools, 修正 3). */
 function sortEnv(env: SandboxEnv): SandboxEnv {
   return {
     scenarios: [...env.scenarios].sort(),
     versions: Object.fromEntries(Object.entries(env.versions).sort(([a], [b]) => a.localeCompare(b))),
+    user_tools: [...(env.user_tools ?? [])].sort(),
   };
 }

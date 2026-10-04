@@ -212,17 +212,26 @@ export function CreatePage({
     return scenarios.filter(
       (s) =>
         !s.always_on &&
+        s.category !== "service" &&
         s.id !== "pi" &&
         s.id !== "pi-web" &&
         env.scenarios.includes(s.id),
     );
   }, [env, scenarios]);
+  // 修正 3: the selected L5 custom tools are summarized separately (they are
+  // not scenario-catalog rows in env.scenarios).
+  const toolsSel = env?.user_tools ?? [];
   const scnText = [
     ...alwaysOn.map(
       (s) => `${s.name} ${env?.versions[s.id] ?? s.default_version ?? ""}`.trim(),
     ),
     ...optionalSel.map((s) => s.name),
   ].join(" · ");
+  // 修正 3: selected L5 tools ride their own summary line.
+  const toolsText =
+    toolsSel.length === 0
+      ? ""
+      : `${t(lang, "utToolsLabel").replace("{n}", String(toolsSel.length))}: ${toolsSel.join(", ")}`;
 
   const resText =
     cpus.trim() === "" && memMb.trim() === ""
@@ -441,7 +450,12 @@ export function CreatePage({
               </div>
               <div>
                 <dt>{t(lang, "wzSumScn")}</dt>
-                <dd>{scnText}</dd>
+                <dd>
+                  {scnText}
+                  {toolsText !== "" && (
+                    <div className="fine" style={{ marginTop: 4 }}>{toolsText}</div>
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>{t(lang, "wzSumRes")}</dt>
@@ -495,7 +509,8 @@ export function CreatePage({
 // ── image-reuse key helpers ────────────────────────────────────────
 
 /** The wizard's env, folded to the wire shape like routes.rs
- * normalize_services: pi / pi-web switches travel as scenario ids. */
+ * normalize_services: pi / pi-web switches travel as scenario ids. 修正 3:
+ * user_tools pass through unchanged (they are not service switches). */
 function foldServices(env: SandboxEnv, services: { pi: boolean; pi_web: boolean }): SandboxEnv {
   const s = new Set(env.scenarios);
   s.delete("pi");
@@ -506,31 +521,37 @@ function foldServices(env: SandboxEnv, services: { pi: boolean; pi_web: boolean 
   } else if (services.pi) {
     s.add("pi");
   }
-  return { scenarios: [...s], versions: env.versions };
+  return { scenarios: [...s], versions: env.versions, user_tools: env.user_tools ?? [] };
 }
 
 /** Canonical env key over the env_hash surface: sorted scenario ids +
- * id-sorted "id@label" versions (mirrors envhash.rs canonical_json and
- * describe_combo's ordering). */
+ * id-sorted "id@label" versions + sorted user_tools (mirrors envhash.rs
+ * canonical_json and describe_combo's ordering). */
 function envKey(env: SandboxEnv): string {
   const scns = [...env.scenarios].sort().join("+") || "(base)";
   const vers = Object.entries(env.versions)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([id, label]) => `${id}@${label}`)
     .join(",");
-  return `${scns}|${vers}`;
+  const tools = [...(env.user_tools ?? [])].sort().join(",");
+  return `${scns}|${vers}|${tools}`;
 }
 
 /** Parse an image row's combo description (describe_combo format
- * "<scns+> <id@label,...> [svc: ...]") back into the envKey shape; null when
- * the string doesn't match (pre-S3 rows, future format drift). */
+ * "<scns+> <id@label,...> [tools: ...] [svc: ...]") back into the envKey
+ * shape; null when the string doesn't match (pre-S3 rows, future format
+ * drift). 修正 3: the [tools: ...] segment is optional (only L5 rows have it). */
 function comboKey(combo: string): string | null {
   const m = combo.match(/^(.*) \[svc: [^\]]*\]$/);
   if (m === null) return null;
-  const parts = m[1].trim().split(" ");
+  // Strip an optional "[tools: ...]" segment before the trailing [svc: ...].
+  const head = m[1].replace(/ \[tools: [^\]]*\]$/, "");
+  const toolsM = combo.match(/ \[tools: ([^\]]*)\] \[svc: /);
+  const tools = toolsM ? (toolsM[1] ?? "") : "";
+  const parts = head.trim().split(" ");
   const scns = parts[0] ?? "";
   const vers = parts[1] ?? "";
-  return `${scns}|${vers}`;
+  return `${scns}|${vers}|${tools}`;
 }
 
 function errText(e: unknown): string {

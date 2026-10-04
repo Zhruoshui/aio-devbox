@@ -50,10 +50,14 @@ export interface ScenarioList {
 /** Sandbox env selection - mirrors mgr/src/envhash.rs SandboxEnv (the
  * canonical env_json format). scenarios MUST NOT contain always_on ids
  * (server-side validation rejects them; always_on scenarios appear only
- * in versions). */
+ * in versions). user_tools (修正 3, R4): the selected custom-tool ids (L5) —
+ * not scenario-catalog entries; they ride env.user_tools into the env_hash. */
 export interface SandboxEnv {
   scenarios: string[];
   versions: Record<string, string>;
+  /** 修正 3: selected custom-tool ids (the L5 layer). Absent/undefined on old
+   * payloads = no custom tools; normalize to [] at the use site. */
+  user_tools?: string[];
 }
 
 export interface SandboxService {
@@ -113,11 +117,13 @@ export interface SandboxList {
 
 /** POST /api/sandboxes. `cpus`/`mem_mb`: null/absent/0 = no limit
  * (normalized server-side to null). `services` absent = all-on (old clients;
- * the create page always sends it). */
+ * the create page always sends it). `user_tools` (修正 3): selected custom-tool
+ * ids; absent = none. */
 export interface CreateBody {
   name: string;
   env: SandboxEnv;
   services?: ServicesInput;
+  user_tools?: string[];
   cpus?: number | null;
   mem_mb?: number | null;
 }
@@ -191,10 +197,43 @@ export interface Image {
   services: { code_server: boolean; vnc: boolean } | null;
   /** S3: live image size in bytes (docker inspect); null = failed / gone. */
   size_bytes: number | null;
+  /** R3: the create/recreate job whose FULL log built this image (GET
+   * /api/images/:env_hash/log). null on pre-R3 rows - the log view falls
+   * back to the build_log column tail. */
+  job_id: number | null;
 }
 
 export interface ImageList {
   images: Image[];
+}
+
+// ── GET/PUT /api/user-tools (R2, 修正 2 simplified) ────────────────
+//
+// The user-tools fragment (`scenarios/user-tools/fragment.Dockerfile`) — the
+// escape hatch for tools mise cannot manage. mgr owns the file's FORMAT
+// (mgr/src/usertools.rs); these types mirror it. 修正 2 removed the
+// structured form: the page is a single direct-edit text editor, so the
+// wire shape dropped `entries` / `parse_note` and gained `tools` (the
+// display-only list of tool names parsed out of the `# --- tool:` marker
+// blocks).
+
+/** One custom tool surfaced by GET /api/user-tools. `id` is the
+ * scenario-directory-safe form of the tool name; `name` is the display
+ * label. Display-only — the editor works on the whole fragment text. */
+export interface UserTool {
+  id: string;
+  name: string;
+}
+
+export interface UserToolsFile {
+  /** The fragment's full text (verbatim — comments and blank lines intact). */
+  content: string;
+  /** Tool names parsed from the `# --- tool: <name> ---` marker blocks
+   * (display-only; drives the "contains N tools" label). */
+  tools: UserTool[];
+  /** Absolute path of the file on the mgr host (shown for the Makefile /
+   * hand-edit escape hatch). */
+  path: string;
 }
 
 // ── GET /api/jobs/:id ──────────────────────────────────────────────
@@ -206,8 +245,30 @@ export type Job = {
   sandbox: string | null;
   status: "running" | "ok" | "error";
   error: string | null;
+  /** The in-memory tail (mgr caps it at 64KB, jobs.rs LOG_TAIL): the live
+   * view while the job runs. The full output is the R3 log file below. */
   log: string;
+  /** R3: on-disk FULL log (`<data>/jobs/<id>.log`) for create/recreate jobs;
+   * null for short lifecycle jobs (the log endpoint then serves `log`). */
+  log_path?: string | null;
 };
+
+// ── GET /api/jobs/:id/log, /api/images/:env_hash/log (R3) ──────────
+
+/** One page of a log. `data` is BYTE-offset-addressed (the backend walks
+ * both ends onto char boundaries), so a pager must advance with
+ * `next_offset` - never with `data.length` (JS string length is UTF-16
+ * units, not bytes). `next_offset === total_size` means the end. */
+export interface LogChunk {
+  data: string;
+  total_size: number;
+  next_offset: number;
+  /** The file this page came from; null on the memory/column fallback. */
+  log_path: string | null;
+  /** false = capped fallback (memory tail / build_log column), not the full
+   * on-disk log - the UI labels it accordingly. */
+  complete: boolean;
+}
 
 /** Extract the error message from a non-2xx mgr API response body
  * ({error: "..."} JSON, see routes.rs ApiError). Falls back to the status. */

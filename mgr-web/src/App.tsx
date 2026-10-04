@@ -40,12 +40,13 @@ import { ImagesPage } from "./pages/ImagesPage";
 import { JobView } from "./pages/JobView";
 import { ModelsPage } from "./pages/models/ModelsPage";
 import { UsagePage } from "./pages/UsagePage";
+import { UserToolsPage } from "./pages/UserToolsPage";
 import { IS_POPOUT_CHILD, WorkspacePage } from "./pages/WorkspacePage";
 import { THEMES, resolveThemeKey, type ThemeDef } from "./themes";
 import type { Scenario } from "./types";
 import "./styles.css";
 
-type Page = "workspace" | "sandboxes" | "images" | "models" | "usage";
+type Page = "workspace" | "sandboxes" | "images" | "models" | "usage" | "userTools";
 
 /** Sub-view of the sandboxes page. Job views carry the job id plus which
  * flow produced them (for the right heading + done message). */
@@ -75,6 +76,8 @@ const RAIL_NAV: { page: Page; icon: IconName; labelKey: StringKey }[] = [
   { page: "images", icon: "layers", labelKey: "navImages" },
   { page: "models", icon: "sliders", labelKey: "navModels" },
   { page: "usage", icon: "chart", labelKey: "navUsage" },
+  // R2: the user-tools fragment editor (box = the L2 tool layer).
+  { page: "userTools", icon: "box", labelKey: "navUserTools" },
 ];
 
 export function App(): JSX.Element {
@@ -258,8 +261,10 @@ export function App(): JSX.Element {
             onGoWorkspace={goWorkspace}
             onGoList={() => nav("sandboxes")}
           />
-        ) : (
+        ) : page === "usage" ? (
           <UsagePage lang={lang} />
+        ) : (
+          <UserToolsPage lang={lang} />
         )}
       </main>
       {themeMenu !== null && (

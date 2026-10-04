@@ -35,13 +35,14 @@ interface Props {
 }
 
 /** Layer display order + label key (parent D2): L1 os / L2 shell / L3 lang /
- * L4 app. Unknown categories (future scenarios) render last, like the config
- * TUI's category_rank. */
+ * L4 app / L5 service (修正 3: 用户自定义工具). Unknown categories (future
+ * scenarios) render last, like the config TUI's category_rank. */
 const LAYERS: { cats: string[]; labelKey: StringKey }[] = [
   { cats: ["os"], labelKey: "layL1" },
   { cats: ["shell"], labelKey: "layL2" },
   { cats: ["lang"], labelKey: "layL3" },
   { cats: ["app"], labelKey: "layL4" },
+  { cats: ["service"], labelKey: "layL5" },
 ];
 
 /** Install "rungs" inside a layer, in display order. Mirrors the config TUI's
@@ -79,8 +80,16 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
   // Layer collapse state (R1): keyed by layer labelKey, default ALL EXPANDED.
   // Purely presentational - collapsing never touches `env`.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // 修正 3: L5 custom tools live in env.user_tools, NOT env.scenarios (the
+  // API validates user_tools against usertools/<id>/ fragments, not the
+  // scenario catalog). Normalize absent -> [] for old payloads.
+  const tools = env.user_tools ?? [];
 
-  const toggle = (id: string, on: boolean) => {
+  const toggle = (id: string, on: boolean, isService: boolean) => {
+    if (isService) {
+      onChange({ ...env, user_tools: on ? [...tools, id] : tools.filter((s) => s !== id) });
+      return;
+    }
     if (on) {
       onChange({ ...env, scenarios: [...env.scenarios, id] });
     } else {
@@ -98,9 +107,18 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
   /** R1: layer-wide select-all / select-none. Targets ONLY the layer's
    * non-always_on ids: always_on rows are locked on and never appear in
    * env.scenarios (the API rejects them there), so they are untouched by
-   * construction. */
+   * construction. 修正 3: the L5 (service) layer's ids ride env.user_tools. */
   const setLayerAll = (items: Scenario[], on: boolean) => {
+    const isService = items.length > 0 && items.every((s) => s.category === "service");
     const layerIds = items.filter((s) => !s.always_on).map((s) => s.id);
+    if (isService) {
+      if (on) {
+        onChange({ ...env, user_tools: [...new Set([...tools, ...layerIds])] });
+      } else {
+        onChange({ ...env, user_tools: tools.filter((s) => !layerIds.includes(s)) });
+      }
+      return;
+    }
     if (on) {
       const merged = new Set([...env.scenarios, ...layerIds]);
       onChange({ ...env, scenarios: [...merged] });
@@ -109,7 +127,11 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
     }
   };
 
+  // L5 (service) rows are rendered from the same catalog but their checked
+  // state comes from env.user_tools; everything else stays in env.scenarios.
   const visible = scenarios.filter((s) => !SERVICE_SCENARIOS.includes(s.id));
+  const selectedOf = (s: Scenario): boolean =>
+    s.category === "service" ? tools.includes(s.id) : env.scenarios.includes(s.id);
   const layered = LAYERS.map(({ cats, labelKey }) => ({
     labelKey,
     items: visible.filter((s) => cats.includes(s.category)),
@@ -117,7 +139,8 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
   const unknown = visible.filter((s) => !LAYERS.some((l) => l.cats.includes(s.category)));
 
   const row = (s: Scenario) => {
-    const checked = s.always_on || env.scenarios.includes(s.id);
+    const checked = s.always_on || selectedOf(s);
+    const isService = s.category === "service";
     // Current version label: explicit selection > scenario default > first
     // offered (matches gen's resolve_version fallback chain).
     const current = env.versions[s.id] ?? s.default_version ?? s.versions[0] ?? "";
@@ -129,7 +152,7 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
           checked={checked}
           disabled={s.always_on}
           aria-label={s.name}
-          onChange={(e) => !s.always_on && toggle(s.id, e.target.checked)}
+          onChange={(e) => !s.always_on && toggle(s.id, e.target.checked, isService)}
         />
         <div className="main-col">
           <div className="name">
@@ -184,7 +207,7 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
   const group = (labelKey: StringKey, items: Scenario[]) => {
     const optional = items.filter((s) => !s.always_on);
     const total = optional.length;
-    const selected = optional.filter((s) => env.scenarios.includes(s.id)).length;
+    const selected = optional.filter(selectedOf).length;
     const allSelected = total > 0 && selected === total;
     const isCollapsed = collapsed[labelKey] ?? false;
     return (
@@ -227,7 +250,8 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
 
 /** Build the initial SandboxEnv for a picker from the scenario catalog:
  * always_on scenarios pre-seed their default version; selectable scenarios
- * start unchecked (wizard) unless the caller passes an existing env. */
+ * start unchecked (wizard) unless the caller passes an existing env. 修正 3:
+ * no custom tools pre-selected (user_tools starts empty). */
 export function defaultEnv(scenarios: Scenario[]): SandboxEnv {
   const versions: Record<string, string> = {};
   for (const s of scenarios) {
@@ -236,5 +260,5 @@ export function defaultEnv(scenarios: Scenario[]): SandboxEnv {
       if (v !== undefined) versions[s.id] = v;
     }
   }
-  return { scenarios: [], versions };
+  return { scenarios: [], versions, user_tools: [] };
 }
