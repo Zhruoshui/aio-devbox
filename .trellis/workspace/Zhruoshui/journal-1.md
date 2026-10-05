@@ -1316,3 +1316,10 @@ planning 不归档（AC6/AC9/AC10 未验）。
 ### Next Steps
 
 - None - task complete
+
+## 2026-10-04 Phase 1.2/1.2b/3 完成
+
+- 提交: 78064bb refactor(mgr): 重构模型配置为 cc-switch 供应商库模式 (Phase 1.2/1.2b/3)
+- 范围: mgr models.rs ProviderLibrary 重写;旧 profile/sync/import/catalog/model_profile 全删;mgr-web ModelsPage 重写为纯供应商库 + ProviderEditorModal 中心弹窗;SandboxListPage/EditPage 移除 model-profile 指派 UI;spec 同步。
+- 验证: cargo test --workspace 全 433 通过;cd mgr-web && npm run build 通过。
+- 下一步: Phase 2 app 渲染 cc-switch 化(注意 mgr_sync 已废),Phase 4 sandbox 详情页模型配置标签,Phase 5 usage 汇总,Phase 6 清理旧 canonical store。

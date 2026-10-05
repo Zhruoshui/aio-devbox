@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use super::discover::build_headers;
 use crate::state::AppState;
-use aio_models::store::{read_config, StoreError};
+use aio_models::sandbox_config::SandboxAgentConfig;
 
 /// Timeout for the minimal completion request (design §5: 20s).
 const TEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -70,27 +70,38 @@ pub async fn test(
     }
 
     // Resolve the provider (real key, no mask semantics here).
-    let config = match read_config(&state.models_file) {
-        Ok(c) => c,
-        Err(StoreError::Io(e)) => {
+    let config = match std::fs::read_to_string(&state.models_file) {
+        Ok(text) if text.trim().is_empty() => SandboxAgentConfig::default(),
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("sandbox config corrupt: {e}"),
+            )
+        })?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => SandboxAgentConfig::default(),
+        Err(e) => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("read models.json: {e}"),
-            ));
-        }
-        Err(StoreError::Corrupt(e)) => {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("models.json corrupt: {e}"),
+                format!("read sandbox config: {e}"),
             ));
         }
     };
-    let provider = config.providers.get(&req.providerId).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("provider '{}' not found", req.providerId),
-        )
-    })?;
+    let provider = config
+        .pi
+        .as_ref()
+        .and_then(|pi| pi.providers.get(&req.providerId))
+        .or_else(|| {
+            config
+                .opencode
+                .as_ref()
+                .and_then(|oc| oc.providers.get(&req.providerId))
+        })
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("provider '{}' not found", req.providerId),
+            )
+        })?;
 
     let protocol = req.protocol.clone().unwrap_or_else(|| provider.api.clone());
 

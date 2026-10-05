@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
-use aio_models::store::{read_config, StoreError};
+use aio_models::sandbox_config::SandboxAgentConfig;
 
 /// Timeout per candidate request (design §5: 20s).
 const PER_CANDIDATE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -168,6 +168,26 @@ pub async fn discover(
 
 // ── provider resolution ───────────────────────────────────────────
 
+/// Read the SandboxAgentConfig from disk.
+fn read_sandbox_config(
+    path: &std::path::Path,
+) -> Result<SandboxAgentConfig, (StatusCode, String)> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(SandboxAgentConfig::default()),
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("sandbox config corrupt: {e}"),
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SandboxAgentConfig::default()),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("read sandbox config: {e}"),
+        )),
+    }
+}
+
 struct ResolvedProvider {
     base_url: String,
     api: String,
@@ -184,32 +204,30 @@ async fn resolve_provider(
 ) -> Result<ResolvedProvider, (StatusCode, String)> {
     match req {
         DiscoverRequest::ById { providerId } => {
-            let config = match read_config(&state.models_file) {
-                Ok(c) => c,
-                Err(StoreError::Io(e)) => {
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("read models.json: {e}"),
-                    ));
-                }
-                Err(StoreError::Corrupt(e)) => {
-                    return Err((
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        format!("models.json corrupt: {e}"),
-                    ));
-                }
-            };
-            let p = config.providers.get(providerId).ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    format!("provider '{}' not found", providerId),
-                )
-            })?;
+            // ById resolves against the sandbox's incremental configs (pi +
+            // opencode share the same provider namespace in cc-switch mode).
+            let config = read_sandbox_config(&state.models_file)?;
+            let node = config
+                .pi
+                .as_ref()
+                .and_then(|pi| pi.providers.get(providerId))
+                .or_else(|| {
+                    config
+                        .opencode
+                        .as_ref()
+                        .and_then(|oc| oc.providers.get(providerId))
+                })
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        format!("provider '{}' not found", providerId),
+                    )
+                })?;
             Ok(ResolvedProvider {
-                base_url: p.base_url.clone(),
-                api: p.api.clone(),
-                api_key: p.api_key.clone(),
-                headers: p.headers.clone(),
+                base_url: node.base_url.clone(),
+                api: node.api.clone(),
+                api_key: node.api_key.clone(),
+                headers: node.headers.clone(),
             })
         }
         DiscoverRequest::Literal {

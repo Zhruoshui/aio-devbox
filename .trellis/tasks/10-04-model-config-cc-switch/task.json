@@ -15,12 +15,12 @@
   "branch": null,
   "base_branch": "feat/scenario-granularity-mise",
   "worktree_path": null,
-  "commit": null,
+  "commit": "78064bb",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Phase 1.1 数据模型 (7d5e415, aio-models: ProviderTemplate/ProviderSnapshot/\nIncrementalAgentConfig/SandboxAgentConfig)。Phase 1.2/1.2b/3 已完成并提交\n78064bb: mgr 供应商库 ProviderLibrary 重写 + 旧 profile/sync/import/catalog/\nmodel_profile 路由全删;mgr-web ModelsPage 重写为纯供应商库 + 中心弹窗;\nSandboxListPage/EditPage 移除指派 UI。433 tests + mgr-web build 全过。\nspec 已同步 (api-contracts/model-config-guide/sandbox-mgr-ops/前后端 index)。\nPhase 2 已完成 (app 渲染 cc-switch 化, 未提交): 删除 mgr_sync.rs/catalog.rs;\nrender 层重写为 claude/codex 切换式快照替换 + pi/opencode 增量式读-改-合并;\nmodels/mod.rs 重写为 SandboxAgentConfig CRUD + apply + agents + templates;\nusage.rs cost backfill 改用 SandboxAgentConfig; state.rs/main.rs/config.rs\n清理 MGR_URL/managed 模式。aio-app 156 tests + clippy 干净通过。\nTODO: Phase 4 (sandbox 详情页模型配置标签 + TemplatePickerModal + SourceCodeEditor)、\nPhase 5 (usage 汇总)、Phase 6 (清理 app 旧 canonical store 代码 + 文档)。",
   "meta": {}
 }

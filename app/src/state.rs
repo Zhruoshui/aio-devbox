@@ -5,21 +5,13 @@
 // - `buttons_file`: path to the runtime `buttons.toml` on the workspace volume
 //   (`AIO_BUTTONS_FILE` env, default `/root/.aio/buttons.toml`). User-
 //   registered buttons; read per manifest request, written under `file_lock`.
-// - `models_file`: path to the canonical model config (`AIO_MODELS_FILE` env,
-//   default `/root/.aio/models.json`). Read/written under `models_lock`.
-// - `mgr_url`: sandbox-mgr base URL (`MGR_URL` env, sandbox-mgr Phase 4).
-//   When set, this sandbox's model config is MANAGED by mgr: the background
-//   pull task (mgr_sync.rs) overwrites the local canonical store from mgr,
-//   and every /api/models write endpoint returns 403 managed-by-mgr
-//   (routes/models::managed_guard). None = stock stack, zero behavior change.
-// - `mgr_sandbox_name`: this sandbox's mgr identity (`MGR_SANDBOX_NAME` env,
-//   unified Phase 4/D8) — the pull sends it as sync's ?name= so mgr answers
-//   with the ASSIGNED profile. None = compose predates per-profile pull (or
-//   stock stack); the pull goes out nameless and mgr 404s it (keep local).
+// - `models_file`: path to the sandbox agent config (`AIO_MODELS_FILE` env,
+//   default `/root/.aio/models/config.json`). Read/written under `models_lock`.
+//   In cc-switch mode this stores the SandboxAgentConfig (per-agent configs).
 // - `path_cache`: cached login-shell PATH for command_exists (TTL-refreshed).
 // - `file_lock`: serializes read-modify-write on buttons.toml so concurrent
 //   POST/DELETE can't interleave.
-// - `models_lock`: serializes read-modify-write on models.json (design §3).
+// - `models_lock`: serializes read-modify-write on the sandbox config.
 // - `http`: a shared reqwest Client reused by the model discovery/test routes.
 //   Process-wide; per-request timeouts are set on the RequestBuilder, not the
 //   client, so different routes can pick their own budget.
@@ -38,8 +30,6 @@ pub struct AppState {
     pub builtin: Arc<Vec<Service>>,
     pub buttons_file: PathBuf,
     pub models_file: PathBuf,
-    pub mgr_url: Option<String>,
-    pub mgr_sandbox_name: Option<String>,
     pub path_cache: Arc<RwLock<PathCache>>,
     pub file_lock: Arc<Mutex<()>>,
     pub models_lock: Arc<Mutex<()>>,
@@ -52,8 +42,6 @@ impl AppState {
         builtin: Vec<Service>,
         buttons_file: PathBuf,
         models_file: PathBuf,
-        mgr_url: Option<String>,
-        mgr_sandbox_name: Option<String>,
     ) -> Self {
         let http = reqwest::Client::builder()
             // No default timeout: each route sets its own via RequestBuilder::timeout.
@@ -65,8 +53,6 @@ impl AppState {
             builtin: Arc::new(builtin),
             buttons_file,
             models_file,
-            mgr_url,
-            mgr_sandbox_name,
             path_cache: Arc::new(RwLock::new(PathCache::default())),
             file_lock: Arc::new(Mutex::new(())),
             models_lock: Arc::new(Mutex::new(())),

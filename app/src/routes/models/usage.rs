@@ -38,7 +38,19 @@ use tokio::sync::Mutex;
 
 use super::render::home_dir;
 use crate::state::AppState;
-use aio_models::store::{read_config, CanonicalConfig, CostEntry};
+use aio_models::incremental::IncrementalCost;
+use aio_models::sandbox_config::SandboxAgentConfig;
+
+/// Read the SandboxAgentConfig from disk. Returns default on missing/corrupt.
+fn read_sandbox_config(path: &Path) -> Result<SandboxAgentConfig, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(SandboxAgentConfig::default()),
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|e| format!("sandbox config corrupt: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SandboxAgentConfig::default()),
+        Err(e) => Err(format!("read sandbox config: {e}")),
+    }
+}
 
 /// Cache TTL (design §6: 30s).
 const CACHE_TTL: Duration = Duration::from_secs(30);
@@ -179,8 +191,8 @@ pub async fn usage(
     let cutoff_ms = cutoff_secs.saturating_mul(1000);
 
     let home = home_dir();
-    // Canonical is best-effort for the pi provider join; absence is fine.
-    let canonical = read_config(&state.models_file).unwrap_or_default();
+    // Sandbox config is best-effort for the pi provider join; absence is fine.
+    let sandbox_config = read_sandbox_config(&state.models_file).unwrap_or_default();
 
     let mut buckets: BTreeMap<(String, Option<String>, String), UsageRow> = BTreeMap::new();
     // S4 byDay merge: (date, agent, model) -> DayUsage.
@@ -210,7 +222,7 @@ pub async fn usage(
             merge_day(d);
         }
     };
-    absorb(scan_pi(&home, &canonical, cutoff_secs));
+    absorb(scan_pi(&home, &sandbox_config, cutoff_secs));
     absorb(scan_opencode(&home, cutoff_ms));
     absorb(scan_claude(&home, cutoff_secs));
     absorb(scan_codex(&home, cutoff_secs));
@@ -223,7 +235,7 @@ pub async fn usage(
 
     // Fill cost for rows whose logged cost is absent or (audit finding) the
     // always-0 placeholder pi/opencode write (design §2).
-    backfill_cost(&mut rows, &canonical);
+    backfill_cost(&mut rows, &sandbox_config);
 
     // Stable order: agent, provider, model.
     rows.sort_by(|a, b| {
@@ -371,8 +383,8 @@ fn is_leap(y: i64) -> bool {
 ///   {"type","version","id","timestamp","cwd","message":{"role","model","usage":{...}}}
 /// Records without a `message` (e.g. the session header line) are skipped.
 /// Time filter: top-level `timestamp` (ISO8601) if parseable else file mtime.
-/// provider is joined from canonical (best-effort). Missing dir => nothing.
-pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> UsageScan {
+/// provider is joined from the sandbox config (best-effort). Missing dir => nothing.
+pub fn scan_pi(home: &Path, sandbox_config: &SandboxAgentConfig, cutoff_secs: u64) -> UsageScan {
     let sessions = home.join(".pi/agent/sessions");
     if !sessions.is_dir() {
         return UsageScan {
@@ -482,10 +494,10 @@ pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Us
         }
     }
 
-    // Join provider from canonical.
+    // Join provider from sandbox config.
     let mut out: Vec<UsageRow> = buckets.into_values().collect();
     for row in &mut out {
-        row.provider = find_provider_for_model(canonical, &row.model);
+        row.provider = find_provider_for_model(sandbox_config, &row.model);
     }
     let by_day = day_buckets
         .into_iter()
@@ -498,11 +510,16 @@ pub fn scan_pi(home: &Path, canonical: &CanonicalConfig, cutoff_secs: u64) -> Us
     UsageScan { rows: out, by_day }
 }
 
-/// Find the canonical provider id whose models contains `model_id` (best-effort).
-fn find_provider_for_model(canonical: &CanonicalConfig, model_id: &str) -> Option<String> {
-    for (id, provider) in &canonical.providers {
-        if provider.models.iter().any(|m| m.id == model_id) {
-            return Some(id.clone());
+/// Find the sandbox config provider id whose models contains `model_id` (best-effort).
+fn find_provider_for_model(
+    sandbox_config: &SandboxAgentConfig,
+    model_id: &str,
+) -> Option<String> {
+    for config in [&sandbox_config.pi, &sandbox_config.opencode].into_iter().flatten() {
+        for (id, node) in &config.providers {
+            if node.models.iter().any(|m| m.id == model_id) {
+                return Some(id.clone());
+            }
         }
     }
     None
@@ -906,17 +923,17 @@ pub fn scan_codex(home: &Path, cutoff_secs: u64) -> UsageScan {
 // (never a real computed cost), and claude/codex logs carry no cost at all.
 // So the fill priority is:
 //   1. log cost > 0          -> trust it, never touch (no double count)
-//   2. log cost 0/None       -> compute from canonical `provider.models[].cost`
+//   2. log cost 0/None       -> compute from sandbox config `provider.models[].cost`
 //                               (unit: USD per 1M tokens, design §1), cache
 //                               reads/writes priced with their OWN rates
 //   3. no cost match         -> leave None (never invent a price)
 // Match tiers: (provider,model) exact -> model exact across providers ->
-// version/date-suffix fuzzy, forward direction only (row id = canonical id +
+// version/date-suffix fuzzy, forward direction only (row id = config id +
 // `-\d[\d.]*`, e.g. `claude-sonnet-4-20250514` vs `claude-sonnet-4`;
 // alphabetic variant suffixes like `-free` never match — different model).
 
 /// Price `tokens` at `per_m` USD/1M-tokens (None price contributes 0 —
-/// canonical cost entries may be partially configured).
+/// cost entries may be partially configured).
 fn price_per_m(tokens: u64, per_m: Option<f64>) -> f64 {
     match per_m {
         Some(p) => tokens as f64 / 1_000_000.0 * p,
@@ -924,39 +941,44 @@ fn price_per_m(tokens: u64, per_m: Option<f64>) -> f64 {
     }
 }
 
-/// Compute a row's cost from a canonical cost entry (design §1): each token
+/// Compute a row's cost from a cost entry (design §1): each token
 /// bucket uses its OWN unit price; cacheRead/cacheWrite never ride the
 /// input rate.
-fn compute_cost(entry: &CostEntry, row: &UsageRow) -> f64 {
+fn compute_cost(entry: &IncrementalCost, row: &UsageRow) -> f64 {
     price_per_m(row.r#in, entry.input)
         + price_per_m(row.out, entry.output)
         + price_per_m(row.cache_read, entry.cache_read)
         + price_per_m(row.cache_write, entry.cache_write)
 }
 
-/// One model-match candidate: canonical provider id + the matched canonical
-/// model id length (for most-specific-first ordering) + its cost entry.
+/// One model-match candidate: provider id + the matched model
+/// id length (for most-specific-first ordering) + its cost entry.
 struct CostHit<'a> {
     provider: String,
     model_len: usize,
-    entry: &'a CostEntry,
+    entry: &'a IncrementalCost,
 }
 
-/// Find cost candidates whose canonical model id matches `model` exactly.
-fn exact_model_hits<'a>(canonical: &'a CanonicalConfig, model: &str) -> Vec<CostHit<'a>> {
+/// Find cost candidates whose model id matches `model` exactly.
+fn exact_model_hits<'a>(
+    sandbox_config: &'a SandboxAgentConfig,
+    model: &str,
+) -> Vec<CostHit<'a>> {
     let mut out = Vec::new();
-    for (id, provider) in &canonical.providers {
-        if let Some(entry) = provider
-            .models
-            .iter()
-            .find(|m| m.id == model)
-            .and_then(|m| m.cost.as_ref())
-        {
-            out.push(CostHit {
-                provider: id.clone(),
-                model_len: model.len(),
-                entry,
-            });
+    for config in [&sandbox_config.pi, &sandbox_config.opencode].into_iter().flatten() {
+        for (id, node) in &config.providers {
+            if let Some(entry) = node
+                .models
+                .iter()
+                .find(|m| m.id == model)
+                .and_then(|m| m.cost.as_ref())
+            {
+                out.push(CostHit {
+                    provider: id.clone(),
+                    model_len: model.len(),
+                    entry,
+                });
+            }
         }
     }
     out
@@ -980,25 +1002,30 @@ fn is_version_suffix(s: &str) -> bool {
     }
 }
 
-/// Fuzzy tier: the row model is a canonical id plus a version/date suffix
+/// Fuzzy tier: the row model is a config model id plus a version/date suffix
 /// (`claude-sonnet-4-20250514` vs `claude-sonnet-4`). Forward direction only —
-/// a shorter row id matching a longer canonical id ("gpt" vs "gpt-5") is too
-/// risky. Longest canonical id wins (most specific match).
-fn fuzzy_model_hits<'a>(canonical: &'a CanonicalConfig, model: &str) -> Vec<CostHit<'a>> {
+/// a shorter row id matching a longer config id ("gpt" vs "gpt-5") is too
+/// risky. Longest config id wins (most specific match).
+fn fuzzy_model_hits<'a>(
+    sandbox_config: &'a SandboxAgentConfig,
+    model: &str,
+) -> Vec<CostHit<'a>> {
     let mut out: Vec<CostHit<'a>> = Vec::new();
-    for (id, provider) in &canonical.providers {
-        for m in &provider.models {
-            let matches = !m.id.is_empty()
-                && model.len() > m.id.len()
-                && model.starts_with(m.id.as_str())
-                && is_version_suffix(&model[m.id.len()..]);
-            if matches {
-                if let Some(entry) = m.cost.as_ref() {
-                    out.push(CostHit {
-                        provider: id.clone(),
-                        model_len: m.id.len(),
-                        entry,
-                    });
+    for config in [&sandbox_config.pi, &sandbox_config.opencode].into_iter().flatten() {
+        for (id, node) in &config.providers {
+            for m in &node.models {
+                let matches = !m.id.is_empty()
+                    && model.len() > m.id.len()
+                    && model.starts_with(m.id.as_str())
+                    && is_version_suffix(&model[m.id.len()..]);
+                if matches {
+                    if let Some(entry) = m.cost.as_ref() {
+                        out.push(CostHit {
+                            provider: id.clone(),
+                            model_len: m.id.len(),
+                            entry,
+                        });
+                    }
                 }
             }
         }
@@ -1016,22 +1043,24 @@ fn fuzzy_model_hits<'a>(canonical: &'a CanonicalConfig, model: &str) -> Vec<Cost
 /// reported only when unambiguous (exactly one candidate) so the caller can
 /// backfill `row.provider` without mislabeling.
 fn lookup_cost<'a>(
-    canonical: &'a CanonicalConfig,
+    sandbox_config: &'a SandboxAgentConfig,
     row: &UsageRow,
-) -> Option<(Option<String>, &'a CostEntry)> {
-    // Tier a: the row's provider is known and canonical, exact model match.
+) -> Option<(Option<String>, &'a IncrementalCost)> {
+    // Tier a: the row's provider is known, exact model match.
     if let Some(pid) = &row.provider {
-        if let Some(entry) = canonical
-            .providers
-            .get(pid)
-            .and_then(|p| p.models.iter().find(|m| m.id == row.model))
-            .and_then(|m| m.cost.as_ref())
-        {
-            return Some((Some(pid.clone()), entry));
+        for config in [&sandbox_config.pi, &sandbox_config.opencode].into_iter().flatten() {
+            if let Some(entry) = config
+                .providers
+                .get(pid)
+                .and_then(|p| p.models.iter().find(|m| m.id == row.model))
+                .and_then(|m| m.cost.as_ref())
+            {
+                return Some((Some(pid.clone()), entry));
+            }
         }
     }
     // Tier b: exact model id across providers. Unambiguous when exactly one.
-    let exact = exact_model_hits(canonical, &row.model);
+    let exact = exact_model_hits(sandbox_config, &row.model);
     if let Some(first) = exact.first() {
         let provider = if exact.len() == 1 {
             Some(first.provider.clone())
@@ -1041,7 +1070,7 @@ fn lookup_cost<'a>(
         return Some((provider, first.entry));
     }
     // Tier c: prefix-fuzzy, most specific first.
-    let fuzzy = fuzzy_model_hits(canonical, &row.model);
+    let fuzzy = fuzzy_model_hits(sandbox_config, &row.model);
     if let Some(first) = fuzzy.first() {
         let provider = if fuzzy.len() == 1 {
             Some(first.provider.clone())
@@ -1056,12 +1085,12 @@ fn lookup_cost<'a>(
 /// Fill in `cost` (and, when unambiguous, `provider`) for every row whose
 /// logged cost is absent or zero. Rows with a real logged cost (> 0) are
 /// left untouched (design §2: no double count).
-pub fn backfill_cost(rows: &mut [UsageRow], canonical: &CanonicalConfig) {
+pub fn backfill_cost(rows: &mut [UsageRow], sandbox_config: &SandboxAgentConfig) {
     for row in rows.iter_mut() {
         if row.cost.map(|c| c > 0.0).unwrap_or(false) {
             continue; // real logged cost — trust it
         }
-        if let Some((provider, entry)) = lookup_cost(canonical, row) {
+        if let Some((provider, entry)) = lookup_cost(sandbox_config, row) {
             row.cost = Some(compute_cost(entry, row));
             if row.provider.is_none() {
                 row.provider = provider;
@@ -1219,7 +1248,6 @@ fn as_u64(v: Option<&Value>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aio_models::store;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn temp_dir() -> PathBuf {
@@ -1332,7 +1360,7 @@ mod tests {
         ];
         std::fs::write(sessions.join("s.jsonl"), lines.join("\n")).unwrap();
 
-        let scan = scan_pi(&dir, &CanonicalConfig::default(), 0);
+        let scan = scan_pi(&dir, &SandboxAgentConfig::default(), 0);
         // Aggregated rows still sum all records (100+50+7).
         let m1 = scan.rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1.r#in, 157);
@@ -1460,9 +1488,9 @@ mod tests {
         .to_vec();
         std::fs::write(sessions.join("s1.jsonl"), lines.join("\n")).unwrap();
 
-        let canonical = CanonicalConfig::default();
+        let config = SandboxAgentConfig::default();
         // Cutoff = 0 (all): includes the pre-cutoff record too.
-        let all_rows = scan_pi(&dir, &canonical, 0).rows;
+        let all_rows = scan_pi(&dir, &config, 0).rows;
         let m1_all = all_rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1_all.r#in, 100 + 200 + 999);
         assert_eq!(m1_all.out, 50);
@@ -1473,7 +1501,7 @@ mod tests {
 
         // Cutoff in the future: only post-cutoff records.
         let future_cut = 2_000_000_000;
-        let rows = scan_pi(&dir, &canonical, future_cut).rows;
+        let rows = scan_pi(&dir, &config, future_cut).rows;
         let m1 = rows.iter().find(|r| r.model == "m1").unwrap();
         assert_eq!(m1.r#in, 300); // 100 + 200, not 999
         let m2 = rows.iter().find(|r| r.model == "m2").unwrap();
@@ -1504,8 +1532,8 @@ mod tests {
         )
         .unwrap();
 
-        let canonical = CanonicalConfig::default();
-        let rows = scan_pi(&dir, &canonical, 0).rows;
+        let config = SandboxAgentConfig::default();
+        let rows = scan_pi(&dir, &config, 0).rows;
         assert!(rows.iter().all(|r| r.model != "root-level"));
         let nested = rows.iter().find(|r| r.model == "nested").unwrap();
         assert_eq!(nested.r#in, 42);
@@ -1514,13 +1542,13 @@ mod tests {
     #[test]
     fn pi_scan_missing_dir_returns_empty() {
         let dir = temp_dir();
-        let canonical = CanonicalConfig::default();
-        let rows = scan_pi(&dir, &canonical, 0).rows;
+        let config = SandboxAgentConfig::default();
+        let rows = scan_pi(&dir, &config, 0).rows;
         assert!(rows.is_empty());
     }
 
     #[test]
-    fn pi_scan_provider_join_from_canonical() {
+    fn pi_scan_provider_join_from_sandbox_config() {
         let dir = temp_dir();
         let sessions = dir.join(".pi/agent/sessions/x--");
         std::fs::create_dir_all(&sessions).unwrap();
@@ -1530,19 +1558,29 @@ mod tests {
         )
         .unwrap();
 
-        let mut canonical = CanonicalConfig::default();
-        canonical.providers.insert(
+        let mut config = SandboxAgentConfig::default();
+        let mut pi = IncrementalAgentConfig::default();
+        pi.providers.insert(
             "my-prov".into(),
-            store::ProviderEntry {
+            ProviderNode {
                 name: "My".into(),
-                models: vec![store::ModelEntry {
+                base_url: "https://x".into(),
+                api: "openai-completions".into(),
+                api_key: None,
+                headers: Default::default(),
+                compat: None,
+                models: vec![IncrementalModelEntry {
                     id: "known-model".into(),
-                    ..Default::default()
+                    name: None,
+                    reasoning: None,
+                    context_window: None,
+                    max_tokens: None,
+                    cost: None,
                 }],
-                ..Default::default()
             },
         );
-        let rows = scan_pi(&dir, &canonical, 0).rows;
+        config.pi = Some(pi);
+        let rows = scan_pi(&dir, &config, 0).rows;
         assert_eq!(rows[0].provider.as_deref(), Some("my-prov"));
 
         // Unmatched model => provider None.
@@ -1551,7 +1589,7 @@ mod tests {
             r#"{"type":"assistant","timestamp":"2099-01-01T00:00:00Z","message":{"role":"assistant","model":"unknown-model","usage":{"input":1}}}"#,
         )
         .unwrap();
-        let rows = scan_pi(&dir, &canonical, 0).rows;
+        let rows = scan_pi(&dir, &config, 0).rows;
         let un = rows.iter().find(|r| r.model == "unknown-model").unwrap();
         assert!(un.provider.is_none());
     }
@@ -1851,7 +1889,7 @@ mod tests {
 
     // --- cost backfill (task 08-27-usage-correctness, design §2) ---
 
-    use aio_models::store::{CostEntry, ModelEntry, ProviderEntry};
+    use aio_models::incremental::{IncrementalAgentConfig, IncrementalCost, IncrementalModelEntry, ProviderNode};
 
     fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
@@ -1880,77 +1918,51 @@ mod tests {
         }
     }
 
-    /// Canonical fixture:
+    /// Sandbox config fixture:
     /// - prov-a: m1 with full cost (distinct rates per bucket)
     /// - prov-b: m2 with input-only cost
     /// - prov-c: m1 again (makes m1's provider ambiguous across providers)
     /// - prov-d: claude-sonnet-4 with cost (fuzzy target)
-    fn cost_canonical() -> CanonicalConfig {
-        let mut c = CanonicalConfig::default();
+    fn cost_sandbox_config() -> SandboxAgentConfig {
+        let mut config = SandboxAgentConfig::default();
         let full = || {
-            Some(CostEntry {
+            Some(IncrementalCost {
                 input: Some(0.14),
                 output: Some(0.28),
                 cache_read: Some(0.0028),
                 cache_write: Some(1.12),
             })
         };
-        let entry = |id: &str, cost: Option<CostEntry>| ModelEntry {
+        let entry = |id: &str, cost: Option<IncrementalCost>| IncrementalModelEntry {
             id: id.into(),
+            name: None,
+            reasoning: None,
+            context_window: None,
+            max_tokens: None,
             cost,
-            ..Default::default()
         };
-        c.providers.insert(
-            "prov-a".into(),
-            ProviderEntry {
-                name: "A".into(),
-                models: vec![entry("m1", full())],
-                ..Default::default()
-            },
-        );
-        c.providers.insert(
-            "prov-b".into(),
-            ProviderEntry {
-                name: "B".into(),
-                models: vec![entry(
-                    "m2",
-                    Some(CostEntry {
-                        input: Some(2.0),
-                        ..Default::default()
-                    }),
-                )],
-                ..Default::default()
-            },
-        );
-        c.providers.insert(
-            "prov-c".into(),
-            ProviderEntry {
-                name: "C".into(),
-                models: vec![entry(
-                    "m1",
-                    Some(CostEntry {
-                        input: Some(9.9),
-                        ..Default::default()
-                    }),
-                )],
-                ..Default::default()
-            },
-        );
-        c.providers.insert(
-            "prov-d".into(),
-            ProviderEntry {
-                name: "D".into(),
-                models: vec![entry("claude-sonnet-4", full())],
-                ..Default::default()
-            },
-        );
-        c
+        let node = |name: &str, models: Vec<IncrementalModelEntry>| ProviderNode {
+            name: name.into(),
+            base_url: "https://x".into(),
+            api: "openai-completions".into(),
+            api_key: None,
+            headers: Default::default(),
+            compat: None,
+            models,
+        };
+        let mut pi = IncrementalAgentConfig::default();
+        pi.providers.insert("prov-a".into(), node("A", vec![entry("m1", full())]));
+        pi.providers.insert("prov-b".into(), node("B", vec![entry("m2", Some(IncrementalCost { input: Some(2.0), output: None, cache_read: None, cache_write: None }))]));
+        pi.providers.insert("prov-c".into(), node("C", vec![entry("m1", Some(IncrementalCost { input: Some(9.9), output: None, cache_read: None, cache_write: None }))]));
+        pi.providers.insert("prov-d".into(), node("D", vec![entry("claude-sonnet-4", full())]));
+        config.pi = Some(pi);
+        config
     }
 
     #[test]
     fn backfill_trusts_positive_logged_cost() {
         // A real logged cost is never touched (no double count).
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row(
             "pi",
             Some("prov-a"),
@@ -1961,14 +1973,14 @@ mod tests {
             0,
             Some(0.5),
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert_eq!(rows[0].cost, Some(0.5));
     }
 
     #[test]
     fn backfill_zero_logged_cost_computes_from_provider_model() {
         // pi/opencode always log 0 — that must fall through to backfill.
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row(
             "pi",
             Some("prov-a"),
@@ -1979,7 +1991,7 @@ mod tests {
             1_000_000,
             Some(0.0),
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         // Each bucket priced with its OWN rate: 0.14 + 0.28 + 0.0028 + 1.12.
         let expected = 0.14 + 0.28 + 0.0028 + 1.12;
         assert!(
@@ -1992,9 +2004,9 @@ mod tests {
     #[test]
     fn backfill_none_cost_exact_model_across_providers() {
         // claude rows have provider=None; exact model id found in prov-b.
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row("claude", None, "m2", 500_000, 0, 0, 0, None)];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         // prov-b has input-only cost: 0.5M * 2.0 = 1.0; output/cache None -> 0.
         assert!(
             rows[0].cost.map(|c| approx(c, 1.0)).unwrap_or(false),
@@ -2009,9 +2021,9 @@ mod tests {
     fn backfill_provider_none_when_model_ambiguous() {
         // m1 exists in prov-a AND prov-c: cost still filled (most specific /
         // first), but provider must NOT be backfilled (ambiguous).
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row("claude", None, "m1", 1_000_000, 0, 0, 0, None)];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert!(rows[0].cost.is_some(), "cost must still be filled");
         assert!(
             rows[0].provider.is_none(),
@@ -2021,8 +2033,8 @@ mod tests {
 
     #[test]
     fn backfill_fuzzy_version_suffix_matches() {
-        let canonical = cost_canonical();
-        // Date-suffixed log id vs canonical id (the claude case).
+        let config = cost_sandbox_config();
+        // Date-suffixed log id vs config id (the claude case).
         let mut rows = vec![make_row(
             "claude",
             None,
@@ -2033,7 +2045,7 @@ mod tests {
             0,
             None,
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert!(
             rows[0].cost.map(|c| approx(c, 0.14)).unwrap_or(false),
             "cost = {:?}",
@@ -2047,12 +2059,12 @@ mod tests {
         // "-free" / "-vision-exp" are DIFFERENT models — must not be priced
         // at the base model's rates (container reconciliation found
         // deepseek-v4-flash-free wrongly priced at deepseek-v4-flash rates).
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         for variant in ["claude-sonnet-4-free", "claude-sonnet-4-vision-exp"] {
             let mut rows = vec![make_row(
                 "opencode", None, variant, 1_000_000, 0, 0, 0, None,
             )];
-            backfill_cost(&mut rows, &canonical);
+            backfill_cost(&mut rows, &config);
             assert!(rows[0].cost.is_none(), "{variant} must not fuzzy-match");
         }
         // Degenerate suffixes are not version stamps either (design §2c
@@ -2065,7 +2077,7 @@ mod tests {
             "claude-sonnet-4-٢٠٢٥",
         ] {
             let mut rows = vec![make_row("claude", None, variant, 1_000_000, 0, 0, 0, None)];
-            backfill_cost(&mut rows, &canonical);
+            backfill_cost(&mut rows, &config);
             assert!(rows[0].cost.is_none(), "{variant} must not fuzzy-match");
         }
         // Reverse direction (shorter row id) is rejected too: "gpt" must not
@@ -2080,13 +2092,13 @@ mod tests {
             0,
             None,
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert!(rows[0].cost.is_none(), "reverse-prefix must not match");
     }
 
     #[test]
     fn backfill_no_match_leaves_cost_none() {
-        let canonical = cost_canonical();
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row(
             "codex",
             None,
@@ -2097,15 +2109,15 @@ mod tests {
             0,
             None,
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert!(rows[0].cost.is_none(), "never invent a price");
         assert!(rows[0].provider.is_none());
     }
 
     #[test]
     fn backfill_free_model_stays_zero() {
-        // A logged 0 with no canonical hit stays 0 (real free tier), not None.
-        let canonical = cost_canonical();
+        // A logged 0 with no config hit stays 0 (real free tier), not None.
+        let config = cost_sandbox_config();
         let mut rows = vec![make_row(
             "opencode",
             Some("opencode"),
@@ -2116,7 +2128,7 @@ mod tests {
             0,
             Some(0.0),
         )];
-        backfill_cost(&mut rows, &canonical);
+        backfill_cost(&mut rows, &config);
         assert_eq!(rows[0].cost, Some(0.0));
     }
 

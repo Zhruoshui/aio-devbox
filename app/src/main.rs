@@ -26,14 +26,13 @@
 // higher than the `/api/*rest` catch-all, so they are never swallowed.
 
 use axum::{
-    routing::{any, delete, get, post, put},
+    routing::{any, delete, get, post},
     Router,
 };
 use std::path::PathBuf;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod config;
-mod mgr_sync;
 mod pty;
 mod routes;
 mod state;
@@ -42,9 +41,8 @@ use routes::{
     buttons::{create_button, delete_button, probe_port},
     manifest::manifest,
     models::{
-        apply_agent, catalog::get_catalog, delete_live_provider, discover::discover,
-        edit_live_provider, get_agents, get_config, get_managed, import_pi, put_config,
-        sync_live_provider, test::test, usage::usage,
+        apply_agent, discover::discover, get_agents, get_config, get_templates, put_config,
+        test::test, usage::usage,
     },
     preview::preview_proxy,
     seam::seam,
@@ -62,9 +60,9 @@ const STATIC_DIR: &str = "/app/static";
 /// Override with `AIO_BUTTONS_FILE`.
 const BUTTONS_FILE: &str = "/root/.aio/buttons.toml";
 
-/// Default location of the canonical model config (providers + agent
-/// assignments). Override with `AIO_MODELS_FILE`.
-const MODELS_FILE: &str = "/root/.aio/models.json";
+/// Default location of the sandbox agent config (cc-switch mode). Override
+/// with `AIO_MODELS_FILE`.
+const MODELS_FILE: &str = "/root/.aio/models/config.json";
 
 #[tokio::main]
 async fn main() {
@@ -95,32 +93,10 @@ async fn main() {
             s
         })
         .collect();
-    // MGR_URL (sandbox-mgr Phase 4, design §3.7): when set, this sandbox's
-    // model config is managed by mgr — resolved once at startup (env doesn't
-    // change during the process lifetime, same rationale as PI_WEB_URL) and
-    // carried on AppState so the write endpoints can 403 (managed_guard).
-    // MGR_SANDBOX_NAME (unified Phase 4/D8) rides along: the pull's ?name=
-    // identity for multi-profile assignment.
-    let mgr_url = config::mgr_url();
-    let mgr_sandbox_name = config::mgr_sandbox_name();
-    let state = AppState::new(
-        services,
-        buttons_file,
-        models_file,
-        mgr_url.clone(),
-        mgr_sandbox_name,
-    );
+    let state = AppState::new(services, buttons_file, models_file);
 
     // Background cgroup/statvfs sampler feeding GET /api/stats (2s period).
     spawn_stats_sampler(state.clone());
-
-    // Model-config pull task: GET {MGR_URL}/api/models/sync?name=<sandbox>
-    // at startup + every 60s, overwrite the local canonical store +
-    // re-render when mgr's copy differs. Only under mgr; stock stacks never
-    // spawn it.
-    if mgr_url.is_some() {
-        mgr_sync::spawn_mgr_sync(state.clone());
-    }
 
     // Static SPA tree. `/` serves index.html (dir index); unknown paths fall
     // back to index.html (SPA client-side routing, used from Phase C onward).
@@ -145,31 +121,15 @@ async fn main() {
         .route("/api/buttons", post(create_button))
         .route("/api/buttons/probe", get(probe_port))
         .route("/api/buttons/:id", delete(delete_button))
-        // Model config: canonical store (GET/PUT) + pi import (POST) +
-        // M2 discover (POST /v1/models fetch) + test (minimal completion probe) +
-        // M3 agent status + apply (render canonical -> native files).
+        // Model config (cc-switch mode): sandbox agent config (GET/PUT) +
+        // apply (render to native files) + agent status + usage + templates.
         .route("/api/models/config", get(get_config).put(put_config))
-        .route("/api/models/import/pi", post(import_pi))
+        .route("/api/models/apply/:agent", post(apply_agent))
+        .route("/api/models/agents", get(get_agents))
+        .route("/api/models/usage", get(usage))
+        .route("/api/models/templates", get(get_templates))
         .route("/api/models/discover", post(discover))
         .route("/api/models/test", post(test))
-        .route("/api/models/agents", get(get_agents))
-        .route("/api/models/apply/:agent", post(apply_agent))
-        // Live provider management on the incremental agents' native files
-        // (08-27-agent-tabs-live-config): field-level edit, delete, sync to
-        // the canonical library.
-        .route(
-            "/api/models/agents/:agent/provider/:id",
-            put(edit_live_provider).delete(delete_live_provider),
-        )
-        .route("/api/models/agents/:agent/sync", post(sync_live_provider))
-        // M4: per-(agent,model) token usage aggregation (design §6).
-        .route("/api/models/usage", get(usage))
-        // Sandbox-mgr managed marker (Phase 4b): `{"managed": bool}` from
-        // MGR_URL — the models page probes it once on mount to flip to its
-        // read-only presentation. Static segment, wins over the catch-all.
-        .route("/api/models/managed", get(get_managed))
-        // models.dev metadata catalog (1h cache, 08-27-provider-form-piweb).
-        .route("/api/models/catalog", get(get_catalog))
         // Dynamic dev-server preview (web-type user buttons): reverse-proxy
         // to the dev server on the shared netns loopback. Static segments
         // win over any catch-all; `*path` needs a non-empty tail, so the
@@ -181,8 +141,8 @@ async fn main() {
         .route("/preview/:port/*path", any(preview_proxy))
         // Reserved seams (design §13/§14C): 502 stub on any method. The bare
         // prefix, the trailing slash, and every sub-path are each covered.
-        // `/api/manifest` and `/api/term/ws` above are static segments so they
-        // win over the `/api/*rest` catch-all - never swallowed.
+        // `/api/manifest` and `/api/term/ws` above are static segments so
+        // they win over the `/api/*rest` catch-all - never swallowed.
         .route("/api", any(seam))
         .route("/api/", any(seam))
         .route("/api/*rest", any(seam))
