@@ -24,8 +24,11 @@ mgr-web/src/
 ├── icons.tsx           # 24px stroke 图标集(PATHS/IconName 单一 owner,
 │                       #   图标名与原型 mgr-shell.js 对齐)
 ├── components/
-│   └── AgentAssignControl.tsx  # profile+agent 指派(EditPage select 形态
-│                       #   与 SandboxListPage .pop popover 共用逻辑)
+│   ├── Dialogs.tsx           # 共享对话框(确认/输入/prompt 等,组件层)
+│   ├── SourceCodeEditor.tsx  # 轻量 textarea 源码编辑器(沙箱离线无 prism;
+│   │                         #   JSON/TOML 双向绑定 + 解析错误提示)
+│   └── TemplatePickerModal.tsx # 从 mgr /api/models/templates 拉公共模板
+│                             #   (apiKey 永不外传)填表单
 ├── App.tsx             # shell: 48px rail 图标栏(品牌+五导航+主题/语言,
 │                       #   激活态 accent 指示) + 工作区侧面板(aside.panel,
 │                       #   键 mgr.panelHidden);管理页包 .page(1200px 居中
@@ -34,19 +37,20 @@ mgr-web/src/
 └── pages/
     ├── WorkspacePage.tsx    # golden-layout 工作区(默认落地页): 布局键
     │                        # mgr.layout / seq 池 / popout / 拖拽遮罩
-    ├── SandboxListPage.tsx  # 卡片列表(segmented 筛选+搜索/sbx 卡片新结构/
-    │                        #   profile chip .pop 指派/删除 .dialog)
+    ├── SandboxListPage.tsx  # 卡片列表(segmented 筛选+搜索/sbx 卡片/删除
+    │                        #   .dialog);model-profile 快捷指派已删(cc-switch)
     ├── CreatePage.tsx / AdoptPage.tsx / EditPage.tsx (共用 EnvPicker;
-    │                        Edit 含 model-profile 指派 select, D8)
+    │                        Edit 顶层「环境/模型配置」双标签, D8→cc-switch)
     ├── ServicesPicker.tsx   # 创建/编辑的服务开关区(四开关,pi-web 联动)
-    ├── JobView.tsx / ImagesPage.tsx / UsagePage.tsx   # 均套 .page 壳,
-    │                        #   表格换共享 .table/.card(S7)
-    ├── models/             # ModelsPage: .profile-bar(segmented+计数+新建/
-    │                        #   重命名/删除) + .tabs 五 tab;供应商编辑为
-    │                        #   .drawer(ProviderEditor),pi/opencode 为
-    │                        #   .two 双栏(AgentTabs),claude/codex 为
-    │                        #   .preset 卡片(PresetList),生效沙箱
-    │                        #   .sbx-tbl(SandboxTable)
+    ├── JobView.tsx / ImagesPage.tsx(+ImageDetailDialog) / UsagePage.tsx
+    ├── UserToolsPage.tsx    # 用户工具编辑器
+    ├── models/             # ModelsPage(cc-switch 供应商库): ProviderGrid
+    │                        #   + ModelRow 卡片 + ProviderEditorModal 中心
+    │                        #   弹窗;SandboxModelConfigTab(EditPage 模型配置
+    │                        #   标签,四 agent 子标签: SwitchAgentPanel
+    │                        #   (claude/codex 快照切换) + IncrementalAgentPanel
+    │                        #   (pi/opencode 读-改-合并));sandboxTypes.ts =
+    │                        #   沙箱 /api/models/* 边界解码单一 owner
     └── workspace/
         ├── paneUrl.ts      # per-sandbox URL 唯一工厂
         ├── SandboxTree.tsx # 面板头+.ws-search 筛选+tree-toggle 行结构+
@@ -60,9 +64,9 @@ mgr-web/src/
 
 约定:
 
-- **types.ts 是 mgr-api 契约的唯一前端 owner**(PUT limits 三态、
-  model_profile 字段、PUT model_profile 纯 kv 写语义注释就写在这里,
-  见 backend/api-contracts.md mgr 节)。
+- **types.ts 是 mgr-api 契约的唯一前端 owner**（沙箱 agent 配置的边界
+  解码在 `pages/models/sandboxTypes.ts`——它是 app `/api/sbx/:name/api/
+  models/*` 代理的单一 owner；PUT model_profile 已随 profile 系统删除）。
 - **panes/ 一类 service type 一个通用 pane**: XtermPane(agent/终端)、
   IframePane(web/VNC/pi-web)、CodeServerPane(按需拉起 + probe 轮询,
   D4)。新 service 是 manifest/按钮条目,**不加** React 组件,除非出现新
@@ -70,8 +74,10 @@ mgr-web/src/
 - **一切沙箱面经 mgr 代理**(paneUrl.ts 是唯一 URL 工厂): 终端 WS =
   `/api/sbx/<name>/api/term/ws?cmd=...`(same-origin),iframe 类经子域名。
   见 backend/sandbox-mgr-ops.md 契约 10。
-- **profile 作用域**(D8): ModelsPage 全部 fetch 带 `?profile=`;EditPage
-  指派 select 三态(未变不发/id 指派/显式空解绑,对齐 limits 三态)。
+- **cc-switch 模型配置**(10-04-model-config-cc-switch): mgr 只有共享供应
+  商库(模板源,`/api/models/providers` + `/api/models/templates`);每个
+  沙箱独立持有自己的 agent 配置(`/api/sbx/<name>/api/models/config`),
+  不存在 profile 作用域查询参数,也没有跨沙箱指派 UI。
 - always_on 场景在 EnvPicker 锁定显示(不可取消),且其 id **永远不进**
   `env.scenarios`(后端会拒,canonical env 契约)。
 - **S1 服务区(09-10-mgr-create-services)**: pi/pi-web 已从 always_on
@@ -94,10 +100,10 @@ mgr-web/src/
   `.field.invalid` + `.err`(components.css 标准),不再写裸
   `.field input` 覆盖。工作区主区全宽(golden-layout 需要),不套
   `.page`。
-- **弹层契约**: `NodeMenu`(.menu)/列表页指派(.pop)/供应商编辑
-  (.drawer)/删除确认(.overlay+.dialog)统一:role 属性(menu/menuitem、
-  dialog、alertdialog)、Escape 关闭、外点/scrim 点击关闭;fixed 定位
-  弹层的锚点坐标由调用方计算(NodeMenu 模式)。
+- **弹层契约**: `NodeMenu`(.menu)/删除确认(.overlay+.dialog)/供应商编
+  辑与模板选择(.dialog 中心弹窗)统一:role 属性(menu/menuitem、dialog、
+  alertdialog)、Escape 关闭、外点/scrim 点击关闭;fixed 定位弹层的锚点
+  坐标由调用方计算(NodeMenu 模式)。
 - 构建门: `npm run build` = `tsc --noEmit && vite build`;镜像经
   mgr/Dockerfile web-builder 阶段(node:20),由 mgr-api 静态服务。
 

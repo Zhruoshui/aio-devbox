@@ -21,6 +21,20 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Phase 1.1 数据模型 (7d5e415, aio-models: ProviderTemplate/ProviderSnapshot/\nIncrementalAgentConfig/SandboxAgentConfig)。Phase 1.2/1.2b/3 已完成并提交\n78064bb: mgr 供应商库 ProviderLibrary 重写 + 旧 profile/sync/import/catalog/\nmodel_profile 路由全删;mgr-web ModelsPage 重写为纯供应商库 + 中心弹窗;\nSandboxListPage/EditPage 移除指派 UI。433 tests + mgr-web build 全过。\nspec 已同步 (api-contracts/model-config-guide/sandbox-mgr-ops/前后端 index)。\nPhase 2 已完成 (app 渲染 cc-switch 化, 未提交): 删除 mgr_sync.rs/catalog.rs;\nrender 层重写为 claude/codex 切换式快照替换 + pi/opencode 增量式读-改-合并;\nmodels/mod.rs 重写为 SandboxAgentConfig CRUD + apply + agents + templates;\nusage.rs cost backfill 改用 SandboxAgentConfig; state.rs/main.rs/config.rs\n清理 MGR_URL/managed 模式。aio-app 156 tests + clippy 干净通过。\nTODO: Phase 4 (sandbox 详情页模型配置标签 + TemplatePickerModal + SourceCodeEditor)、\nPhase 5 (usage 汇总)、Phase 6 (清理 app 旧 canonical store 代码 + 文档)。",
+  "notes": "Phase 1.1 数据模型 (7d5e415, aio-models: ProviderTemplate/ProviderSnapshot/\nIncrementalAgentConfig/SandboxAgentConfig)。Phase 1.2/1.2b/3 已完成并提交\n78064bb: mgr 供应商库 ProviderLibrary 重写 + 旧 profile/sync/import/catalog/\nmodel_profile 路由全删;mgr-web ModelsPage 重写为纯供应商库 + 中心弹窗;\nSandboxListPage/EditPage 移除指派 UI。433 tests + mgr-web build 全过。\nspec 已同步 (api-contracts/model-config-guide/sandbox-mgr-ops/前后端 index)。\nPhase 2 已完成 (app 渲染 cc-switch 化, 未提交): 删除 mgr_sync.rs/catalog.rs;\nrender 层重写为 claude/codex 切换式快照替换 + pi/opencode 增量式读-改-合并;\nmodels/mod.rs 重写为 SandboxAgentConfig CRUD + apply + agents + templates;\nusage.rs cost backfill 改用 SandboxAgentConfig; state.rs/main.rs/config.rs\n清理 MGR_URL/managed 模式。aio-app 156 tests + clippy 干净通过。\nPhase 4 已完成: sandbox 详情页模型配置标签 (EditPage 加 环境/模型配置 顶层\n标签) + SandboxModelConfigTab 四 agent 子标签 + SwitchAgentPanel (claude/codex\n快照卡片/current 切换/env+TOML 表单/源码查看编辑) + IncrementalAgentPanel\n(pi/opencode 节点+默认对+整文件预览) + SourceCodeEditor (轻量 textarea——沙箱\n离线装不了 react-simple-code-editor+prismjs, D4 以可行替代落地) +\nTemplatePickerModal (拉 mgr /api/models/templates, apiKey 永不外传)。新增\npages/models/sandboxTypes.ts 单一边界解码 + api.ts 四个 /api/sbx/:name 代理\n函数。npm run build 过;热部署 + puppeteer 19/19 实测: tab 渲染/新增快照/\n保存+apply/配置 round-trip/pi 节点 round-trip/原生文件写盘全通。注意:\nGET /api/models/templates mgr 路由未实现 (Phase 6), picker 降级为库空提示;\napp 新二进制热替换进 sbx-ddd-app-1 实测, 容器 recreate 回退旧版。\nPhase 5 已完成 (usage 汇总): mgr/src/usage.rs 与 UsagePage 在 Phase 1.2/2/S4 已落地——按需 fan-out 到各沙箱 /api/models/usage (30s 每 (sandbox,window) 缓存, 错误隔离), S4 totals 派生 + 跨沙箱 bars + 14 天趋势 + 按日筛选。本轮验证: aio-app 156 + aio-mgr 129 测试全绿; puppeteer 16/16 实测 (fan-out wire 校验/totals/pi 行/今日空态/汇总视图 cards+bars+donut+表(沙箱列)/单沙箱视图(趋势+按日筛选,无沙箱列)/窗口重取/零页面错误)。实测数据: ddd pi deepseek-v4-flash 1k in / 388 out / 64.1% 缓存命中 / $0.0004。今日窗口 0 行属后端日期桶行为, 页面空态渲染正确。\nPhase 6 已完成: (1) mgr GET /api/models/templates 路由确认已在 78064bb 落地
+(含 get_templates_omits_api_key_entirely 测试); (2) app 旧 canonical store
+残留清理——discover.rs 过时 canonical 注释改为 sandbox incremental store
+语义, cargo check/test/clippy -p aio-app 全过 (156 tests); (3) mgr-web
+Phase 6.1 清理: 删 AgentAssignControl.tsx (孤儿组件, 唯一引用是 i18n mpAgents
+键) + i18n.ts 删 56 个死 key (mp* profile 指派系列 + maStrip/maCurrentBinding/
+maInSync 等 profile 语义残留) + styles.css 删 .agents/.profile-bar/.ml-catalog-hint
+死 CSS; npm run build 过。spec 同步: frontend/directory-structure.md 重写
+models/ 目录段为 cc-switch 实际结构 (ModelsPage/SandboxModelConfigTab/
+SwitchAgentPanel/IncrementalAgentPanel/ProviderEditorModal/TemplatePickerModal/
+SourceCodeEditor/sandboxTypes.ts) + types.ts owner 注释 + 弹层契约; component-
+guidelines.md PresetList 引用更新为历史时态。workspace cargo test 全绿
+(aio-app 156 + aio-mgr 129 + aio-models 50); clippy 4 警告均位于 mgr/
+usertools.rs (09-23 任务范围, 与本轮无关)。docs/ 无模型配置相关文档需更新。
+全部 6 个 Phase 完成, 待最终 commit + archive。",",
   "meta": {}
 }

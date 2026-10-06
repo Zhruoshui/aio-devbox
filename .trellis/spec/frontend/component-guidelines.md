@@ -122,9 +122,10 @@ copy it from an existing one:
 
 ## Dialogs: use `components/Dialogs.tsx`, never browser-native (09-15)
 
-Browser-native `confirm()` / `prompt()` / `alert()` are **banned** — all five
-legacy call sites (ModelsPage import/rename/delete, PresetList delete) were
-migrated to `src/components/Dialogs.tsx`. New confirmation or text-input flows
+Browser-native `confirm()` / `prompt()` / `alert()` are **banned** — all
+legacy call sites (ModelsPage import/rename/delete + the old PresetList delete,
+both since removed in the cc-switch refactor) were migrated to
+`src/components/Dialogs.tsx`. New confirmation or text-input flows
 MUST reuse these instead of rolling a new inline dialog:
 
 - `ConfirmDialog { open, title, desc?, danger?, confirmLabel?, cancelLabel?, onConfirm, onCancel }`
