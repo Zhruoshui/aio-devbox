@@ -1008,8 +1008,6 @@ body {
 /* Page-level styles for sandbox-list.html's static prototype (the shared
    component classes — .card/.chip/.segmented/.btn/.badge/.sdot/.notice —
    live in components.css). */
-/* .agents (2-col agent checkbox grid) moved to the wizard section — shared
-   with AgentAssignControl (quick-assign popover + env editor). */
 .toolbar {
   display: flex;
   align-items: center;
@@ -1392,8 +1390,6 @@ body {
   font-weight: 400;
   flex-shrink: 0;
 }
-/* Agent-subset checkbox group (AgentAssignControl): 2-column compact grid
-   used by the sandbox-card quick-assign popover AND the env editor. */
 /* S1 installed-service status dot (ServicesPicker readonly): tiny, no
    text, colored by state - on = success, off = muted. */
 .svc-dot {
@@ -1454,17 +1450,6 @@ body {
 .svc-dep-hint {
   flex-basis: 100%;
   color: var(--muted);
-}
-.agents {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px var(--space-3);
-  font-size: var(--text-sm);
-}
-.agents label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
 }
 .side {
   position: sticky;
@@ -1854,27 +1839,6 @@ body {
  * ported (mgr has no sandbox-local agent APIs). z-order: scrim 30 < drawer
  * 31 < overlay 40 (discover modal above the drawer, same as the workbench). */
 
-/* ── profile bar + tabs (09-11 prototype redesign, models.html) ─── */
-.profile-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-5);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-ring);
-  flex-wrap: wrap;
-}
-.profile-bar .lbl {
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-.profile-bar .hint {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  margin-left: auto;
-}
 /* section heading — title + sub + actions (prototype .sec-head) */
 .sec-head {
   display: flex;
@@ -2287,10 +2251,6 @@ body {
     animation: none;
   }
 }
-.ml-catalog-hint {
-  margin-top: var(--space-1);
-}
-
 /* ── ModelPicker（09-11 改版后由 .model-opt 单选组取代，类已删） ── */
 
 /* ── shared table pieces (usage detail table) ────────────────────── */
