@@ -32,6 +32,14 @@ import {
   type UsageFanout,
 } from "./pages/models/types";
 import { decodeManifest, type Manifest, type RegisterButtonInput } from "./pages/workspace/types";
+import {
+  decodeAgents,
+  decodeApplyResult,
+  decodeSandboxAgentConfig,
+  type AgentsResponse,
+  type ApplyResult,
+  type SandboxAgentConfig,
+} from "./pages/models/sandboxTypes";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -332,4 +340,37 @@ export async function deleteSandboxButton(name: string, id: string): Promise<voi
  * /api/buttons/probe; 1-65535, 0/8088/non-numeric -> 400). */
 export function probeSandboxPort(name: string, port: number): Promise<{ listening: boolean }> {
   return get(`/api/sbx/${name}/api/buttons/probe?port=${port}`);
+}
+
+// ── per-sandbox model config (cc-switch refactor Phase 4) ──────────
+//
+// These hit the SANDBOX APP's own /api/models/* handlers through mgr's
+// /api/sbx/:name proxy — each sandbox owns its agent configs end-to-end
+// (prd D1). The wire shapes are the app's (aio-models snapshot/incremental
+// types); decoding happens in pages/models/sandboxTypes.ts. A stopped
+// sandbox fails at the proxy with 502 (proxy.rs never double-guesses).
+
+/** GET /api/sbx/:name/api/models/config — the sandbox's full agent config.
+ *  The app returns `{}` for a sandbox that was never configured. */
+export function getSandboxModelConfig(name: string): Promise<SandboxAgentConfig> {
+  return get<unknown>(`/api/sbx/${name}/api/models/config`).then(decodeSandboxAgentConfig);
+}
+
+/** PUT /api/sbx/:name/api/models/config — save the full agent config. */
+export function putSandboxModelConfig(
+  name: string,
+  config: SandboxAgentConfig,
+): Promise<{ ok: boolean }> {
+  return send(`/api/sbx/${name}/api/models/config`, "PUT", config);
+}
+
+/** GET /api/sbx/:name/api/models/agents — per-agent install + live readback. */
+export function getSandboxAgents(name: string): Promise<AgentsResponse> {
+  return get<unknown>(`/api/sbx/${name}/api/models/agents`).then(decodeAgents);
+}
+
+/** POST /api/sbx/:name/api/models/apply/:agent — render one agent's config
+ *  to its native files (claude | codex | pi | opencode). */
+export function applySandboxAgent(name: string, agent: string): Promise<ApplyResult> {
+  return send(`/api/sbx/${name}/api/models/apply/${enc(agent)}`, "POST").then(decodeApplyResult);
 }

@@ -337,3 +337,62 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 .type-opt:has(:checked) { box-shadow: 0 0 0 2px var(--fg); }
 .type-opt .radio { margin-top: 3px; }
 .type-opt small { display: block; color: var(--muted); font-size: var(--text-xs); }
+/* ─── sandbox 详情页「模型配置」标签（cc-switch 重构 Phase 4） ────────
+ * .sbx-* 覆盖 tab 布局 / 快照卡片 / 编辑器；.sce-* 是 SourceCodeEditor
+ * 的视图与编辑态；.tpl-* 是 TemplatePickerModal 的列表。全部通过
+ * var(--*) 取色，深浅色靠 [data-mode] token（同文件头注释的设计决策）。 */
+.sbx-tab { display: flex; flex-direction: column; gap: var(--space-4); }
+.sbx-panel { display: flex; flex-direction: column; gap: var(--space-3); }
+.sbx-meta { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.sbx-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.sbx-spacer { flex: 1; }
+.sbx-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-3); }
+.sbx-card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--elev-ring);
+}
+.sbx-card.current { box-shadow: 0 0 0 2px var(--accent); }
+.sbx-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.sbx-card-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbx-card-actions { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.sbx-editor {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--elev-ring);
+}
+.sbx-env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.sbx-model-line { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--space-2); align-items: center; }
+.sbx-source { display: flex; flex-direction: column; gap: var(--space-2); }
+.sbx-source-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+
+/* SourceCodeEditor */
+.sce-view, .sce-edit { display: flex; flex-direction: column; gap: var(--space-2); }
+.sce-bar { display: flex; align-items: center; gap: var(--space-2); }
+.sce-lang {
+  font-size: var(--text-xs); font-family: var(--font-mono); color: var(--muted);
+  padding: 0 var(--space-2); border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--border-soft); line-height: 18px;
+}
+.sce-err { font-size: var(--text-xs); color: var(--danger); overflow-wrap: anywhere; }
+.sce-pre, .sce-area {
+  margin: 0; padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--surface-warm); border: 1px solid var(--border-soft);
+  font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.5;
+  white-space: pre; overflow: auto; max-height: 420px; overflow-wrap: normal;
+}
+.sce-area { resize: vertical; white-space: pre; width: 100%; box-sizing: border-box; color: var(--fg); }
+.sce-area:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* TemplatePickerModal */
+.tpl-dialog { max-width: 560px; }
+.tpl-list { display: flex; flex-direction: column; gap: var(--space-1); max-height: 50vh; overflow: auto; }
+.tpl-row {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-md);
+  background: transparent; color: var(--fg); cursor: pointer;
+}
+.tpl-row:hover { background: color-mix(in oklch, var(--fg) 6%, transparent); }
+.tpl-row-head { display: flex; align-items: center; gap: var(--space-2); }
+.tpl-row-name { font-weight: 500; }
+.tpl-row-url { font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; }

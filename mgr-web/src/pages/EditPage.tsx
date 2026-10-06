@@ -23,8 +23,9 @@ import {
   putSandbox,
 } from "../api";
 import { t, type Lang } from "../i18n";
-import type { SandboxEnv, Scenario, ServicesInput } from "../types";
+import type { Sandbox, SandboxEnv, Scenario, ServicesInput } from "../types";
 import { EnvPicker } from "./EnvPicker";
+import { SandboxModelConfigTab } from "./models/SandboxModelConfigTab";
 import { ServicesPicker } from "./ServicesPicker";
 
 interface Props {
@@ -46,6 +47,12 @@ export function EditPage({
 }: Props): JSX.Element {
   const [env, setEnv] = useState<SandboxEnv | null>(null);
   const [origEnv, setOrigEnv] = useState<SandboxEnv | null>(null);
+  // The loaded sandbox row — the model-config tab needs its DB status
+  // (a stopped sandbox's app is unreachable; the tab shows a hint instead).
+  const [sandbox, setSandbox] = useState<Sandbox | null>(null);
+  // Top-level tab: environment editor (default) | sandbox agent model config
+  // (cc-switch refactor Phase 4 — each sandbox owns its agent configs).
+  const [tab, setTab] = useState<"env" | "models">("env");
   const [cpus, setCpus] = useState("");
   const [memMb, setMemMb] = useState("");
   const [origCpus, setOrigCpus] = useState<number | null>(null);
@@ -75,6 +82,7 @@ export function EditPage({
     getSandbox(name)
       .then((sb) => {
         if (cancelled) return;
+        setSandbox(sb);
         setEnv(sb.env);
         setOrigEnv(sb.env);
         setOrigCpus(sb.cpus);
@@ -155,6 +163,39 @@ export function EditPage({
           </button>
         </div>
       </div>
+
+      {/* Top-level tabs: the environment editor (PUT /api/sandboxes/:name →
+          recreate job) and the sandbox's own agent model config (cc-switch
+          refactor Phase 4, prd R2 — a separate concern that never recreates
+          the sandbox). */}
+      <div className="tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === "env"}
+          className={tab === "env" ? "active" : ""}
+          onClick={() => setTab("env")}
+        >
+          {t(lang, "edTabEnv")}
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "models"}
+          className={tab === "models" ? "active" : ""}
+          onClick={() => setTab("models")}
+        >
+          {t(lang, "edTabModels")}
+        </button>
+      </div>
+
+      {tab === "models" ? (
+        sandbox !== null && (
+          <SandboxModelConfigTab
+            sandboxName={name}
+            sandboxStatus={sandbox.status}
+            lang={lang}
+          />
+        )
+      ) : (
       <div className="wizard">
         {scenarios === null || env === null ? (
           <div className="ml-loading">{t(lang, "loading")}</div>
@@ -223,6 +264,7 @@ export function EditPage({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
