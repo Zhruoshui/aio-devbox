@@ -33,7 +33,8 @@ const TOTAL_BUDGET: Duration = Duration::from_secs(20);
 #[allow(non_snake_case)]
 #[serde(untagged)]
 pub enum DiscoverRequest {
-    /// Resolve everything from the canonical store by provider id.
+    /// Resolve everything from the sandbox's incremental provider store
+    /// (pi/opencode share the same provider namespace) by provider id.
     ById { providerId: String },
     /// Literal fields (transient provider being edited, or ad-hoc endpoint).
     Literal {
