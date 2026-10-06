@@ -1323,3 +1323,41 @@ planning 不归档（AC6/AC9/AC10 未验）。
 - 范围: mgr models.rs ProviderLibrary 重写;旧 profile/sync/import/catalog/model_profile 全删;mgr-web ModelsPage 重写为纯供应商库 + ProviderEditorModal 中心弹窗;SandboxListPage/EditPage 移除 model-profile 指派 UI;spec 同步。
 - 验证: cargo test --workspace 全 433 通过;cd mgr-web && npm run build 通过。
 - 下一步: Phase 2 app 渲染 cc-switch 化(注意 mgr_sync 已废),Phase 4 sandbox 详情页模型配置标签,Phase 5 usage 汇总,Phase 6 清理旧 canonical store。
+
+
+## Session 6: cc-switch 模型配置重构 Phase 4/6 收尾
+
+**Date**: 2026-10-06
+**Task**: cc-switch 模型配置重构 Phase 4/6 收尾
+**Branch**: `feat/model-config-cc-switch`
+
+### Summary
+
+Phase 6: 确认 mgr templates 路由已在 78064bb 落地; 清理 app discover.rs 过时 canonical 注释; mgr-web 删 AgentAssignControl 孤儿组件 + 56 个 profile 死 i18n key + .agents/.profile-bar/.ml-catalog-hint 死 CSS; spec frontend/directory-structure.md 重写 models/ 目录段为 cc-switch 实际结构; component-guidelines.md PresetList 引用改历史时态。Phase 4 前端 (未提交部分): sandbox 详情页模型配置标签 + SwitchAgentPanel/IncrementalAgentPanel/SourceCodeEditor/TemplatePickerModal/sandboxTypes.ts 全部提交。workspace 362 tests + mgr-web build 全绿。task 10-04-model-config-cc-switch 全 6 Phase 完成并 archive。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4c51126` | (see git log) |
+| `93ae163` | (see git log) |
+| `a949589` | (see git log) |
+| `680655b` | (see git log) |
+| `4f9f9ad` | (see git log) |
+| `200ea20` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
