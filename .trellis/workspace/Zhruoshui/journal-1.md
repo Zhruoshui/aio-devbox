@@ -1395,3 +1395,37 @@ Phase 6: 确认 mgr templates 路由已在 78064bb 落地; 清理 app discover.r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 供应商库空库入口修复 + 沙箱模型配置迁工作区 pane
+
+**Date**: 2026-10-10
+**Task**: 供应商库空库入口修复 + 沙箱模型配置迁工作区 pane
+**Branch**: `main`
+
+### Summary
+
+10-10-models-workspace-pane：cc-switch 重构后两点反馈修正。R1 供应商库空库恒渲染 ProviderGrid（修复无新建入口的鸡生蛋 bug，清 pi 导入残留文案/死键）；R2 模型配置从 EditPage Tab 迁至工作区 per-sandbox pane——type=page 渲染链路接回（SandboxTree 放行+PaneForService 分支），modelsConfig 条目由 mgr-web 客户端合成（injectSyntheticServices，不进 services.toml 烘焙，对存量沙箱镜像即时生效），新 panes/ModelsPane 复用 SandboxModelConfigTab，后端零改动。puppeteer(chrome-headless-shell) 实测 AC1-AC6 全过；spec page-RETIRED 节与 services.toml 注释同步改写；测试沙箱已清理；mgr 容器热部署待镜像重建固化。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `16ca2ab` | (see git log) |
+| `ec44352` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1397 | Active |
+| `journal-1.md` | ~1431 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-10-10 | 供应商库空库入口修复 + 沙箱模型配置迁工作区 pane | `16ca2ab`, `ec44352` | `main` |
 | 7 | 2026-10-10 | cc-switch 全栈干净重建验证 + composegen 残留清理 | `049c6a3`, `22f3fab` | `feat/model-config-cc-switch` |
 | 6 | 2026-10-06 | cc-switch 模型配置重构 Phase 4/6 收尾 | `4c51126`, `93ae163`, `a949589`, `680655b`, `4f9f9ad`, `200ea20` | `feat/model-config-cc-switch` |
 | 5 | 2026-09-22 | mise 卷化收尾：真实栈验收 + 两子任务归档 | `e03464a`, `11deadc`, `2c22bb7`, `938e1df`, `979da28` | `feat/scenario-granularity-mise` |
