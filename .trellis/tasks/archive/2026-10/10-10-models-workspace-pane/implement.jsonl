@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web 总体规范与 Pane types 节——其中 page 类型 RETIRED 的指导在本任务被推翻，实现以本任务 design.md D2/D3 为准"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "mgr-web 目录约定——新文件 pages/workspace/panes/ModelsPane.tsx 与 IframePane/XtermPane 同级落位"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "组件规范——ModelsPage 删空态分支、PaneForService 加 page 分支须遵守"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "tsc --noEmit 是构建硬门槛；ServiceEntry 类型已含 page，勿改类型定义"}
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "app 层 /api/models/* 契约与 key-masking 约定（只读参考）：本任务后端零改动，代理与端点契约保持原样"}
+{"file": ".trellis/tasks/archive/2026-10/10-04-model-config-cc-switch/prd.md", "reason": "cc-switch 重构原始 PRD——供应商库/沙箱配置分工、D5 空库起步、D6 删 pi 导入的来龙去脉"}

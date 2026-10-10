@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量检查清单——检查阶段逐条过"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "类型检查门槛（tsc --noEmit）与类型守卫约定"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "核对改动未破坏总体架构约定；page 类型指导已按本任务 design.md 更新"}
+{"file": ".trellis/tasks/10-10-models-workspace-pane/prd.md", "reason": "验收标准 AC1–AC6 逐条核对"}
