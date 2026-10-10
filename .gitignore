@@ -65,5 +65,8 @@ aio-offline-bundle/
 # (per-machine, gitignored). Canonical path: `make build-base` runs gen first.
 Dockerfile.base
 
-# sandbox-mgr runtime state (state.db, generated per-sandbox compose/)
+# sandbox-mgr runtime state (state.db, generated per-sandbox compose/).
+# mgr-data.old-root/ = virtiofs 上 host-root 写入、沙箱内删不掉的历史残留
+# （host 侧 sudo rm -rf 后此条目可移除）
 mgr-data/
+mgr-data.old-root/
