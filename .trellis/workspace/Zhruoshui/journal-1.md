@@ -1361,3 +1361,37 @@ Phase 6: 确认 mgr templates 路由已在 78064bb 落地; 清理 app discover.r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: cc-switch 全栈干净重建验证 + composegen 残留清理
+
+**Date**: 2026-10-10
+**Task**: cc-switch 全栈干净重建验证 + composegen 残留清理
+**Branch**: `feat/model-config-cc-switch`
+
+### Summary
+
+用户授权删除旧数据后全栈重建: 清空 mgr-data (state.db/kv/jobs/生成物) + 删 sbx-ddd_workspace 卷 + 删旧 env-hash 镜像; make mgr-up 重 build aio-mgr (含 Phase 4/6 前端与 templates 路由, 已验证 bake); 重新 create 沙箱 ddd (新镜像编译 Phase 2 aio-app)。端到端实测: POST providers + GET templates (apiKey 完全不出现在响应) + 沙箱 /api/models/config 新端点全绿。重建中发现并修复 composegen.rs 遗漏——仍注入 MGR_URL/MGR_SANDBOX_NAME (引用已删的 mgr_sync.rs), 测试断言同步翻转, mgr 129 tests 全绿, 沙箱以新 compose 重建确认 env 干净 (MGR_REDIRECT_URL 保留)。坑: virtiofs 上 host-daemon root 写入的文件 (mgr-data/instances/sbx-ooo-renamed) 沙箱内连 sudo/容器内 root 都删不掉, mv 隔离为 mgr-data.old-root + gitignore (待 host 侧 sudo rm)。归档遗留任务 09-23-image-detail-tools-log (实现 cd681e9 早已落地)。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `049c6a3` | (see git log) |
+| `22f3fab` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
