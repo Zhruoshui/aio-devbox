@@ -3392,6 +3392,23 @@ body {
   animation: rot 0.9s linear infinite;
 }
 
+/* Models-config pane (10-10-models-workspace-pane): the cc-switch form was
+ * designed for the 1200px .page container; a golden-layout pane can be much
+ * narrower. Scrollable box (golden-layout's .lm_content clips overflow, so
+ * the pane must scroll itself) with a min-width floor on the FORM only
+ * (.sbx-tab - the hint/error branches stay natural-width) so the form
+ * grids stay usable and horizontal scroll appears below the floor, and a
+ * reading max-width so lines don't stretch on wide panes. Tokens only -
+ * dark/light via [data-mode]. */
+.pane-models {
+  overflow: auto;
+  padding: var(--space-4);
+}
+.pane-models .sbx-tab {
+  min-width: 560px;
+  max-width: 880px;
+}
+
 /* ── register dialog pieces (ported from web/src/styles.css) ───────── */
 
 /* Register dialog port liveness hint: non-blocking probe result under the

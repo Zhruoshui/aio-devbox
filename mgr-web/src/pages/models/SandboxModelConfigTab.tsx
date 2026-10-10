@@ -1,5 +1,7 @@
-// SandboxModelConfigTab — the "模型配置" tab of the sandbox detail page
-// (task 10-04-model-config-cc-switch Phase 4, prd R2/R3).
+// SandboxModelConfigTab — a sandbox's own agent model config, "模型配置"
+// (task 10-04-model-config-cc-switch Phase 4, prd R2/R3; host moved from the
+// sandbox edit page's tab to the workspace's client-synthesized modelsConfig
+// pane in 10-10-models-workspace-pane — mounted by panes/ModelsPane.tsx).
 //
 // Each sandbox owns its four agent configs end-to-end (prd D1); this tab
 // loads the sandbox app's /api/models/config + /api/models/agents through

@@ -40,26 +40,32 @@ mgr-web/src/
     ├── SandboxListPage.tsx  # 卡片列表(segmented 筛选+搜索/sbx 卡片/删除
     │                        #   .dialog);model-profile 快捷指派已删(cc-switch)
     ├── CreatePage.tsx / AdoptPage.tsx / EditPage.tsx (共用 EnvPicker;
-    │                        Edit 顶层「环境/模型配置」双标签, D8→cc-switch)
+    │                        EditPage 无标签栏直出 env 向导——模型配置标签
+    │                        已迁工作区 pane, 10-10-models-workspace-pane)
     ├── ServicesPicker.tsx   # 创建/编辑的服务开关区(四开关,pi-web 联动)
     ├── JobView.tsx / ImagesPage.tsx(+ImageDetailDialog) / UsagePage.tsx
     ├── UserToolsPage.tsx    # 用户工具编辑器
     ├── models/             # ModelsPage(cc-switch 供应商库): ProviderGrid
-    │                        #   + ModelRow 卡片 + ProviderEditorModal 中心
-    │                        #   弹窗;SandboxModelConfigTab(EditPage 模型配置
-    │                        #   标签,四 agent 子标签: SwitchAgentPanel
-    │                        #   (claude/codex 快照切换) + IncrementalAgentPanel
-    │                        #   (pi/opencode 读-改-合并));sandboxTypes.ts =
-    │                        #   沙箱 /api/models/* 边界解码单一 owner
+    │                        #   恒渲染(空库=仅新增幽灵卡片)+ ModelRow 卡片
+    │                        #   + ProviderEditorModal 中心弹窗;
+    │                        #   SandboxModelConfigTab(由 workspace/panes/
+    │                        #   ModelsPane 挂载,四 agent 子标签:
+    │                        #   SwitchAgentPanel(claude/codex 快照切换) +
+    │                        #   IncrementalAgentPanel(pi/opencode 读-改-合并));
+    │                        #   sandboxTypes.ts = 沙箱 /api/models/* 边界解码
+    │                        #   单一 owner
     └── workspace/
         ├── paneUrl.ts      # per-sandbox URL 唯一工厂
         ├── SandboxTree.tsx # 面板头+.ws-search 筛选+tree-toggle 行结构+
         │                   #   服务叶子+注册按钮行;mgr.treeCollapsed 独立键
         ├── NodeMenu.tsx    # 「更多」fixed .menu(role=menu,Escape/外点关)
         ├── RegisterDialog.tsx  # 注册自定义按钮 .dialog
-        ├── panes/          # XtermPane / IframePane / CodeServerPane
-        │                   #   (per-sandbox 绑定, componentState.sandbox)
-        └── types.ts        # manifest + RegisterButtonInput 契约
+        ├── panes/          # XtermPane / IframePane / CodeServerPane /
+        │                   #   ModelsPane(page 类型, 挂 SandboxModelConfigTab;
+        │                   #   per-sandbox 绑定, componentState.sandbox)
+        └── types.ts        # manifest + RegisterButtonInput 契约 +
+                            #   injectSyntheticServices(modelsConfig 条目
+                            #   客户端合成的单一 owner)
 ```
 
 约定:
@@ -69,8 +75,9 @@ mgr-web/src/
   models/*` 代理的单一 owner；PUT model_profile 已随 profile 系统删除）。
 - **panes/ 一类 service type 一个通用 pane**: XtermPane(agent/终端)、
   IframePane(web/VNC/pi-web)、CodeServerPane(按需拉起 + probe 轮询,
-  D4)。新 service 是 manifest/按钮条目,**不加** React 组件,除非出现新
-  type。
+  D4)、ModelsPane(page/modelsConfig, 10-10)。新 service 是 manifest/按钮
+  条目,**不加** React 组件,除非出现新 type;page 类型例外——条目由
+  mgr-web 客户端合成(见 types.ts),**不进** services.toml。
 - **一切沙箱面经 mgr 代理**(paneUrl.ts 是唯一 URL 工厂): 终端 WS =
   `/api/sbx/<name>/api/term/ws?cmd=...`(same-origin),iframe 类经子域名。
   见 backend/sandbox-mgr-ops.md 契约 10。
@@ -110,8 +117,9 @@ mgr-web/src/
 ## web/ — 已退役(墓碑)
 
 09-09 D1: per-sandbox workbench SPA **已废弃**——golden-layout 工作区、
-pane 组件、侧栏已迁入 mgr-web(见上节);沙箱内模型 UI 已消失(模型配置
-上收 mgr per-profile, 契约 7)。目录物理删除与 app 静态目录换 redirect 页
-在 Phase 6 落地。**不要再往 web/ 加任何东西**;迁移遗漏的能力进 mgr-web
-对应模块。terminal pty/resize 协议契约随 XtermPane 迁移,见
-[xterm-pane.md](./xterm-pane.md)。
+pane 组件、侧栏已迁入 mgr-web(见上节);沙箱内自有模型 UI 已消失(10-04
+起模型配置 = mgr 供应商库模板 + 每沙箱 cc-switch 配置,入口是 mgr-web
+工作区的 modelsConfig 合成 pane,10-10)。目录物理删除与 app 静态目录换
+redirect 页在 Phase 6 落地。**不要再往 web/ 加任何东西**;迁移遗漏的
+能力进 mgr-web 对应模块。terminal pty/resize 协议契约随 XtermPane 迁移,
+见 [xterm-pane.md](./xterm-pane.md)。

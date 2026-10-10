@@ -241,7 +241,8 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     edSave: "保存并重建",
     edSameEnv: "配置未变化。",
     edSvcFixed: "服务在创建时固定，由镜像内容决定，不可更改。",
-    edTabEnv: "环境",
+    // Workspace modelsConfig pane label (client-synthesized manifest entry;
+    // the EditPage tab bar that used to carry it is gone).
     edTabModels: "模型配置",
     // job progress
     jobCreating: "正在创建沙箱…",
@@ -366,14 +367,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcCatalogError: "无法访问 models.dev",
     mcLoading: "加载中…",
     mcLoadFailed: "加载失败：",
-    mcNoProviders: "暂无供应商。点击新增或从 pi 导入。",
     mcSelectProvider: "选择供应商，或新增一个。",
     mcDirty: "未保存",
     mcNewProvider: "新供应商",
     mcInvalidJson: "无效 JSON",
-    mcImportPi: "从 pi 导入",
-    mcImportConfirm: "从 pi 配置导入供应商？（读取 mgr 所在主机的 ~/.pi/agent/models.json）",
-    mcImportResult: "导入完成：导入 {imported}，跳过 {skipped}",
     mcTest: "检测",
     mcTestOk: "已连通",
     mcTestFail: "失败",
@@ -735,7 +732,8 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     edSave: "Save & recreate",
     edSameEnv: "No changes yet.",
     edSvcFixed: "Services are fixed at create time by the image content and cannot be changed.",
-    edTabEnv: "Environment",
+    // Workspace modelsConfig pane label (client-synthesized manifest entry;
+    // the EditPage tab bar that used to carry it is gone).
     edTabModels: "Model config",
     // job progress
     jobCreating: "Creating sandbox…",
@@ -915,14 +913,10 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mcCatalogError: "Could not reach models.dev",
     mcLoading: "Loading…",
     mcLoadFailed: "Failed to load: ",
-    mcNoProviders: "No providers yet. Add one or import from pi.",
     mcSelectProvider: "Select a provider, or add a new one.",
     mcDirty: "unsaved",
     mcNewProvider: "new-provider",
     mcInvalidJson: "Invalid JSON",
-    mcImportPi: "Import from pi",
-    mcImportConfirm: "Import providers from pi config? (reads ~/.pi/agent/models.json on mgr's host)",
-    mcImportResult: "Import done: imported {imported}, skipped {skipped}",
     mcTest: "Test",
     mcTestOk: "Connected",
     mcTestFail: "Failed",

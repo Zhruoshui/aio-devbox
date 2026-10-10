@@ -111,7 +111,7 @@ const INSTALLED_GATE: Record<string, keyof Sandbox["installed_services"]> = {
 };
 
 /** A sandbox's launchable buttons, in the workbench group order
- * (web -> tui -> custom) flattened into one list. Two filters:
+ * (web -> tui -> page -> custom) flattened into one list. Two filters:
  * 1. INSTALLED GATE (D2): a built-in button renders only when its service
  *    was installed at create time (`installed` carries the mgr row's
  *    installed_services; `undefined` = old backend without the field ->
@@ -123,8 +123,9 @@ const INSTALLED_GATE: Record<string, keyof Sandbox["installed_services"]> = {
  *    exception: ON_DEMAND services (D4: code-server) are shown even when
  *    disabled, because "disabled" (nothing listening on localhost:8200) is
  *    exactly the state the pane's start machine is FOR. type "page" entries
- *    are deliberately EXCLUDED - mgr-web's own Models page is that surface,
- *    and Phase 6 removes the entry from services.toml. */
+ *    are client-synthesized by mgr-web after the manifest decode (D2,
+ *    10-10-models-workspace-pane: the modelsConfig button) - they flow
+ *    through here like any built-in and are NOT baked in services.toml. */
 function buttonsOf(
   services: ServiceEntry[],
   installed: Sandbox["installed_services"] | undefined,
@@ -132,12 +133,12 @@ function buttonsOf(
   const visible = services.filter(
     (s) =>
       (installed === undefined || s.deletable || !INSTALLED_GATE[s.id] || installed[INSTALLED_GATE[s.id]]) &&
-      (s.enabled || ON_DEMAND_SERVICE_IDS.has(s.id)) &&
-      s.type !== "page",
+      (s.enabled || ON_DEMAND_SERVICE_IDS.has(s.id)),
   );
   return [
     ...visible.filter((s) => s.type === "web" && !s.deletable),
     ...visible.filter((s) => s.type === "agent" && !s.deletable),
+    ...visible.filter((s) => s.type === "page" && !s.deletable),
     ...visible.filter((s) => s.deletable),
   ];
 }

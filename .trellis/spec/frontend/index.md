@@ -47,10 +47,14 @@ child windows still render the lone workspace without the shell
 
 - `"web"` → `IframePane` (containerized service in an iframe; TCP-probed `enabled`).
 - `"agent"` → `XtermPane` (pty CLI over the mgr proxy; `enabled` = `command_exists`).
-- `"page"` pane type is RETIRED with web/ (09-09 D1/D8): the in-sandbox model
-  config UI is gone — model config lives in mgr-web's Models page (provider
-  library after cc-switch refactor; per-sandbox agent config will live on the
-  sandbox detail page in Phase 4). Do not re-introduce `"page"` panes.
+- `"page"` → native React pane rendered by mgr-web itself (10-10-models-workspace-pane).
+  The ONLY page entry is `modelsConfig` (ModelsPane → SandboxModelConfigTab, per-sandbox
+  model config like a code-server pane), and it is **client-synthesized**: injected after
+  manifest decode by `injectSyntheticServices` (`pages/workspace/types.ts`, id-dedup) at
+  the single fetch site `WorkspacePage.loadManifest`. Do NOT add `type = "page"` entries
+  to `app/services.toml` — it is `include_str!`-baked into per-sandbox images, so a baked
+  entry never reaches existing sandboxes (09-09's "retired" note was about the old
+  in-sandbox model UI; the pane mechanism itself is alive again via synthesis).
 
 ## Guidelines Index
 

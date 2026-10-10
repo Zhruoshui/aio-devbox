@@ -68,8 +68,16 @@ import { NodeMenu } from "./workspace/NodeMenu";
 import { SandboxTree, serviceIcon, type ManifestState } from "./workspace/SandboxTree";
 import { IframePane } from "./workspace/panes/IframePane";
 import { XtermPane } from "./workspace/panes/XtermPane";
-import { isServiceEntry, ON_DEMAND_SERVICE_IDS, type RegisterButtonInput, type ServiceEntry } from "./workspace/types";
+import {
+  injectSyntheticServices,
+  isServiceEntry,
+  MODELS_CONFIG_ID,
+  ON_DEMAND_SERVICE_IDS,
+  type RegisterButtonInput,
+  type ServiceEntry,
+} from "./workspace/types";
 import { CodeServerPane } from "./workspace/panes/CodeServerPane";
+import { ModelsPane } from "./workspace/panes/ModelsPane";
 
 const PANE_COMPONENT_TYPE = "mgr-pane";
 const TERMINAL_ID = "terminal";
@@ -93,6 +101,16 @@ const POLL_MS = 4000;
  * the current one.
  */
 const langRef: { current: Lang } = { current: "zh-CN" };
+
+/** Latest live-state per sandbox name (name -> Sandbox.live, "running" |
+ * "stopped" | ...), kept current on every render for pane components
+ * created outside React's prop flow - the same "latest value for
+ * imperative code" pattern as langRef, with the same creation-time
+ * snapshot semantics. Consumer: PaneForService passes ModelsPane its
+ * status from here (a pane restored from a saved layout reads the list
+ * state that gated the boot decision; a popout child's cold-start miss
+ * resolves optimistically inside ModelsPane). */
+const liveRef: { current: Record<string, string> } = { current: {} };
 
 /**
  * Popout child windows carry their layout in localStorage under the
@@ -197,6 +215,12 @@ export function WorkspacePage({ lang, focus, onManage, onEditSandbox }: Props): 
     () => localStorage.getItem(TREE_COLLAPSED_KEY) === "1",
   );
 
+  // Keep the imperative-code live-state map current on every render (the
+  // module-level liveRef doc explains the pattern).
+  if (sandboxes !== null) {
+    liveRef.current = Object.fromEntries(sandboxes.map((s) => [s.name, s.live]));
+  }
+
   // ── sandbox list: 4s poll (same pattern as SandboxListPage) ───────
 
   const fetchList = useCallback(async (): Promise<void> => {
@@ -261,7 +285,16 @@ export function WorkspacePage({ lang, focus, onManage, onEditSandbox }: Props): 
     }));
     getSandboxManifest(name)
       .then((m) => {
-        setManifests((prev) => ({ ...prev, [name]: { status: "ok", services: m.services, error: "" } }));
+        // Client-synthesized entries ride every STORED manifest (D2,
+        // 10-10-models-workspace-pane): this is the single injection point,
+        // and every consumer (tree buttons, tab-glyph lookup, pane launch)
+        // reads the stored services array. The label is a fetch-time lang
+        // snapshot (re-localized on the next refresh).
+        const services = injectSyntheticServices(
+          m.services,
+          t(langRef.current, "edTabModels"),
+        );
+        setManifests((prev) => ({ ...prev, [name]: { status: "ok", services, error: "" } }));
       })
       .catch((e) => {
         setManifests((prev) => ({
@@ -762,11 +795,13 @@ export function WorkspacePage({ lang, focus, onManage, onEditSandbox }: Props): 
 }
 
 /** Render the generic pane for a service by its type. "page" entries are
- * filtered out of the tree (mgr-web's Models page replaces the sandbox-local
- * pane); that branch only guards a foreign componentState decoded from a
- * restored layout. ON_DEMAND services (D4: codeServer) get the start-state
- * machine pane instead of the plain iframe - a disabled manifest entry is
- * not a dead button but the pane's whole reason to exist. */
+ * client-synthesized (modelsConfig, injected after the manifest decode in
+ * loadManifest) and render the sandbox's cc-switch agent-config UI
+ * (ModelsPane); an unknown page id keeps the placeholder - nothing bakes
+ * page entries server-side anymore. ON_DEMAND services (D4: codeServer)
+ * get the start-state machine pane instead of the plain iframe - a
+ * disabled manifest entry is not a dead button but the pane's whole reason
+ * to exist. */
 function PaneForService({
   service,
   sandbox,
@@ -780,6 +815,15 @@ function PaneForService({
   if (service.type === "web") return <IframePane service={service} sandbox={sandbox} />;
   if (service.type === "agent")
     return <XtermPane service={service} sandbox={sandbox} lang={langRef.current} />;
+  if (service.type === "page" && service.id === MODELS_CONFIG_ID) {
+    return (
+      <ModelsPane
+        sandbox={sandbox}
+        status={liveRef.current[sandbox] ?? ""}
+        lang={langRef.current}
+      />
+    );
+  }
   return <div className="ws-empty">{service.label}</div>;
 }
 

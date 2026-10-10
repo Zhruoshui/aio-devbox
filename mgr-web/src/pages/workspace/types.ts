@@ -83,6 +83,44 @@ export interface RegisterButtonInput {
   port?: number;
 }
 
+// ── client-synthesized entries (10-10-models-workspace-pane D2) ────
+
+/** Service id of the client-synthesized models-config entry. The "page"
+ * render path (mgr-web React pane, no iframe/pty) is driven by entries
+ * mgr-web injects AFTER the manifest decode - services.toml deliberately
+ * bakes none (include_str! freezes it into each per-sandbox app image, so
+ * a baked entry would never reach already-built sandboxes; see the comment
+ * block at the bottom of app/services.toml). SandboxTree's serviceIcon
+ * maps this id to the "sliders" glyph. */
+export const MODELS_CONFIG_ID = "modelsConfig";
+
+/** Append mgr-web's client-synthesized manifest entries to a decoded
+ * manifest's services. Called by the manifest-state owner
+ * (WorkspacePage.loadManifest) as the SINGLE injection point - every
+ * surface (tree buttons, tab-glyph lookup, pane launch) reads the stored
+ * services array, so one injection covers all consumers. Idempotent by
+ * id: a future app image that bakes its own modelsConfig entry is not
+ * duplicated. `label` is the caller's localized "模型配置" (the injected
+ * label is a snapshot of the fetch-time lang; a mid-session language
+ * switch re-localizes on the next manifest refresh - same accepted
+ * limitation as pane titles). */
+export function injectSyntheticServices(
+  services: ServiceEntry[],
+  label: string,
+): ServiceEntry[] {
+  if (services.some((s) => s.id === MODELS_CONFIG_ID)) return services;
+  return [
+    ...services,
+    {
+      id: MODELS_CONFIG_ID,
+      type: "page",
+      enabled: true,
+      label,
+      deletable: false,
+    },
+  ];
+}
+
 // ── on-demand services (prd D4) ────────────────────────────────────
 
 /** The service ids whose pane starts their container on demand (D4:

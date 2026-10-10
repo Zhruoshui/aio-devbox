@@ -11,7 +11,9 @@
 # Fields:
 #   id     - button identifier (frontend key; stable for toggle state)
 #   type   - "web" (iframe pane, containerized) | "agent" (xterm pane, pty-launched CLI)
-#          | "page" (native React pane provided by the app itself; always enabled)
+#          | "page" (native React pane in mgr-web, CLIENT-SYNTHESIZED after the
+#          manifest decode - never baked here; see the modelsConfig note at the
+#          bottom of this file)
 #   target - host:port to TCP-probe for liveness (type=web only). `enabled` in the
 #            manifest = whether this is currently reachable (reflects compose profiles).
 #            MUST be a localhost address: all sandboxes' app containers join the shared
@@ -120,7 +122,12 @@ target = "localhost:30141"
 url = "http://{host}:{env:PI_WEB_HOST_PORT:30141}/"
 label = "pi Web"
 
-# modelsConfig (type=page) REMOVED (unified Phase 6, D1/D8): the per-sandbox
-# model-config UI is gone — mgr owns model config per-profile and the mgr-web
-# Models page is the only editor. The `"page"` ServiceType is retired; do not
-# re-add type=page entries.
+# modelsConfig (type=page): NOT an entry in this file. The "page" render path
+# lives again in mgr-web (task 10-10-models-workspace-pane D2): the entry is
+# CLIENT-SYNTHESIZED after the /api/manifest decode (id "modelsConfig"), the
+# sandbox tree shows it as a launch button, and a golden-layout pane hosts the
+# cc-switch agent-config UI over mgr's /api/sbx/:name proxy. Do NOT bake a
+# type=page entry here: include_str! freezes this file into each per-sandbox
+# sandbox-app-* image at build time, so a baked entry would only reach newly
+# built images - never the existing sandboxes the client-side injection
+# covers for free.

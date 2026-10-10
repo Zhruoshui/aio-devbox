@@ -12,8 +12,11 @@
 //
 // The cc-switch refactor dropped the model-profile assignment select: each
 // sandbox owns its agent configs end-to-end now (prd D1), and the mgr-side
-// PUT /api/sandboxes/:name/model_profile route is gone. Agent config moved
-// to the sandbox detail page (Phase 4 of the refactor).
+// PUT /api/sandboxes/:name/model_profile route is gone. Agent config lives
+// in the WORKSPACE as the client-synthesized modelsConfig pane
+// (10-10-models-workspace-pane R2) - this page is environment-only, so the
+// former top-level env/models tab bar is gone too (a single tab carried no
+// choice).
 
 import { useEffect, useState } from "react";
 
@@ -23,9 +26,8 @@ import {
   putSandbox,
 } from "../api";
 import { t, type Lang } from "../i18n";
-import type { Sandbox, SandboxEnv, Scenario, ServicesInput } from "../types";
+import type { SandboxEnv, Scenario, ServicesInput } from "../types";
 import { EnvPicker } from "./EnvPicker";
-import { SandboxModelConfigTab } from "./models/SandboxModelConfigTab";
 import { ServicesPicker } from "./ServicesPicker";
 
 interface Props {
@@ -47,12 +49,6 @@ export function EditPage({
 }: Props): JSX.Element {
   const [env, setEnv] = useState<SandboxEnv | null>(null);
   const [origEnv, setOrigEnv] = useState<SandboxEnv | null>(null);
-  // The loaded sandbox row — the model-config tab needs its DB status
-  // (a stopped sandbox's app is unreachable; the tab shows a hint instead).
-  const [sandbox, setSandbox] = useState<Sandbox | null>(null);
-  // Top-level tab: environment editor (default) | sandbox agent model config
-  // (cc-switch refactor Phase 4 — each sandbox owns its agent configs).
-  const [tab, setTab] = useState<"env" | "models">("env");
   const [cpus, setCpus] = useState("");
   const [memMb, setMemMb] = useState("");
   const [origCpus, setOrigCpus] = useState<number | null>(null);
@@ -82,7 +78,6 @@ export function EditPage({
     getSandbox(name)
       .then((sb) => {
         if (cancelled) return;
-        setSandbox(sb);
         setEnv(sb.env);
         setOrigEnv(sb.env);
         setOrigCpus(sb.cpus);
@@ -164,38 +159,10 @@ export function EditPage({
         </div>
       </div>
 
-      {/* Top-level tabs: the environment editor (PUT /api/sandboxes/:name →
-          recreate job) and the sandbox's own agent model config (cc-switch
-          refactor Phase 4, prd R2 — a separate concern that never recreates
-          the sandbox). */}
-      <div className="tabs" role="tablist">
-        <button
-          role="tab"
-          aria-selected={tab === "env"}
-          className={tab === "env" ? "active" : ""}
-          onClick={() => setTab("env")}
-        >
-          {t(lang, "edTabEnv")}
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === "models"}
-          className={tab === "models" ? "active" : ""}
-          onClick={() => setTab("models")}
-        >
-          {t(lang, "edTabModels")}
-        </button>
-      </div>
-
-      {tab === "models" ? (
-        sandbox !== null && (
-          <SandboxModelConfigTab
-            sandboxName={name}
-            sandboxStatus={sandbox.status}
-            lang={lang}
-          />
-        )
-      ) : (
+      {/* Environment editor only (PUT /api/sandboxes/:name → recreate job).
+       * The former "模型配置" tab moved to the workspace's modelsConfig
+       * pane (10-10-models-workspace-pane); with one tab left the bar is
+       * gone and the wizard renders directly. */}
       <div className="wizard">
         {scenarios === null || env === null ? (
           <div className="ml-loading">{t(lang, "loading")}</div>
@@ -264,7 +231,6 @@ export function EditPage({
           )}
         </div>
       </div>
-      )}
     </div>
   );
 }
