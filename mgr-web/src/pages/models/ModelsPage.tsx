@@ -4,7 +4,7 @@
 // Structure: page-head → MgrNotice (explaining the mgr/sandbox split) →
 // ProviderGrid (card wall) → ProviderEditorModal (center modal for both
 // "new provider" and "edit provider"). There are no profile tabs, no agent
-// tabs, no SandboxTable, no "import from pi" button, no models.dev catalog
+// tabs, no SandboxTable, no pi-import button, no models.dev catalog
 // — those all died with the profile system (prd "废弃的功能").
 //
 // API contract (mgr/src/models.rs):
@@ -365,16 +365,16 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
 
       <MgrNotice lang={lang} />
 
-      {Object.keys(library.providers).length === 0 ? (
-        <p className="muted">{t(lang, "mcNoProviders")}</p>
-      ) : (
-        <ProviderGrid
-          library={library}
-          onSelect={onSelectProvider}
-          onAdd={onAddProvider}
-          lang={lang}
-        />
-      )}
+      {/* Always rendered, empty library included: the grid's trailing ghost
+       * card IS the "new provider" entry, so an empty library must never
+       * hide it (10-10-models-workspace-pane R1 - the old empty-state <p>
+       * gated the only create entry behind already having one). */}
+      <ProviderGrid
+        library={library}
+        onSelect={onSelectProvider}
+        onAdd={onAddProvider}
+        lang={lang}
+      />
 
       {editor && (
         <ProviderEditorModal
