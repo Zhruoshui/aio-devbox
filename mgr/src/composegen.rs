@@ -155,22 +155,12 @@ services:
       # extends the entrypoint's default "app" (design §2.1).
       PI_WEB_URL: http://sbx-{name}-piweb.mgr.localhost/
       PI_WEB_ALLOWED_HOSTS: app,sbx-{name}-piweb.mgr.localhost
-      # Phase 4 (app side wired): model-config pull endpoint (design §3.7).
-      # mgr-api's alias on aio-mgr-net is `mgr-api` :8089; the app pulls
-      # GET /api/models/sync?name=<this sandbox> every 60s and flips its
-      # local /api/models write endpoints to 403 managed-by-mgr (app
-      # mgr_sync.rs). MGR_SANDBOX_NAME (unified Phase 4, design §4.3) is
-      # the pull's identity: mgr resolves the ASSIGNED profile server-side
-      # and 404s when unassigned (app keeps local silently).
-      MGR_URL: http://mgr-api:8089
-      MGR_SANDBOX_NAME: {name}
       # Browser-facing redirect target for the app's "/" landing page
-      # (entrypoint.sh MGR_PLACEHOLDER_URL substitution). Kept separate from
-      # MGR_URL — that value is container-internal and never
-      # browser-reachable. Port-less on purpose: the redirect page's JS
-      # re-attaches the host port the browser actually used
-      # (09-10-mgr-subdomain-port-follow), so this stays valid whatever
-      # host port the total gateway is published under.
+      # (entrypoint.sh MGR_PLACEHOLDER_URL substitution). Port-less on
+      # purpose: the redirect page's JS re-attaches the host port the
+      # browser actually used (09-10-mgr-subdomain-port-follow), so this
+      # stays valid whatever host port the total gateway is published
+      # under.
       MGR_REDIRECT_URL: http://mgr.localhost/
     volumes:
       - workspace:/root
@@ -284,14 +274,14 @@ mod tests {
         assert!(gen.compose.contains("cpus: \"2\""));
         assert!(gen.compose.contains("memory: 2048M"));
         assert!(gen.compose.contains("aliases:\n          - sbx-t1-piweb"));
-        // Phase 4 model-config pull endpoint: mgr-api's aio-mgr-net alias,
-        // fixed :8089 (design §3.7), plus the pull's sandbox identity
-        // (unified Phase 4, design §4.3 — sync ?name= resolution).
-        assert!(gen.compose.contains("MGR_URL: http://mgr-api:8089"));
-        assert!(gen.compose.contains("MGR_SANDBOX_NAME: t1"));
-        // Browser redirect target (entrypoint MGR_PLACEHOLDER_URL): separate
-        // env from MGR_URL, port-less — the redirect page's JS re-attaches
-        // the browser's port (09-10-mgr-subdomain-port-follow).
+        // cc-switch refactor: the model-config pull env (MGR_URL /
+        // MGR_SANDBOX_NAME, consumed by the deleted app mgr_sync.rs) is
+        // gone — each sandbox owns its agent config locally now.
+        assert!(!gen.compose.contains("MGR_URL"));
+        assert!(!gen.compose.contains("MGR_SANDBOX_NAME"));
+        // Browser redirect target (entrypoint MGR_PLACEHOLDER_URL):
+        // port-less — the redirect page's JS re-attaches the browser's
+        // port (09-10-mgr-subdomain-port-follow).
         assert!(gen
             .compose
             .contains("MGR_REDIRECT_URL: http://mgr.localhost/"));
