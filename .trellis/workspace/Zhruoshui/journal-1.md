@@ -1465,3 +1465,42 @@ Phase 6: 确认 mgr templates 路由已在 78064bb 落地; 清理 app discover.r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: usertools 工具商店:配置与安装简化
+
+**Date**: 2026-10-20
+**Task**: usertools 工具商店:配置与安装简化
+**Branch**: `main`
+
+### Summary
+
+方向翻转:usertools/<id>/ 目录为唯一事实来源,单文件编辑面/API/mgr-data meta 退役。后端五模块(recipe/render/builtins/store/mod,145 测试)+ /api/usertools/* 七端点(货架/CRUD/preview/引用保护 force);前端 StorePage 替换旧编辑页(表单上架+服务端预览+raw 逃生口),EnvPicker L5 消费 recipe 元数据。实机验证 AC1-AC5(建 sttest 沙箱容器内双通道见 htop;删除引用 400+清单)。线上排障一轮:对话框不可见=components.css overlay 需带 open 类(32b3019),真浏览器坐标点击+计算样式定位;st-dialog 双类选择器破 440px 帽。用户货架定稿 htop/tree。契约入 api-contracts.md;README/wiki/aio-env-config skill 同步。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2bf7a23` | (see git log) |
+| `b50bfae` | (see git log) |
+| `bfdcfc9` | (see git log) |
+| `8db36f3` | (see git log) |
+| `e8bd3a2` | (see git log) |
+| `32b3019` | (see git log) |
+| `3d7eb80` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
