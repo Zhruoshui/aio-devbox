@@ -1831,8 +1831,14 @@ body {
 }
 /* Publish/edit dialog: wider than the default 480px dialog — the form and
  * the server-rendered preview sit side by side. */
-.st-dialog {
-  width: min(960px, calc(100vw - 32px));
+/* The components.css base .dialog caps at max-width 440px; like
+ * .provider-editor-dialog, override with max-width (source order also favors
+ * styles.css, but don't rely on it). */
+/* Two-class selector beats the components.css base .dialog's 440px cap
+ * regardless of bundle order (same intent as .provider-editor-dialog). */
+.dialog.st-dialog {
+  width: 100%;
+  max-width: min(960px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
   overflow: auto;
 }

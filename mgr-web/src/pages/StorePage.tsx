@@ -529,7 +529,7 @@ function RecipeDialog({
   );
 
   return (
-    <div className="overlay" role="presentation" onClick={onClose}>
+    <div className="overlay open" role="presentation" onClick={onClose}>
       <div
         className="dialog st-dialog"
         role="dialog"
@@ -705,7 +705,7 @@ function RawFragmentDialog({
   };
 
   return (
-    <div className="overlay" role="presentation" onClick={onClose}>
+    <div className="overlay open" role="presentation" onClick={onClose}>
       <div
         className="dialog st-dialog"
         role="dialog"
@@ -762,7 +762,7 @@ function DeleteDialog({
 }): JSX.Element {
   const refs = card.referenced_by;
   return (
-    <div className="overlay" role="presentation" onClick={onClose}>
+    <div className="overlay open" role="presentation" onClick={onClose}>
       <div
         className="dialog st-dialog"
         role="dialog"
