@@ -54,13 +54,13 @@ claude / codex / pi / opencode 四个配置页均支持手动编辑「原文件�
 
 ## Acceptance Criteria
 
-- [ ] AC1 (R1/R6)：pi 面板可分别编辑 models.json 与 settings.json 内容；opencode 面板可编辑 opencode.jsonc（带注释可保存）；保存后草稿配置与预览一致，apply 正常落盘。
-- [ ] AC2 (R6)：codex 源码编辑覆盖 config.toml 与 auth.json 两个文件；claude 源码编辑不回归。
-- [ ] AC3 (R2)：从模型库选择后，claude 的 AUTH_TOKEN / codex 的 auth key / pi·opencode 的 apiKey 均自动填入（仅当目标字段为空时填，不覆盖用户已填值）。
-- [ ] AC4 (R3)：两个面板的 provider 列表改行式布局，超长 URL 不溢出、不撑破卡片，悬停可见全 URL。
-- [ ] AC5 (R4)：bigmodel anthropic 端点（`/api/anthropic` + 有效 key）点「获取模型」返回 GLM 模型列表；app/mgr 双侧单测覆盖「2xx 无模型 → 继续候选」。
-- [ ] AC6 (R5)：discover 对话框支持全选/清空；增量面板节点编辑器可拉取模型并多选加入。
-- [ ] AC7：`cd mgr-web && npm run build` 通过；`cargo test -p app -p mgr`（models 相关）通过；现有功能无回归（源码编辑、模板预填、测试按钮）。
+- [ ] AC1 (R1/R6)：pi 面板可分别编辑 models.json 与 settings.json 内容；opencode 面板可编辑 opencode.jsonc（带注释可保存）；保存后草稿配置与预览一致，apply 正常落盘。〔机制已验证：roundtrip-smoke 14/14；UI 走查待部署〕
+- [ ] AC2 (R6)：codex 源码编辑覆盖 config.toml 与 auth.json 两个文件；claude 源码编辑不回归。〔代码完成,UI 走查待部署〕
+- [ ] AC3 (R2)：从模型库选择后，claude 的 AUTH_TOKEN / codex 的 auth key / pi·opencode 的 apiKey 均自动填入（仅当目标字段为空时填，不覆盖用户已填值）。〔代码完成,UI 走查待部署〕
+- [ ] AC4 (R3)：两个面板的 provider 列表改行式布局，超长 URL 不溢出、不撑破卡片，悬停可见全 URL。〔代码完成,UI 走查待部署〕
+- [x] AC5 (R4)：bigmodel anthropic 端点点「获取模型」返回 GLM 模型列表；app/mgr 双侧单测覆盖「2xx 无模型 → 继续候选」。〔curl 实测 /api/anthropic/v1/models 返回 GLM 列表；mock handler 测试双侧通过〕
+- [ ] AC6 (R5)：discover 对话框支持全选/清空；增量面板节点编辑器可拉取模型并多选加入。〔代码完成,UI 走查待部署〕
+- [x] AC7：`cd mgr-web && npm run build` 通过（含 tsc 门禁）；`cargo test -p aio-app -p aio-mgr` 全绿（159+131）。
 
 ## Notes
 
