@@ -404,18 +404,17 @@ mod tests {
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         std::fs::write(dir.join("Dockerfile.base.head"), "FROM debian:bookworm-slim\n").unwrap();
         std::fs::write(dir.join("Dockerfile.base.tail"), "# tail\n").unwrap();
-        crate::usertools::write_atomic(
-            &crate::usertools::fragment_path(&dir),
-            "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n",
-        )
-        .unwrap();
-        let tools = crate::usertools::sync_scenario_dirs(
-            &dir,
-            "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n\
-             # --- tool: fd ---\nRUN curl -fsSL https://example.com/fd.tgz | tar -xz -C /opt\n# --- /tool ---\n",
-        )
-        .unwrap();
-        assert_eq!(tools.len(), 2);
+        // 10-20: per-tool dirs are written directly (the single-file editor
+        // and its sync machinery are retired; write_atomic is the leftover
+        // shared helper still used here).
+        for (id, frag) in [
+            ("ripgrep", "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n"),
+            ("fd", "# --- tool: fd ---\nRUN curl -fsSL https://example.com/fd.tgz | tar -xz -C /opt\n# --- /tool ---\n"),
+        ] {
+            let dir = dir.join("usertools").join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("fragment.Dockerfile"), frag).unwrap();
+        }
 
         // No tools -> byte-identical to assemble_for (the base has no marker).
         let base_env = SandboxEnv {

@@ -162,6 +162,23 @@ fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
+impl Install {
+    /// The one vocabulary for install kinds: fragment comment label AND shelf
+    /// card `install_type` (store.rs). "custom" is reserved for recipe-less
+    /// legacy dirs and never produced here.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Install::Apt { .. } => "apt",
+            Install::Url { kind, .. } | Install::GithubRelease { kind, .. } => match kind {
+                UrlKind::Binary => "url-binary",
+                UrlKind::Tarball => "url-tarball",
+            },
+            Install::Script { .. } => "script",
+            Install::Raw { .. } => "raw",
+        }
+    }
+}
+
 /// Field-level validation, shared by the API layer before any render. Errors
 /// are user-facing (zh) like the rest of usertools. `id` is the directory name
 /// the recipe will live under (kept for future per-id rules; unused for now).
@@ -299,6 +316,15 @@ fn check_bins(kind: UrlKind, bins: &[String]) -> Result<(), String> {
 /// Parse a recipe.toml body (disk path owner: store.rs).
 pub fn parse_toml(body: &str) -> Result<Recipe, String> {
     toml::from_str(body).map_err(|e| format!("recipe.toml 解析失败：{e}"))
+}
+
+/// Load `usertools/<id>/recipe.toml`. None = no recipe (legacy/hand-written
+/// tool); Some(Err) = present but unreadable (the shelf degrades it to a
+/// custom card rather than hiding the tool).
+pub fn load(repo: &std::path::Path, id: &str) -> Option<Result<Recipe, String>> {
+    let path = super::tool_dir(repo, id).join("recipe.toml");
+    let body = std::fs::read_to_string(path).ok()?;
+    Some(parse_toml(&body))
 }
 
 /// Serialize back to TOML (stable field order = struct declaration order).

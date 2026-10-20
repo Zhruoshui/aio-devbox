@@ -80,6 +80,12 @@ async fn main() -> Result<()> {
 
     let state = Arc::new(AppState::new(repo.clone(), data.clone(), conn));
 
+    // 10-20 usertools store: the single-file editor's mgr-data meta retired
+    // with it (display names live in recipe.toml now). Best-effort removal of
+    // a leftover from the old model - absent on fresh installs, ignored if
+    // the removal fails.
+    let _ = std::fs::remove_file(data.join("usertools.json"));
+
     // Shared external network every generated sandbox joins (design §1).
     // Idempotent; failure is fatal at boot (routing is core to mgr's job).
     docker::ensure_network("aio-mgr-net")

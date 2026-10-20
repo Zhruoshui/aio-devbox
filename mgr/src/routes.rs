@@ -12,7 +12,7 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post};
+use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -57,12 +57,20 @@ pub fn router() -> Router<Arc<AppState>> {
         // R3: paged access to a job's full on-disk log
         // (?offset=<byte>&limit=<byte>&tail=<byte>).
         .route("/api/jobs/:id/log", get(job_log))
-        // R2 + 修正 2/3: the user-tools fragment (the one repo subtree mgr
-        // WRITES - the WebUI editor). Static path, so it wins over the /api
-        // seam regardless of order.
+        // 10-20 usertools store: the one repo subtree mgr WRITES. Static
+        // paths, so they win over the /api seam regardless of order. The old
+        // single-file GET/PUT /api/user-tools is RETIRED with the editor it
+        // served (D4) — per-tool dirs are the source of truth now.
+        .route("/api/usertools/store", get(get_usertools_store))
+        .route("/api/usertools/preview", post(preview_usertool))
+        .route("/api/usertools/tools", post(create_usertool))
         .route(
-            "/api/user-tools",
-            get(get_user_tools).put(put_user_tools),
+            "/api/usertools/tools/:id",
+            put(update_usertool).delete(delete_usertool),
+        )
+        .route(
+            "/api/usertools/tools/:id/fragment",
+            get(get_usertool_fragment).put(put_usertool_fragment),
         )
         // Phase 4 model-config routes (models.rs) + usage fan-out (usage.rs).
         // Each module owns its sub-router; merge keeps them ahead of the
@@ -192,16 +200,21 @@ async fn scenarios(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_j
             })
         })
         .collect();
-    // 修正 3 (R4): custom tools are NOT scenario-catalog entries (they live
-    // under usertools/<id>/ with metadata in mgr-data) - but the create
-    // wizard's EnvPicker needs them as L5 (category "service") rows. Synthesize
-    // the same wire shape from picker_tools so the frontend needs zero
-    // special-casing. id-sorted within the layer by the sort below (stable).
-    for t in crate::usertools::picker_tools(&state.repo) {
+    // 10-20 (D4): custom tools are NOT scenario-catalog entries (they live
+    // under usertools/<id>/) - but the create wizard's EnvPicker needs them as
+    // L5 (category "service") rows. Synthesize the same wire shape from the
+    // SHELF so recipe metadata (name/description) shows at selection time;
+    // legacy fragment-only tools carry an empty description and the SPA falls
+    // back to its own i18n placeholder.
+    let user_cards = {
+        let conn = state.db.lock().unwrap();
+        crate::usertools::store::shelf(&state.repo, &conn).map_err(ApiError::from)?
+    };
+    for t in user_cards {
         list.push(json!({
             "id": t.id,
             "name": t.name,
-            "description": "用户自定义工具（usertools/<id>/fragment.Dockerfile）",
+            "description": t.description,
             "category": "service",
             "installer": "custom",
             "always_on": false,
@@ -1424,87 +1437,259 @@ async fn image_log(
     Ok(Json(log_json(&data, total, next, None, false)))
 }
 
-// ── R2 user-tools fragment ─────────────────────────────────────────
+// ── usertools store (10-20) ────────────────────────────────────────
 //
 // mgr is otherwise read-only against `state.repo` (contract 1: the repo is
-// mounted read-only in the containerized form). These two handlers are the
-// deliberate exception: the user-tools fragment is the user's own L2 escape
-// hatch, and the deployed mgr has no code-server-only workaround. The
-// container MUST therefore mount the repo read-write for this route to work;
-// a read-only mount surfaces as a 500 with the OS error in the anyhow chain
-// (the honest failure - silently accepting the write is worse).
+// mounted read-only in the containerized form). These handlers are the
+// deliberate exception: `usertools/` is the user's own shelf, and the deployed
+// mgr has no code-server-only workaround. The container MUST therefore mount
+// the repo read-write for these routes to work; a read-only mount surfaces as
+// a 500 with the OS error in the anyhow chain (the honest failure - silently
+// accepting the write is worse).
 
-/// GET /api/user-tools - the current fragment + the tool list it encodes +
-/// the picker tool list. `tools` (from the fragment's `# --- tool:` blocks)
-/// drives the editor's "contains N tools" label; `picker` is the L5 tool list
-/// (meta ∩ on-disk fragment) offered by the create wizard.
-async fn get_user_tools(State(state): State<Arc<AppState>>) -> ApiResult<Json<serde_json::Value>> {
-    let path = crate::usertools::fragment_path(&state.repo);
-    let content = std::fs::read_to_string(&path)
-        // A missing fragment is NOT an error: the editor starts empty and the
-        // first save creates the file.
-        .unwrap_or_else(|_| String::new());
-    let tools: Vec<crate::usertools::UserTool> = crate::usertools::list_tools(&content)
+/// GET /api/usertools/store — the shelf view: `mine` (materialized tools,
+/// reference counts included) + `builtin` (recommendations not yet
+/// materialized). Same Card wire shape for both so the SPA renders one grid.
+async fn get_usertools_store(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let mine = {
+        let conn = state.db.lock().unwrap();
+        crate::usertools::store::shelf(&state.repo, &conn).map_err(ApiError::from)?
+    };
+    let taken: std::collections::HashSet<String> = mine.iter().map(|c| c.id.clone()).collect();
+    let builtin = crate::usertools::builtins::all()
         .into_iter()
-        .map(|name| crate::usertools::UserTool {
-            id: crate::usertools::slug(&name).unwrap_or_else(|| name.to_ascii_lowercase()),
-            name,
+        .filter_map(|r| {
+            // An id collision with a materialized tool shadows the builtin
+            // (the user's own recipe of the same name wins).
+            let id = crate::usertools::slug(&r.name)?;
+            (!taken.contains(&id)).then(|| crate::usertools::store::Card {
+                id,
+                name: r.name,
+                description: r.description,
+                category: r.category,
+                version: r.version,
+                homepage: r.homepage,
+                install_type: r.install.label().into(),
+                has_recipe: false,
+                referenced_by: Vec::new(),
+            })
         })
-        .collect();
-    let picker = crate::usertools::picker_tools(&state.repo);
-    Ok(Json(json!({
-        "content": content,
-        "tools": tools,
-        "picker": picker,
-        "path": path.display().to_string(),
-    })))
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "mine": mine, "builtin": builtin })))
 }
 
+/// POST /api/usertools/preview — recipe → fragment WITHOUT writing anything.
+/// The generator is the single owner of the templates, so the form's live
+/// preview round-trips through here instead of the SPA re-implementing
+/// rendering (design: 预览走服务端).
 #[derive(Deserialize)]
-struct UserToolsContentBody {
+struct PreviewBody {
+    /// The dir id the recipe will land under. Create-preview omits it (derived
+    /// from the name); edit-preview passes the real id so url-binary defaults
+    /// and /opt paths render exactly as the save would.
+    #[serde(default)]
+    id: Option<String>,
+    recipe: crate::usertools::recipe::Recipe,
+}
+
+async fn preview_usertool(
+    Json(body): Json<PreviewBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let id = body
+        .id
+        .clone()
+        .or_else(|| crate::usertools::slug(&body.recipe.name))
+        .ok_or_else(|| ApiError::bad("工具名无法转换为目录名（需要字母/数字/连字符）。"))?;
+    let fragment = crate::usertools::render::render(&id, &body.recipe).map_err(ApiError::bad)?;
+    Ok(Json(json!({ "id": id, "fragment": fragment })))
+}
+
+/// POST /api/usertools/tools — 上架: either materialize a builtin
+/// (`from_builtin`) or write a form recipe. id = slug(name); 409 on collision.
+#[derive(Deserialize)]
+struct CreateToolBody {
+    #[serde(default)]
+    from_builtin: Option<String>,
+    #[serde(default)]
+    recipe: Option<crate::usertools::recipe::Recipe>,
+}
+
+async fn create_usertool(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateToolBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if let Some(bid) = &body.from_builtin {
+        if crate::usertools::builtins::get(bid).is_none() {
+            return Err(ApiError::with_status(
+                StatusCode::NOT_FOUND,
+                format!("未知内置工具 {bid:?}。"),
+            ));
+        }
+        if crate::usertools::tool_dir(&state.repo, bid).exists() {
+            return Err(ApiError::with_status(
+                StatusCode::CONFLICT,
+                format!("工具 {bid:?} 已存在。"),
+            ));
+        }
+        let recipe = crate::usertools::builtins::materialize(&state.repo, bid)
+            .map_err(ApiError::from)?;
+        let id = crate::usertools::slug(&recipe.name).unwrap_or_else(|| bid.clone());
+        return Ok(Json(json!({ "ok": true, "id": id })));
+    }
+    let Some(recipe) = &body.recipe else {
+        return Err(ApiError::bad("缺少配方：需要 recipe 或 from_builtin。"));
+    };
+    let id = crate::usertools::slug(&recipe.name)
+        .ok_or_else(|| ApiError::bad("工具名无法转换为目录名（需要字母/数字/连字符）。"))?;
+    if crate::usertools::tool_dir(&state.repo, &id).exists() {
+        return Err(ApiError::with_status(
+            StatusCode::CONFLICT,
+            format!("工具 {id:?} 已存在。"),
+        ));
+    }
+    // Field validation + a render pass first (user errors -> 400); only the
+    // writes remain in write_recipe (fs failures -> 500).
+    crate::usertools::recipe::validate(recipe, &id).map_err(ApiError::bad)?;
+    crate::usertools::render::render(&id, recipe).map_err(ApiError::bad)?;
+    crate::usertools::store::write_recipe(&state.repo, &id, recipe)
+        .map_err(ApiError::from)?;
+    Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+/// PUT /api/usertools/tools/:id — replace the recipe, regenerate the
+/// fragment. Recipe-less (legacy/hand-written) dirs are raw-channel tools:
+/// 405 points the UI at the fragment editor instead.
+async fn update_usertool(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(recipe): Json<crate::usertools::recipe::Recipe>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if crate::usertools::slug(&id).as_deref() != Some(id.as_str()) {
+        return Err(ApiError::bad(format!("非法的工具 id {id:?}。")));
+    }
+    match crate::usertools::recipe::load(&state.repo, &id) {
+        None => {
+            return Err(ApiError::with_status(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "该工具没有配方（自定义片段），请使用片段编辑。".into(),
+            ))
+        }
+        Some(Err(e)) => {
+            return Err(ApiError::bad(format!(
+                "磁盘上的 recipe.toml 无法解析：{e}（修复或删除该文件后重试）"
+            )))
+        }
+        Some(Ok(_)) => {}
+    }
+    crate::usertools::recipe::validate(&recipe, &id).map_err(ApiError::bad)?;
+    crate::usertools::render::render(&id, &recipe).map_err(ApiError::bad)?;
+    crate::usertools::store::write_recipe(&state.repo, &id, &recipe)
+        .map_err(ApiError::from)?;
+    Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+/// GET /api/usertools/tools/:id/fragment — the tool's fragment verbatim
+/// (raw editor source; read-only for recipe tools, the form owns those).
+async fn get_usertool_fragment(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let path = crate::usertools::tool_dir(&state.repo, &id).join("fragment.Dockerfile");
+    let content = std::fs::read_to_string(&path).map_err(|_| {
+        ApiError::with_status(StatusCode::NOT_FOUND, format!("工具 {id:?} 不存在。"))
+    })?;
+    Ok(Json(json!({ "id": id, "content": content })))
+}
+
+/// PUT /api/usertools/tools/:id/fragment — the raw channel: write a
+/// legacy tool's fragment directly. Guarded like the old single-file editor
+/// (root rule + well-formed markers) plus exactly-one-block (a per-tool
+/// fragment IS one tool). Recipe tools refuse with 409 — the recipe is the
+/// truth for those, hand edits would silently regenerate away.
+#[derive(Deserialize)]
+struct FragmentBody {
     content: String,
 }
 
-/// PUT /api/user-tools - direct-editor save. Static validation (the `/root`
-/// hard rule + marker-block well-formedness), then the content is stored
-/// verbatim (hand-written comments / blank lines round-trip exactly) and the
-/// per-tool fragment dirs + metadata are re-synced so the L5 picker sees the
-/// new tool set immediately.
-async fn put_user_tools(
+async fn put_usertool_fragment(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<UserToolsContentBody>,
+    Path(id): Path<String>,
+    Json(body): Json<FragmentBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    if crate::usertools::slug(&id).as_deref() != Some(id.as_str()) {
+        return Err(ApiError::bad(format!("非法的工具 id {id:?}。")));
+    }
+    if crate::usertools::recipe::load(&state.repo, &id).is_some() {
+        return Err(ApiError::with_status(
+            StatusCode::CONFLICT,
+            "表单工具的片段由配方生成；请编辑配方（raw 类型在配方的 dockerfile 字段里）。".into(),
+        ));
+    }
+    let path = crate::usertools::tool_dir(&state.repo, &id).join("fragment.Dockerfile");
+    if !path.is_file() {
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            format!("工具 {id:?} 不存在。"),
+        ));
+    }
     if let Err(msg) = crate::usertools::validate(&body.content) {
         return Err(ApiError::bad(msg));
     }
     if let Err(msg) = crate::usertools::blocks_well_formed(&body.content) {
         return Err(ApiError::bad(msg));
     }
-    let tools = write_fragment_and_sync(&state, &body.content)?;
-    Ok(Json(json!({ "ok": true, "tools": tools })))
-}
-
-/// Atomic write of the fragment + re-sync of the per-tool fragment dirs and
-/// the tool metadata. The repo-write failure is made explicit (the container's
-/// read-only repo mount is the expected cause).
-fn write_fragment_and_sync(
-    state: &Arc<AppState>,
-    content: &str,
-) -> Result<Vec<crate::usertools::UserTool>, ApiError> {
-    let path = crate::usertools::fragment_path(&state.repo);
-    crate::usertools::write_atomic(&path, content).map_err(|e| {
+    if crate::usertools::list_tools(&body.content).len() != 1 {
+        return Err(ApiError::bad(
+            "片段必须恰好包含一个 `# --- tool: <名称> ---` … `# --- /tool ---` 标记块。",
+        ));
+    }
+    crate::usertools::write_atomic(&path, &body.content).map_err(|e| {
         ApiError::from(anyhow::anyhow!(
             "write {} failed ({e:#}) - in the containerized form the repo must be mounted read-write for this route",
             path.display()
         ))
     })?;
-    let tools = crate::usertools::sync_scenario_dirs(&state.repo, content).map_err(|e| {
-        ApiError::from(anyhow::anyhow!("sync usertools dirs: {e:#}"))
-    })?;
-    let meta = crate::usertools::ToolMeta { tools: tools.clone() };
-    crate::usertools::save_meta(&state.data, &meta)
-        .map_err(|e| ApiError::from(anyhow::anyhow!("write usertools meta: {e:#}")))?;
-    Ok(tools)
+    Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+/// DELETE /api/usertools/tools/:id[?force=true] — 下架. Referenced tools
+/// refuse with 400 + the sandbox names (D5); force is the escape hatch (those
+/// sandboxes must drop the tool in their env editor before their next
+/// rebuild, matching envhash's existing missing-fragment error).
+#[derive(Deserialize)]
+struct DeleteToolQuery {
+    force: Option<bool>,
+}
+
+async fn delete_usertool(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(q): Query<DeleteToolQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if crate::usertools::slug(&id).as_deref() != Some(id.as_str()) {
+        return Err(ApiError::bad(format!("非法的工具 id {id:?}。")));
+    }
+    if !crate::usertools::tool_dir(&state.repo, &id).exists() {
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            format!("工具 {id:?} 不存在。"),
+        ));
+    }
+    {
+        let conn = state.db.lock().unwrap();
+        let refs = crate::usertools::store::referenced_by(&conn, &id)
+            .map_err(ApiError::from)?;
+        if !refs.is_empty() && !q.force.unwrap_or(false) {
+            return Err(ApiError::bad(format!(
+                "工具被以下沙箱引用：{}。请先在对应沙箱的编辑页移除该工具，或确认强制删除（force=true）。",
+                refs.join("、")
+            )));
+        }
+    }
+    crate::usertools::store::delete_tool(&state.repo, &id).map_err(ApiError::from)?;
+    Ok(Json(json!({ "ok": true, "id": id })))
 }
 
 #[cfg(test)]
@@ -2166,181 +2351,456 @@ mod tests {
     // ── R2 + 修正 2/3 user-tools endpoints ──────────────────────────
 
     /// A temp repo + data dir; the repo's `usertools/` holds `body` (or nothing).
-    fn usertools_state(tag: &str, body: Option<&str>) -> Arc<AppState> {
-        let dir = std::env::temp_dir().join(format!("mgr-usertools-rt-{tag}-{}", std::process::id()));
+    // ── usertools store (10-20) ─────────────────────────────────────
+
+    /// A fresh AppState whose repo has `usertools/` (and an empty scenarios
+    /// dir so GET /api/scenarios scans clean).
+    fn store_state(tag: &str) -> Arc<AppState> {
+        let dir = std::env::temp_dir().join(format!("mgr-store-rt-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let repo = dir.join("repo");
-        let data = dir.join("data");
-        std::fs::create_dir_all(&repo).unwrap();
-        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(dir.join("usertools")).unwrap();
+        std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         let mut state = AppState::new_for_test();
-        state.repo = repo;
-        state.data = data;
-        if let Some(b) = body {
-            let path = crate::usertools::fragment_path(&state.repo);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b).unwrap();
-        }
+        state.repo = dir.clone();
+        state.data = dir.join("data");
         Arc::new(state)
     }
 
-    fn fragment_of(state: &AppState) -> String {
-        std::fs::read_to_string(crate::usertools::fragment_path(&state.repo)).unwrap()
+    /// A legacy (fragment-only) tool dir, like the checked-in qpdf.
+    fn legacy_tool(state: &AppState, id: &str, body: &str) {
+        let dir = crate::usertools::tool_dir(&state.repo, id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("fragment.Dockerfile"), body).unwrap();
+    }
+
+    fn insert_sandbox_ref(state: &AppState, name: &str, tool: &str) {
+        let env = envhash::SandboxEnv {
+            scenarios: vec![],
+            versions: Default::default(),
+            user_tools: vec![tool.to_string()],
+        };
+        let row = db::SandboxRow {
+            name: name.into(),
+            created_at: 0,
+            env_json: serde_json::to_string(&env).unwrap(),
+            env_hash: String::new(),
+            cpus: None,
+            mem_mb: None,
+            status: "running".into(),
+            adopted: false,
+            external_compose: None,
+            services_json: None,
+        };
+        let conn = state.db.lock().unwrap();
+        db::insert_sandbox(&conn, &row).unwrap();
+    }
+
+    fn recipe_json(name: &str, packages: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "schema": 1,
+            "name": name,
+            "description": "测试工具",
+            "category": "shell",
+            "install": { "type": "apt", "packages": packages },
+        })
     }
 
     #[tokio::test]
-    async fn user_tools_get_returns_content_tools_and_picker() {
-        let content = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n";
-        let state = usertools_state("get", Some(content));
+    async fn store_lists_mine_and_builtin_shelf() {
+        let state = store_state("shelf");
+        legacy_tool(
+            &state,
+            "qpdf",
+            "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n# --- /tool ---\n",
+        );
+        let base = serve(&state).await;
+        let r = state.http.get(format!("{base}/api/usertools/store")).send().await.unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+
+        // mine: the legacy dir, fragment-only, custom kind.
+        assert_eq!(v["mine"].as_array().unwrap().len(), 1);
+        let mine = &v["mine"][0];
+        assert_eq!(mine["id"], "qpdf");
+        assert_eq!(mine["has_recipe"], false);
+        assert_eq!(mine["install_type"], "custom");
+        assert_eq!(mine["referenced_by"].as_array().unwrap().len(), 0);
+
+        // builtin: the full seed list minus nothing taken.
+        let ids: Vec<&str> = v["builtin"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"htop") && ids.contains(&"ffmpeg"), "{ids:?}");
+        assert!(ids.len() >= 8);
+    }
+
+    #[tokio::test]
+    async fn create_from_form_materializes_and_conflicts() {
+        let state = store_state("create");
         let base = serve(&state).await;
 
         let r = state
             .http
-            .get(format!("{base}/api/user-tools"))
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
             .send()
             .await
             .unwrap();
         assert!(r.status().is_success());
         let v: serde_json::Value = r.json().await.unwrap();
-        assert_eq!(v["content"].as_str().unwrap(), content);
-        assert_eq!(v["tools"].as_array().unwrap().len(), 1);
-        assert_eq!(v["tools"][0]["name"], "RipGrep");
-        assert_eq!(v["tools"][0]["id"], "ripgrep");
-        // No save has run yet, so the picker (meta ∩ on-disk fragment) is empty.
-        assert_eq!(v["picker"].as_array().unwrap().len(), 0);
-        assert!(v["path"].as_str().unwrap().ends_with("usertools/fragment.Dockerfile"));
+        assert_eq!(v["id"], "my-tool");
+        let dir = crate::usertools::tool_dir(&state.repo, "my-tool");
+        assert!(dir.join("recipe.toml").is_file());
+        let frag = std::fs::read_to_string(dir.join("fragment.Dockerfile")).unwrap();
+        assert!(frag.contains("# --- tool: My Tool ---"));
+        assert!(frag.contains("--no-install-recommends htop"));
+        assert!(frag.contains("bash -lc 'command -v htop"));
+
+        // Same name again -> 409; unslug-able name -> 400; empty body -> 400.
+        let r = state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        let r = state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("。。。", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let r = state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
-    async fn user_tools_get_missing_file_is_empty_not_an_error() {
-        let state = usertools_state("missing", None);
+    async fn create_from_builtin_materializes_once() {
+        let state = store_state("builtin");
         let base = serve(&state).await;
         let r = state
             .http
-            .get(format!("{base}/api/user-tools"))
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "from_builtin": "htop" }))
             .send()
             .await
             .unwrap();
         assert!(r.status().is_success());
-        let v: serde_json::Value = r.json().await.unwrap();
-        assert_eq!(v["content"], "");
-        assert_eq!(v["tools"].as_array().unwrap().len(), 0);
-    }
-
-    #[tokio::test]
-    async fn user_tools_put_stores_content_verbatim() {
-        // Hand-written comments / blank lines survive a save (no reformatting).
-        let state = usertools_state("raw-save", Some("old\n"));
-        let base = serve(&state).await;
-        let hand = "# my note\n\nRUN install -m 0755 /tmp/x /usr/local/bin/x\n\n# tail note\n";
-        let r = state
-            .http
-            .put(format!("{base}/api/user-tools"))
-            .json(&serde_json::json!({ "content": hand }))
-            .send()
-            .await
-            .unwrap();
-        assert!(r.status().is_success());
-        assert_eq!(fragment_of(&state), hand);
-    }
-
-    #[tokio::test]
-    async fn user_tools_put_syncs_tool_dirs_and_meta() {
-        // 修正 3 (AC7): a save makes the new tool set visible to the picker
-        // immediately (per-tool dirs + meta, no mgr restart).
-        let state = usertools_state("sync", Some("old\n"));
-        let base = serve(&state).await;
-        let content = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n\
-                       # --- tool: fd ---\nRUN curl -fsSL https://example.com/fd.tgz | tar -xz -C /opt\n# --- /tool ---\n";
-        let r = state
-            .http
-            .put(format!("{base}/api/user-tools"))
-            .json(&serde_json::json!({ "content": content }))
-            .send()
-            .await
-            .unwrap();
-        assert!(r.status().is_success());
-        let v: serde_json::Value = r.json().await.unwrap();
-        assert_eq!(v["tools"].as_array().unwrap().len(), 2);
-        assert!(crate::usertools::tool_dir(&state.repo, "ripgrep")
-            .join("fragment.Dockerfile")
+        assert!(crate::usertools::tool_dir(&state.repo, "htop")
+            .join("recipe.toml")
             .is_file());
-        assert!(crate::usertools::tool_dir(&state.repo, "fd")
-            .join("fragment.Dockerfile")
-            .is_file());
-        assert_eq!(crate::usertools::load_meta(&state.data).tools.len(), 2);
 
-        // Re-save with one tool removed: its dir is pruned, the picker shrinks.
-        let trimmed = "# --- tool: RipGrep ---\nRUN apt-get install -y ripgrep\n# --- /tool ---\n";
+        // Second add -> 409; unknown -> 404; the shelf no longer recommends it.
         let r = state
             .http
-            .put(format!("{base}/api/user-tools"))
-            .json(&serde_json::json!({ "content": trimmed }))
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "from_builtin": "htop" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        let r = state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "from_builtin": "nope" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let v: serde_json::Value = state
+            .http
+            .get(format!("{base}/api/usertools/store"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let ids: Vec<&str> = v["builtin"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap())
+            .collect();
+        assert!(!ids.contains(&"htop"), "{ids:?}");
+    }
+
+    #[tokio::test]
+    async fn preview_renders_without_writing() {
+        let state = store_state("preview");
+        let base = serve(&state).await;
+        let r = state
+            .http
+            .post(format!("{base}/api/usertools/preview"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["tree"]) }))
             .send()
             .await
             .unwrap();
         assert!(r.status().is_success());
-        assert!(!crate::usertools::tool_dir(&state.repo, "fd").exists());
-        let picker = crate::usertools::picker_tools(&state.repo);
-        assert_eq!(picker.len(), 1);
-        assert_eq!(picker[0].id, "ripgrep");
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["id"], "my-tool");
+        assert!(v["fragment"].as_str().unwrap().contains("--no-install-recommends tree"));
+        assert!(
+            !crate::usertools::tool_dir(&state.repo, "my-tool").exists(),
+            "preview must not write"
+        );
     }
 
     #[tokio::test]
-    async fn user_tools_put_rejects_root_writes() {
-        let state = usertools_state("raw-root", Some("old\n"));
+    async fn update_requires_recipe_and_regenerates() {
+        let state = store_state("update");
         let base = serve(&state).await;
+        legacy_tool(
+            &state,
+            "qpdf",
+            "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n# --- /tool ---\n",
+        );
+        // Legacy dir: 405 points at the fragment channel.
+        let r = state
+            .http
+            .put(format!("{base}/api/usertools/tools/qpdf"))
+            .json(&recipe_json("qpdf", &["qpdf"]))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // Recipe tool: PUT regenerates the fragment.
+        state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        let r = state
+            .http
+            .put(format!("{base}/api/usertools/tools/my-tool"))
+            .json(&recipe_json("My Tool", &["tree", "jq"]))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let frag = std::fs::read_to_string(
+            crate::usertools::tool_dir(&state.repo, "my-tool").join("fragment.Dockerfile"),
+        )
+        .unwrap();
+        assert!(frag.contains("--no-install-recommends tree jq"), "{frag}");
+    }
+
+    #[tokio::test]
+    async fn fragment_raw_channel_roundtrip_and_guards() {
+        let state = store_state("fragment");
+        let base = serve(&state).await;
+        legacy_tool(
+            &state,
+            "qpdf",
+            "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n# --- /tool ---\n",
+        );
+
+        // GET returns the fragment verbatim.
+        let r = state
+            .http
+            .get(format!("{base}/api/usertools/tools/qpdf/fragment"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v["content"].as_str().unwrap().contains("apt-get install -y qpdf"));
+
+        // PUT with a valid single block saves; root writes and multi blocks refuse.
+        let good = "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n && qpdf --version\n# --- /tool ---\n";
+        let r = state
+            .http
+            .put(format!("{base}/api/usertools/tools/qpdf/fragment"))
+            .json(&serde_json::json!({ "content": good }))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(
+            std::fs::read_to_string(
+                crate::usertools::tool_dir(&state.repo, "qpdf").join("fragment.Dockerfile")
+            )
+            .unwrap(),
+            good
+        );
+
         for bad in [
             "WORKDIR /root\n",
-            "RUN mkdir -p /root/bin\n",
-            "RUN set -eux; \\\n    install -d /root/bin\n",
-            "RUN echo a \\\n/root\n",
+            "# --- tool: a ---\nRUN true\n# --- /tool ---\n# --- tool: b ---\nRUN true\n# --- /tool ---\n",
         ] {
             let r = state
                 .http
-                .put(format!("{base}/api/user-tools"))
+                .put(format!("{base}/api/usertools/tools/qpdf/fragment"))
                 .json(&serde_json::json!({ "content": bad }))
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad}");
-            let v: serde_json::Value = r.json().await.unwrap();
-            assert!(v["error"].as_str().unwrap().contains("/root"));
+            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad:?}");
         }
-        assert_eq!(fragment_of(&state), "old\n", "rejected saves never touch disk");
+
+        // Recipe tools refuse: the recipe owns the fragment.
+        state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        let r = state
+            .http
+            .put(format!("{base}/api/usertools/tools/my-tool/fragment"))
+            .json(&serde_json::json!({ "content": good }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+
+        // Missing tool -> 404.
+        let r = state
+            .http
+            .get(format!("{base}/api/usertools/tools/ghost/fragment"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
-    async fn user_tools_put_rejects_malformed_marker_blocks() {
-        // A save must not produce per-tool fragments from an unterminated /
-        // nested marker block (the picker would be lying about what builds).
-        let state = usertools_state("malformed", Some("old\n"));
+    async fn delete_guard_lists_refs_then_force_wins() {
+        let state = store_state("delete");
         let base = serve(&state).await;
-        for bad in [
-            "# --- tool: x ---\nRUN true\n",                       // unterminated
-            "# --- /tool ---\n",                                   // close without open
-            "# --- tool: x ---\n# --- tool: y ---\n# --- /tool ---\n# --- /tool ---\n", // nested
-        ] {
-            let r = state
-                .http
-                .put(format!("{base}/api/user-tools"))
-                .json(&serde_json::json!({ "content": bad }))
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad}");
-        }
-        assert_eq!(fragment_of(&state), "old\n", "a rejected save never touches disk");
-    }
+        state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        insert_sandbox_ref(&state, "sbx-alpha", "my-tool");
+        insert_sandbox_ref(&state, "sbx-beta", "my-tool");
 
-    #[tokio::test]
-    async fn user_tools_routes_beat_the_api_seam() {
-        // Static segments, so the /api/*rest 404 seam must not swallow them.
-        let state = usertools_state("seam", Some(""));
-        let base = serve(&state).await;
-        let r = state.http.get(format!("{base}/api/user-tools")).send().await.unwrap();
+        // Unreferenced legacy tool deletes fine.
+        legacy_tool(
+            &state,
+            "qpdf",
+            "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n# --- /tool ---\n",
+        );
+        let r = state
+            .http
+            .delete(format!("{base}/api/usertools/tools/qpdf"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+
+        // Referenced tool: 400 with both names; force deletes; absent -> 404.
+        let r = state
+            .http
+            .delete(format!("{base}/api/usertools/tools/my-tool"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
         let v: serde_json::Value = r.json().await.unwrap();
-        assert_ne!(v["error"], "no such API route", "GET fell through");
+        let msg = v["error"].as_str().unwrap();
+        assert!(msg.contains("sbx-alpha") && msg.contains("sbx-beta"), "{msg}");
+
+        let r = state
+            .http
+            .delete(format!("{base}/api/usertools/tools/my-tool?force=true"))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        assert!(!crate::usertools::tool_dir(&state.repo, "my-tool").exists());
+
+        let r = state
+            .http
+            .delete(format!("{base}/api/usertools/tools/my-tool"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn scenarios_l5_carries_recipe_metadata_and_refs() {
+        let state = store_state("scenarios");
+        let base = serve(&state).await;
+        state
+            .http
+            .post(format!("{base}/api/usertools/tools"))
+            .json(&serde_json::json!({ "recipe": recipe_json("My Tool", &["htop"]) }))
+            .send()
+            .await
+            .unwrap();
+        legacy_tool(
+            &state,
+            "qpdf",
+            "# --- tool: qpdf ---\nRUN apt-get install -y qpdf\n# --- /tool ---\n",
+        );
+
+        let v: serde_json::Value = state
+            .http
+            .get(format!("{base}/api/scenarios"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let l5: Vec<&serde_json::Value> = v["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["category"] == "service")
+            .collect();
+        assert_eq!(l5.len(), 2);
+        let mine = l5.iter().find(|s| s["id"] == "my-tool").unwrap();
+        assert_eq!(mine["name"], "My Tool");
+        assert_eq!(mine["description"], "测试工具");
+        let legacy = l5.iter().find(|s| s["id"] == "qpdf").unwrap();
+        assert_eq!(legacy["name"], "qpdf");
+        assert_eq!(legacy["description"], "");
+    }
+
+    #[tokio::test]
+    async fn store_routes_beat_the_api_seam() {
+        // Static segments, so the /api/*rest 404 seam must not swallow them.
+        let state = store_state("seam");
+        let base = serve(&state).await;
+        let r = state
+            .http
+            .get(format!("{base}/api/usertools/store"))
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert!(v.get("mine").is_some(), "GET fell through: {v}");
+        // The retired single-file endpoint is a genuine 404 now (still the
+        // ApiError JSON shape, never the SPA).
+        let r = state
+            .http
+            .get(format!("{base}/api/user-tools"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

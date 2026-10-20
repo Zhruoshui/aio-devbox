@@ -1,47 +1,31 @@
-//! User-tools fragment store (R2 + 修正 2/3, task 09-23-image-detail-tools-log).
+//! usertools 工具商店(10-20-usertools-app-store)。
 //!
-//! 修正 2 removed the structured form: the WebUI is a single direct-edit
-//! text editor over ONE fragment (`usertools/fragment.Dockerfile`, repo root).
-//! mgr owns that file's FORMAT only insofar as it must round-trip verbatim;
-//! the per-tool logic that used to live here (parse / render / validate_entries)
-//! is gone with the form.
+//! 方向翻转(D2)后的形态:`usertools/<id>/` 目录是工具的**唯一事实来源**
+//! (构建侧 assemble_with_tools 一直读的就是它)。表单上架的工具存
+//! `recipe.toml`(recipe.rs)+ **生成的** `fragment.Dockerfile`(render.rs
+//! 是唯一写入方);无 recipe 的目录是存量/手写工具,仅 raw 编辑可改。
 //!
-//! 修正 3 promotes each custom tool to an independent L5 scenario. The tool
-//! metadata (which tools exist, their display names) lives in mgr-data
-//! (`<data>/usertools.json`, runtime state, never in the repo / docker build
-//! context); the per-tool install fragments live under `usertools/<tool>/`
-//! (a dedicated repo subtree the mgr container mounts read-write - compose.yml).
-//! A tool = an entry in the meta file + a fragment directory, surfaced to the
-//! create wizard through the L5 picker.
+//! 模块地图:recipe.rs 配方 schema / render.rs 确定性生成器 /
+//! builtins.rs 内置种子货架 / store.rs 货架扫描+引用统计。
+//! 本文件保留共享骨干:slug、标记块解析(list_tools/blocks_well_formed)、
+//! /root 遮盖守卫(validate)、原子写(write_atomic)。
+//!
+//! 历史:09-23 修正 2 曾移除结构化表单(单文件直编);修正 3 把工具提升
+//! 为 L5 场景。10-20 退役了单文件编辑面与 mgr-data 元数据(usertools.json),
+//! 以「表单只管理自己生成的工具」的方式迎回表单。
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 
+pub mod builtins;
 pub mod recipe;
 pub mod render;
-
-/// Path of the single editable fragment inside the repo (`usertools/fragment.Dockerfile`).
-/// 修正 3 moved it out of `scenarios/` into a dedicated subtree so the mgr
-/// container can mount JUST this tree read-write (compose.yml) without opening
-/// the whole scenario catalog to writes.
-pub fn fragment_path(repo: &Path) -> PathBuf {
-    repo.join("usertools").join("fragment.Dockerfile")
-}
+pub mod store;
 
 /// Path of one tool's fragment directory inside the repo (`usertools/<tool>/`).
 pub fn tool_dir(repo: &Path, id: &str) -> PathBuf {
     repo.join("usertools").join(id)
-}
-
-/// One custom tool. `id` is the directory/fragment-safe form of the name
-/// (`^[a-z0-9][a-z0-9-]*$`); `name` is the display label from the fragment's
-/// `# --- tool: <name> ---` marker.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UserTool {
-    pub id: String,
-    pub name: String,
 }
 
 /// Slugify a free-form tool name into a directory-safe id: lowercase, spaces /
@@ -69,11 +53,9 @@ pub fn slug(name: &str) -> Option<String> {
 }
 
 /// Parse the tool names out of the fragment's `# --- tool: <name> ---` marker
-/// blocks (display-only; drives the editor's "contains N tools" label). A
-/// marker block's content is taken verbatim from the open marker line to the
-/// matching `# --- /tool ---` close; the name is the open marker's payload.
+/// blocks. The shelf uses this as the display-name fallback for recipe-less
+/// (legacy) tools; render.rs markers round-trip through the same payload.
 pub fn list_tools(content: &str) -> Vec<String> {
-    const OPEN: &str = "# --- tool:";
     const CLOSE: &str = "# --- /tool ---";
     let mut out = Vec::new();
     let mut in_block = false;
@@ -106,12 +88,10 @@ fn open_name(line: &str) -> Option<String> {
 }
 
 /// True when every `# --- tool:` block in `content` is well-formed: an open
-/// marker is always closed by `# --- /tool ---`, opens never nest, and every
-/// block carries a slug-able tool name. The save path requires this so the
-/// per-tool fragments (sync_scenario_dirs) can never be derived from a
-/// malformed file - a tool is all-or-nothing.
+/// marker is always closed by `# --- /tool ---` and opens never nest. The raw
+/// fragment save path requires this so a tool dir can never hold a malformed
+/// block - a tool is all-or-nothing.
 pub fn blocks_well_formed(content: &str) -> std::result::Result<(), String> {
-    const OPEN: &str = "# --- tool:";
     const CLOSE: &str = "# --- /tool ---";
     let mut stack = 0usize;
     for (i, raw) in content.lines().enumerate() {
@@ -132,130 +112,6 @@ pub fn blocks_well_formed(content: &str) -> std::result::Result<(), String> {
         return Err("工具块缺少 `# --- /tool ---` 结束标记。".to_string());
     }
     Ok(())
-}
-
-/// Split `content` into per-tool fragment bodies keyed by slug id. Each
-/// tool's fragment is the bytes from its `# --- tool: <name> ---` open marker
-/// through the matching `# --- /tool ---` close (markers included), so the
-/// assembled whole is byte-identical to concatenating the per-tool fragments
-/// in order. Returns an error when a tool name does not slugify.
-pub fn split_tools(content: &str) -> std::result::Result<Vec<(UserTool, String)>, String> {
-    const OPEN: &str = "# --- tool:";
-    const CLOSE: &str = "# --- /tool ---";
-    blocks_well_formed(content)?;
-    let mut out: Vec<(UserTool, String)> = Vec::new();
-    let mut cur: Option<(UserTool, String)> = None;
-    for line in content.lines() {
-        let t = line.trim();
-        if let Some(name) = open_name(t) {
-            let id = slug(&name)
-                .ok_or_else(|| format!("工具名 {name:?} 无法转换为目录名（需要字母/数字/连字符）。"))?;
-            cur = Some((UserTool { id, name }, String::new()));
-        }
-        if let Some((_, body)) = cur.as_mut() {
-            body.push_str(line);
-            body.push('\n');
-        }
-        if t == CLOSE {
-            if let Some(entry) = cur.take() {
-                out.push(entry);
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Rebuild the per-tool fragment dirs under `usertools/` to match `content`:
-/// write each tool's fragment, and REMOVE any tool dir that no longer has a
-/// matching marker block. Returns the surviving tool list. A failure part-way
-/// leaves the tree best-effort consistent (the meta is rewritten only from a
-/// full successful split).
-pub fn sync_scenario_dirs(repo: &Path, content: &str) -> Result<Vec<UserTool>> {
-    let tools = split_tools(content).map_err(anyhow::Error::msg)?;
-    let root = repo.join("usertools");
-
-    // Remove dirs for tools that are gone.
-    let live: std::collections::HashSet<&str> = tools.iter().map(|(t, _)| t.id.as_str()).collect();
-    if root.is_dir() {
-        for entry in std::fs::read_dir(&root).with_context(|| format!("read {}", root.display()))? {
-            let entry = entry?;
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let id = entry.file_name().to_string_lossy().into_owned();
-            if id == "fragment.Dockerfile" {
-                continue;
-            }
-            if !live.contains(id.as_str()) {
-                std::fs::remove_dir_all(&path)
-                    .with_context(|| format!("remove stale tool dir {}", path.display()))?;
-            }
-        }
-    }
-
-    // Write each tool's fragment.
-    for (tool, body) in &tools {
-        let dir = tool_dir(repo, &tool.id);
-        std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
-        let frag = dir.join("fragment.Dockerfile");
-        write_atomic(&frag, body)?;
-    }
-
-    Ok(tools.into_iter().map(|(t, _)| t).collect())
-}
-
-/// The tool metadata persisted in mgr-data (`<data>/usertools.json`). Runtime
-/// state only — never in the repo (the on-disk fragment dirs are the source
-/// of truth for what is installed; the meta only records display names).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ToolMeta {
-    pub tools: Vec<UserTool>,
-}
-
-/// Persist the meta file atomically (same rename discipline as the fragment).
-pub fn save_meta(data: &Path, meta: &ToolMeta) -> Result<()> {
-    let path = data.join("usertools.json");
-    let body = serde_json::to_string_pretty(meta).context("serialize usertools meta")?;
-    write_atomic(&path, &body)
-}
-
-/// Load the meta file; a missing or corrupt file yields an empty meta (the
-/// picker falls back to scanning the on-disk fragment dirs).
-pub fn load_meta(data: &Path) -> ToolMeta {
-    let path = data.join("usertools.json");
-    let Ok(body) = std::fs::read_to_string(&path) else {
-        return ToolMeta { tools: Vec::new() };
-    };
-    serde_json::from_str(&body).unwrap_or(ToolMeta { tools: Vec::new() })
-}
-
-/// Scan `usertools/` for the create wizard's L5 picker: every tool dir with a
-/// fragment on disk, id-sorted, display name read back out of the fragment's
-/// `# --- tool: <name> ---` marker (falls back to the id). The on-disk dirs are
-/// the single source of truth, so this is correct immediately after a save
-/// (AC7) and on a fresh checkout with committed tool dirs.
-pub fn picker_tools(repo: &Path) -> Vec<UserTool> {
-    let root = repo.join("usertools");
-    let mut out: Vec<UserTool> = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().into_owned();
-        let frag = path.join("fragment.Dockerfile");
-        let Ok(body) = std::fs::read_to_string(&frag) else {
-            continue;
-        };
-        let name = list_tools(&body).into_iter().next().unwrap_or_else(|| id.clone());
-        out.push(UserTool { id, name });
-    }
-    out.sort_by(|a, b| a.id.cmp(&b.id));
-    out
 }
 
 // ── validation (raw editor) ───────────────────────────────────────
@@ -420,72 +276,7 @@ mod tests {
             .to_string()
     }
 
-    // ── list_tools / split_tools ────────────────────────────────────
-
-    #[test]
-    fn list_tools_counts_marker_blocks() {
-        assert_eq!(list_tools(&sample_fragment()), vec!["RipGrep", "fd-find"]);
-        assert_eq!(list_tools("# just a comment\nRUN true\n"), Vec::<String>::new());
-    }
-
-    #[test]
-    fn split_tools_extracts_each_block_verbatim() {
-        let content = sample_fragment();
-        let tools = split_tools(&content).unwrap();
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].0.id, "ripgrep");
-        assert_eq!(tools[1].0.id, "fd-find");
-        // Each per-tool fragment is a verbatim slice of the whole file, in
-        // order: concat(tools) + the prose between/around them == content.
-        for (_, body) in &tools {
-            assert!(content.contains(body.as_str()), "{body:?}");
-        }
-        // Order is preserved: block 1 appears before block 2 in the file.
-        assert!(content.find(&tools[0].1).unwrap() < content.find(&tools[1].1).unwrap());
-    }
-
-    #[test]
-    fn split_tools_rejects_malformed_blocks() {
-        assert!(split_tools("# --- tool: x ---\nRUN true\n").is_err()); // unterminated
-        assert!(split_tools("# --- /tool ---\n").is_err()); // close without open
-        assert!(split_tools("# --- tool: x ---\n# --- tool: y ---\n# --- /tool ---\n# --- /tool ---\n").is_err()); // nested
-    }
-
-    #[test]
-    fn slug_normalizes_names() {
-        assert_eq!(slug("Rust Tool"), Some("rust-tool".into()));
-        assert_eq!(slug("  my_tool  "), Some("my-tool".into()));
-        assert_eq!(slug("fd"), Some("fd".into()));
-        assert_eq!(slug("..."), None);
-        assert_eq!(slug(""), None);
-    }
-
-    // ── sync_scenario_dirs ──────────────────────────────────────────
-
-    #[test]
-    fn sync_writes_and_prunes_tool_dirs() {
-        let dir = std::env::temp_dir().join(format!("mgr-ut-sync-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let content = sample_fragment();
-        let tools = sync_scenario_dirs(&dir, &content).unwrap();
-        assert_eq!(tools.len(), 2);
-        assert!(tool_dir(&dir, "ripgrep").join("fragment.Dockerfile").is_file());
-        assert!(tool_dir(&dir, "fd-find").join("fragment.Dockerfile").is_file());
-
-        // Removing a tool from the fragment prunes its dir on re-sync.
-        let trimmed = content.replace(
-            "# --- tool: fd-find ---\nRUN curl -fsSL https://example.com/fd.tar.gz | tar -xz -C /opt\n# --- /tool ---\n",
-            "",
-        );
-        let tools = sync_scenario_dirs(&dir, &trimmed).unwrap();
-        assert_eq!(tools.len(), 1);
-        assert!(tool_dir(&dir, "ripgrep").join("fragment.Dockerfile").is_file());
-        assert!(!tool_dir(&dir, "fd-find").exists());
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+    // ── list_tools ─────────────────────────────────────────────────
 
     // ── validate (raw editor) ───────────────────────────────────────
 
@@ -542,42 +333,6 @@ mod tests {
         assert!(validate(ok).is_ok());
     }
 
-    // ── meta round-trip ─────────────────────────────────────────────
-
-    #[test]
-    fn meta_round_trips_and_picker_drops_missing_fragments() {
-        let dir = std::env::temp_dir().join(format!("mgr-ut-meta-{}", std::process::id()));
-        let repo = dir.join("repo");
-        let data = dir.join("data");
-        std::fs::create_dir_all(&repo).unwrap();
-        std::fs::create_dir_all(&data).unwrap();
-
-        let meta = ToolMeta {
-            tools: vec![
-                UserTool { id: "ripgrep".into(), name: "RipGrep".into() },
-                UserTool { id: "fd-find".into(), name: "fd-find".into() },
-            ],
-        };
-        save_meta(&data, &meta).unwrap();
-        assert_eq!(load_meta(&data), meta);
-
-        // picker_tools returns exactly the tools whose fragment is on disk.
-        sync_scenario_dirs(&repo, &sample_fragment()).unwrap();
-        save_meta(&data, &meta).unwrap();
-        let picker = picker_tools(&repo);
-        assert_eq!(picker.len(), 2);
-
-        // A stale meta entry (fragment dir deleted by hand) is dropped.
-        let mut stale = load_meta(&data);
-        stale.tools.push(UserTool { id: "ghost".into(), name: "Ghost".into() });
-        save_meta(&data, &stale).unwrap();
-        let picker = picker_tools(&repo);
-        assert_eq!(picker.len(), 2);
-        assert!(!picker.iter().any(|t| t.id == "ghost"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     // ── atomic write ────────────────────────────────────────────────
 
     #[test]
@@ -599,11 +354,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn fragment_path_is_the_usertools_fragment() {
-        assert_eq!(
-            fragment_path(Path::new("/repo")),
-            PathBuf::from("/repo/usertools/fragment.Dockerfile")
-        );
-    }
 }
