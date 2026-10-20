@@ -159,7 +159,9 @@ export function EnvPicker({ lang, scenarios, env, onChange }: Props): JSX.Elemen
             {s.name}
             {s.always_on && <span className="lock">{t(lang, "wzLocked")}</span>}
           </div>
-          <div className="desc">{s.description}</div>
+          <div className="desc">
+            {s.description || (isService ? t(lang, "epLegacyTool") : s.description)}
+          </div>
         </div>
         {s.versions.length > 0 && (
           <select

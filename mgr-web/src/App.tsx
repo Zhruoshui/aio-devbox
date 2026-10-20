@@ -40,13 +40,13 @@ import { ImagesPage } from "./pages/ImagesPage";
 import { JobView } from "./pages/JobView";
 import { ModelsPage } from "./pages/models/ModelsPage";
 import { UsagePage } from "./pages/UsagePage";
-import { UserToolsPage } from "./pages/UserToolsPage";
+import { StorePage } from "./pages/StorePage";
 import { IS_POPOUT_CHILD, WorkspacePage } from "./pages/WorkspacePage";
 import { THEMES, resolveThemeKey, type ThemeDef } from "./themes";
 import type { Scenario } from "./types";
 import "./styles.css";
 
-type Page = "workspace" | "sandboxes" | "images" | "models" | "usage" | "userTools";
+type Page = "workspace" | "sandboxes" | "images" | "models" | "usage" | "toolStore";
 
 /** Sub-view of the sandboxes page. Job views carry the job id plus which
  * flow produced them (for the right heading + done message). */
@@ -76,8 +76,8 @@ const RAIL_NAV: { page: Page; icon: IconName; labelKey: StringKey }[] = [
   { page: "images", icon: "layers", labelKey: "navImages" },
   { page: "models", icon: "sliders", labelKey: "navModels" },
   { page: "usage", icon: "chart", labelKey: "navUsage" },
-  // R2: the user-tools fragment editor (box = the L2 tool layer).
-  { page: "userTools", icon: "box", labelKey: "navUserTools" },
+  // 10-20: the usertools tool store (box = the tool layer).
+  { page: "toolStore", icon: "box", labelKey: "navToolStore" },
 ];
 
 export function App(): JSX.Element {
@@ -272,7 +272,7 @@ export function App(): JSX.Element {
         ) : page === "usage" ? (
           <UsagePage lang={lang} />
         ) : (
-          <UserToolsPage lang={lang} />
+          <StorePage lang={lang} />
         )}
       </main>
       {themeMenu !== null && (

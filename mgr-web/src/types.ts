@@ -207,23 +207,66 @@ export interface ImageList {
 // display-only list of tool names parsed out of the `# --- tool:` marker
 // blocks).
 
-/** One custom tool surfaced by GET /api/user-tools. `id` is the
- * scenario-directory-safe form of the tool name; `name` is the display
- * label. Display-only — the editor works on the whole fragment text. */
-export interface UserTool {
-  id: string;
+// ── usertools store (10-20; mirrors mgr/src/usertools/) ────────────
+
+/** How a downloaded artifact lands (recipe.rs UrlKind). */
+export type UrlKind = "binary" | "tarball";
+
+/** 安装配方 — tagged union mirroring recipe.rs `Install` (kebab-case
+ * `type`, snake_case wire). One variant per form type; adding a kind is a
+ * backend variant + one entry here. */
+export type Install =
+  | { type: "apt"; packages: string[] }
+  | { type: "url"; url: string; kind: UrlKind; bins: string[] }
+  | {
+      type: "github-release";
+      repo: string;
+      tag: string;
+      asset: string;
+      kind: UrlKind;
+      bins: string[];
+    }
+  | { type: "script"; script: string; check?: string | null }
+  | { type: "raw"; dockerfile: string };
+
+/** The shelf categories (recipe.rs CATEGORIES; unknown values degrade to
+ * the raw string — never break on the unknown). */
+export const TOOL_CATEGORIES = ["shell", "document", "media", "network", "dev", "other"] as const;
+export type ToolCategory = (typeof TOOL_CATEGORIES)[number];
+
+/** One tool recipe — recipe.toml on disk, POST/PUT body on the wire. */
+export interface Recipe {
+  schema: number;
   name: string;
+  description: string;
+  category: string;
+  version: string;
+  homepage: string;
+  install: Install;
 }
 
-export interface UserToolsFile {
-  /** The fragment's full text (verbatim — comments and blank lines intact). */
-  content: string;
-  /** Tool names parsed from the `# --- tool: <name> ---` marker blocks
-   * (display-only; drives the "contains N tools" label). */
-  tools: UserTool[];
-  /** Absolute path of the file on the mgr host (shown for the Makefile /
-   * hand-edit escape hatch). */
-  path: string;
+/** install_type vocabulary: Install::label() + "custom" for recipe-less
+ * (legacy/hand-written) dirs. */
+export type InstallType = "apt" | "url-binary" | "url-tarball" | "script" | "raw" | "custom";
+
+/** One shelf card — GET /api/usertools/store `mine` and `builtin` rows in
+ * the same shape so the SPA renders one grid for both. */
+export interface ToolCard {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  version: string;
+  homepage: string;
+  install_type: InstallType;
+  has_recipe: boolean;
+  /** Sandboxes whose env selects this tool (sorted; empty = unreferenced). */
+  referenced_by: string[];
+}
+
+export interface StoreShelf {
+  mine: ToolCard[];
+  builtin: ToolCard[];
 }
 
 // ── GET /api/jobs/:id ──────────────────────────────────────────────

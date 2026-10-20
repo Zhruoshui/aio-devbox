@@ -1590,8 +1590,9 @@ async fn update_usertool(
     Ok(Json(json!({ "ok": true, "id": id })))
 }
 
-/// GET /api/usertools/tools/:id/fragment — the tool's fragment verbatim
-/// (raw editor source; read-only for recipe tools, the form owns those).
+/// GET /api/usertools/tools/:id/fragment — the tool's fragment verbatim +
+/// its recipe when it has one (the edit dialog pre-fills from this; legacy
+/// tools carry recipe: null and the SPA routes them to the raw editor).
 async fn get_usertool_fragment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1600,7 +1601,15 @@ async fn get_usertool_fragment(
     let content = std::fs::read_to_string(&path).map_err(|_| {
         ApiError::with_status(StatusCode::NOT_FOUND, format!("工具 {id:?} 不存在。"))
     })?;
-    Ok(Json(json!({ "id": id, "content": content })))
+    let recipe = match crate::usertools::recipe::load(&state.repo, &id) {
+        Some(Ok(r)) => serde_json::to_value(&r)
+            .map_err(|e| ApiError::from(anyhow::anyhow!("serialize recipe: {e}")))?,
+        // Corrupt recipe: surface the parse error rather than silently
+        // downgrading to the raw channel.
+        Some(Err(e)) => return Err(ApiError::bad(format!("recipe.toml 无法解析：{e}"))),
+        None => serde_json::Value::Null,
+    };
+    Ok(Json(json!({ "id": id, "content": content, "recipe": recipe })))
 }
 
 /// PUT /api/usertools/tools/:id/fragment — the raw channel: write a

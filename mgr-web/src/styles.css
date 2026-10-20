@@ -1746,69 +1746,141 @@ body {
   line-height: 1.5;
 }
 
-/* ─── R2 user-tools editor (UserToolsPage) ───────────────────────── */
-/* The hard-rules block mirrors .img-detail-note's role (an advisory panel
- * above the editor) but leads with a title, so it needs its own spacing. */
-.ut-note {
-  margin-bottom: var(--space-4);
-  font-size: var(--text-sm);
-  line-height: 1.6;
+/* ─── tool store (StorePage, 10-20) ──────────────────────────────── */
+.st-shelf {
+  margin-bottom: var(--space-5);
 }
-.ut-note-title {
-  font-weight: 500;
-  margin-bottom: var(--space-2);
+.st-shelf h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
 }
-.ut-note ul {
-  margin: 0;
-  padding-left: 1.2em;
-  display: grid;
-  gap: var(--space-1);
-}
-.ut-note code {
-  overflow-wrap: anywhere;
-}
-.ut-path {
-  margin-top: var(--space-2);
+.st-hint {
+  margin: 0 0 var(--space-2);
   color: var(--muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
-.ut-tabs {
-  margin-bottom: var(--space-4);
-}
-.ut-form {
+.st-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--space-3);
-  align-items: start;
 }
-/* One row per tool; auto-fit keeps the wide rows from overflowing the page
- * (the URL column only exists for tarball/script, so the count varies). */
-.ut-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--space-3);
-  align-items: end;
-  padding: var(--space-3);
+.st-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
   background: var(--surface);
   border-radius: var(--radius-md);
   box-shadow: var(--elev-ring);
+  border-top: 3px solid var(--border-soft);
 }
-.ut-row .ut-col-wide {
-  grid-column: span 2;
+/* Category chips color the top border (no icon assets — D3). */
+.st-card.st-cat-shell    { border-top-color: oklch(72% 0.12 250); }
+.st-card.st-cat-document { border-top-color: oklch(72% 0.12 130); }
+.st-card.st-cat-media    { border-top-color: oklch(72% 0.12 20); }
+.st-card.st-cat-network  { border-top-color: oklch(72% 0.12 300); }
+.st-card.st-cat-dev      { border-top-color: oklch(72% 0.12 80); }
+.st-card.st-cat-other    { border-top-color: var(--border-soft); }
+.st-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
-.ut-remove {
-  justify-self: start;
-  align-self: end;
+.st-cat {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.st-type {
+  overflow-wrap: anywhere;
+}
+.st-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.st-badge {
+  font-weight: 400;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.st-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  min-height: 2.4em;
+}
+.st-meta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.st-refs.on {
   color: var(--danger);
 }
-.ut-empty,
-.ut-hint {
-  margin: 0;
-  color: var(--muted);
+.st-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+/* Publish/edit dialog: wider than the default 480px dialog — the form and
+ * the server-rendered preview sit side by side. */
+.st-dialog {
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+.st-form-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.2fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 880px) {
+  .st-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.st-form-left,
+.st-form-right {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+}
+.st-field {
+  display: grid;
+  gap: 4px;
   font-size: var(--text-sm);
 }
-/* Raw editor: monospace, comfortably large, scrolls internally so a long
- * fragment never pushes the save button out of the viewport (the shipped
- * fragment is ~50 lines of docs before the first instruction). */
+.st-field span {
+  color: var(--muted);
+}
+.st-preview-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.st-preview {
+  margin: 0;
+  padding: var(--space-3);
+  min-height: 220px;
+  max-height: 46vh;
+  overflow: auto;
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: pre;
+}
+/* Raw fragment editor (legacy tools): kept from the retired page — mono,
+ * scrolls internally so long fragments never push the save button away. */
 .ut-textarea {
   width: 100%;
   min-height: 46vh;
@@ -1816,9 +1888,6 @@ body {
   line-height: 1.5;
   white-space: pre;
   overflow: auto;
-}
-.ut-saved code {
-  overflow-wrap: anywhere;
 }
 
 /* ─── responsive guard ───────────────────────────────────────────── */

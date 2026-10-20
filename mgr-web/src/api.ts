@@ -18,7 +18,8 @@ import {
   type Sandbox,
   type SandboxList,
   type ScenarioList,
-  type UserToolsFile,
+  type Recipe,
+  type StoreShelf,
 } from "./types";
 import {
   decodeLibrary,
@@ -138,22 +139,63 @@ export function getJob(id: number): Promise<Job> {
   return get(`/api/jobs/${id}`);
 }
 
-// ── user-tools fragment (R2, 修正 2 simplified; mirrors mgr/src/usertools.rs) ──
+// ── usertools store (10-20; mirrors mgr/src/usertools/ routes) ──────
 //
-// Single direct-edit view: the save stores `content` verbatim (comments and
-// blank lines round-trip), then the backend re-syncs the per-tool scenario
-// dirs. The save is followed by a re-GET so the page always renders the
-// file's actual state (and the tool list reflects the just-written markers).
+// The shelf is a directory scan on the mgr side — no cache layer, so a
+// save/add/delete is visible on the next getToolStore() without any
+// invalidation protocol.
 
-export function getUserTools(): Promise<UserToolsFile> {
-  return get("/api/user-tools");
+/** The shelf view: materialized tools (with reference counts) + builtin
+ * recommendations not yet materialized. */
+export function getToolStore(): Promise<StoreShelf> {
+  return get("/api/usertools/store");
 }
 
-/** Direct-editor save. The backend 400s on the `/root` hard rule with a
- * line-numbered message; on success it also syncs the per-tool scenario
- * dirs under scenarios/. */
-export function putUserTools(content: string): Promise<{ ok: boolean }> {
-  return send("/api/user-tools", "PUT", { content });
+/** 上架 — form recipe. id is derived (slug of the name) server-side; a
+ * collision 409s, field errors 400 with a zh message. */
+export function createToolFromRecipe(
+  recipe: Recipe,
+): Promise<{ ok: boolean; id: string }> {
+  return send("/api/usertools/tools", "POST", { recipe });
+}
+
+/** 上架 — one click from the builtin shelf (materializes the seed recipe). */
+export function createToolFromBuiltin(id: string): Promise<{ ok: boolean; id: string }> {
+  return send("/api/usertools/tools", "POST", { from_builtin: id });
+}
+
+/** Edit a recipe tool: full replace, the backend regenerates the fragment. */
+export function updateTool(id: string, recipe: Recipe): Promise<{ ok: boolean; id: string }> {
+  return send(`/api/usertools/tools/${enc(id)}`, "PUT", recipe);
+}
+
+/** 下架. Referenced tools 400 with the sandbox names in the message unless
+ * `force` — the UI surfaces the list and asks before forcing. */
+export function deleteTool(id: string, force = false): Promise<{ ok: boolean; id: string }> {
+  return send(`/api/usertools/tools/${enc(id)}${force ? "?force=true" : ""}`, "DELETE");
+}
+
+/** One tool's detail: the fragment verbatim + its recipe (null for legacy
+ * fragment-only tools — the SPA routes those to the raw editor). */
+export function getToolFragment(
+  id: string,
+): Promise<{ id: string; content: string; recipe: Recipe | null }> {
+  return get(`/api/usertools/tools/${enc(id)}/fragment`);
+}
+
+/** Raw-channel save (legacy tools only; recipe tools 409 — edit the recipe). */
+export function putToolFragment(id: string, content: string): Promise<{ ok: boolean }> {
+  return send(`/api/usertools/tools/${enc(id)}/fragment`, "PUT", { content });
+}
+
+/** Recipe → fragment WITHOUT writing (the form's live preview; the backend
+ * generator is the single owner of the templates). `id` may be null for a
+ * create-preview — the backend derives it from the name. */
+export function previewTool(
+  id: string | null,
+  recipe: Recipe,
+): Promise<{ id: string; fragment: string }> {
+  return send("/api/usertools/preview", "POST", { id, recipe });
 }
 
 // R3: full build logs. The backend keeps the COMPLETE output on disk
