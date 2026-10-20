@@ -32,6 +32,7 @@ import {
   type ProviderNode,
 } from "./sandboxTypes";
 import {
+  isValidBaseUrl,
   opencodeFileText,
   parseIncrementalFiles,
   piModelsFileText,
@@ -553,7 +554,16 @@ export function IncrementalAgentPanel({
             </button>
             <button
               className="btn btn-primary"
-              disabled={!dirtyDraft || draft.node.baseUrl.trim() === ""}
+              disabled={
+                !dirtyDraft ||
+                draft.node.baseUrl.trim() === "" ||
+                !isValidBaseUrl(draft.node.baseUrl)
+              }
+              title={
+                draft.node.baseUrl.trim() !== "" && !isValidBaseUrl(draft.node.baseUrl)
+                  ? t(lang, "mcBaseUrlInvalid")
+                  : undefined
+              }
               onClick={commitDraft}
             >
               {t(lang, "sbxUseSnapshot")}

@@ -92,19 +92,159 @@ export function stripJsoncComments(text: string): string {
   return out;
 }
 
+/** Detect duplicate keys in (comment-stripped) JSON text. JSON.parse
+ *  silently keeps the LAST occurrence — a hand-edit that re-states a key
+ *  would quietly drop the earlier value, so surface it as a hard error.
+ *  A stack of seen-key sets: entering `{` pushes, leaving pops; a JSON
+ *  string followed by `:` inside an object is a key. Returns the offender
+ *  ("\"key\"") or null. */
+export function findDuplicateJsonKeys(text: string): string | null {
+  const seen: Set<string>[] = [new Set()];
+  let i = 0;
+  let inString = false;
+  let inEscape = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) {
+      if (inEscape) inEscape = false;
+      else if (c === "\\") inEscape = true;
+      else if (c === '"') inString = false;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      // Read the whole string, then peek past whitespace for ':' (a key).
+      let j = i + 1;
+      let s = "";
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === "\\") {
+          s += text[j] + (text[j + 1] ?? "");
+          j += 2;
+          continue;
+        }
+        s += text[j];
+        j++;
+      }
+      let k = j + 1;
+      while (k < text.length && /\s/.test(text[k])) k++;
+      if (text[k] === ":") {
+        const top = seen[seen.length - 1];
+        if (top.has(s)) return `"${s}"`;
+        top.add(s);
+      }
+      i = j + 1;
+      continue;
+    }
+    if (c === "{" || c === "[") seen.push(new Set());
+    else if (c === "}" || c === "]") seen.pop();
+    i++;
+  }
+  return null;
+}
+
+/** Lightweight TOML syntax check (offline — no parser dependency). Not a
+ *  full grammar: it catches the common hand-edit slips — a line that is
+ *  neither blank/comment/section/key=value, an unterminated same-line
+ *  string, and unclosed brackets/braces across lines (multi-line arrays).
+ *  String CONTENT is skipped (brackets/keys inside quotes never count);
+ *  triple-quoted multi-line strings span lines until their delimiter.
+ *  Returns "" when OK, else an error with the 1-based line number. */
+export function validateToml(text: string): string {
+  const lines = text.split("\n");
+  // Bracket depth carried across lines (multi-line arrays, inline tables).
+  let depth = 0;
+  // Set while inside a multi-line string opened but not yet closed.
+  let mlString: string | null = null; // '"""' | "'''"
+  for (let n = 0; n < lines.length; n++) {
+    const raw = lines[n];
+    const lineNo = n + 1;
+    if (mlString !== null) {
+      if (raw.includes(mlString)) mlString = null;
+      continue;
+    }
+    // Walk the line: track strings, cut comments, keep a string-stripped
+    // projection for the shape checks, count brackets outside strings.
+    const startDepth = depth;
+    let out = "";
+    let inStr: string | null = null; // '"' | "'" | '"""' | "'''"
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      const three = raw.slice(i, i + 3);
+      if (inStr === null && (three === '"""' || three === "'''")) {
+        inStr = three;
+        i += 2;
+        continue;
+      }
+      if (inStr === null && (c === '"' || c === "'")) {
+        inStr = c;
+        continue;
+      }
+      if (inStr !== null) {
+        if (inStr.length === 3 && raw.slice(i, i + 3) === inStr) {
+          // multi-line string closed on the same line
+          inStr = null;
+          i += 2;
+          continue;
+        }
+        if (c === "\\" && inStr === '"') {
+          i++; // skip the escaped char
+          continue;
+        }
+        if (c === inStr) {
+          inStr = null;
+          continue;
+        }
+        continue; // string content: never reaches `out` or the depth count
+      }
+      if (c === "#") break; // comment: drop the rest of the line
+      out += c;
+      if (c === "[" || c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === "]") {
+        depth--;
+        if (depth < 0) return `line ${lineNo}: unbalanced "]"`;
+      }
+    }
+    if (inStr !== null) {
+      if (inStr.length === 1) return `line ${lineNo}: unterminated string`;
+      mlString = inStr; // opened here, closes on a later line
+      continue;
+    }
+    const line = out.trim();
+    if (line === "") continue;
+    // Shape check only for lines that live entirely at depth 0 — a line
+    // INSIDE a multi-line array (a value row or the closing bracket) has
+    // its own TOML grammar we don't model.
+    if (startDepth !== 0 || depth !== 0) continue;
+    const isHeader = /^\[\[?[^[\]]*\]\]?$/.test(line);
+    const hasKeyValue = /^[A-Za-z0-9_\-."'][^=]*=/.test(line);
+    if (!isHeader && !hasKeyValue) {
+      return `line ${lineNo}: expected "key = value" or [section], got: ${line.slice(0, 40)}`;
+    }
+  }
+  if (depth !== 0) return `unclosed bracket (depth ${depth} at end of file)`;
+  if (mlString !== null) return `unterminated multi-line string (${mlString})`;
+  return "";
+}
+
 /** Validate a source string. Returns an error message ("" when valid).
- *  JSON is strictly parsed; JSONC is comment-stripped then parsed; TOML
- *  only rejects empty input (verbatim pass). */
+ *  JSON is strictly parsed and duplicate keys rejected; JSONC is
+ *  comment-stripped first; TOML gets a lightweight syntax check (10-13
+ *  follow-up: 语法层面检查). */
 export function validateSource(text: string, language: SourceLanguage): string {
   if (language === "json" || language === "jsonc") {
+    const stripped = language === "jsonc" ? stripJsoncComments(text) : text;
+    const dup = findDuplicateJsonKeys(stripped);
+    if (dup !== null) return `duplicate key ${dup} (JSON keeps only the last one)`;
     try {
-      JSON.parse(language === "jsonc" ? stripJsoncComments(text) : text);
+      JSON.parse(stripped);
       return "";
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
   }
-  return text.trim() === "" ? "empty" : "";
+  if (text.trim() === "") return "empty";
+  return validateToml(text);
 }
 
 /** The language chip label. */

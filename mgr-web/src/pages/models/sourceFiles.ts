@@ -99,6 +99,12 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/** Simple baseUrl shape check (follow-up: 语法层面检查) — non-empty and
+ *  http(s). Not URL-parse-complete; catches the hand-slip class. */
+export function isValidBaseUrl(u: string): boolean {
+  return /^https?:\/\/\S+$/.test(u.trim());
+}
+
 /** Parse one pi/opencode provider node; `where` names the file+key for the
  *  error message. baseUrl + api are schema-required (the app's
  *  asProviderNode contract). */
@@ -106,6 +112,9 @@ function parseNode(v: unknown, where: string): ProviderNode | string {
   if (!isObj(v)) return `${where}: not an object`;
   if (typeof v.baseUrl !== "string" || v.baseUrl.trim() === "") {
     return `${where}: baseUrl is required`;
+  }
+  if (!isValidBaseUrl(v.baseUrl)) {
+    return `${where}: baseUrl must be an http(s) URL`;
   }
   if (typeof v.api !== "string" || v.api.trim() === "") {
     return `${where}: api is required`;
