@@ -382,9 +382,11 @@ model_profile` 全部移除(prd D1/D6)。
     重复 id 400)
   - `PUT /api/models/providers/:id` — 单条更新(同样 masked-echo;404 未知 id)
   - `DELETE /api/models/providers/:id` — 单条删除(404 未知 id)
-  - `GET /api/models/templates` — 公共模板列表 **不带 apiKey 字段**(连 mask
-    都不传),供沙箱侧 picker 用;响应 `{version, templates: [{id, name,
-    baseUrl, api, models, websiteUrl?, category?, notes?}]}`
+  - `GET /api/models/templates` — 模板列表 **携带真实 apiKey**(10-13
+    models-config-ux R2,推翻 10-04 的"不传 key"决定:唯一消费方是 mgr-web
+    自身,与供应商编辑器同信任域;前端面板仅在 key 字段为空时预填,不覆盖
+    用户输入);响应 `{version, templates: [{id, name, baseUrl, api,
+    apiKey?, models, websiteUrl?, category?, notes?}]}`
   - `POST /api/models/discover` + `POST /api/models/test` — 纯 HTTP 探测,与
     profile 无关,保留不变(ById/Literal untagged 两形态,详见 Model Config
     Guide 的 discover/test 节)

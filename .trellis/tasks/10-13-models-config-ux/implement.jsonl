@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/10-13-models-config-ux/research/findings.md", "reason": "All code-fact landing points + bigmodel probe evidence + cc-switch file mapping — read first"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web stack/structure conventions (build gate = tsc, where things live)"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Dialog/component chrome contract (useDialogChrome) for the shared DiscoverModelsDialog"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Decoder-at-boundary rule for ProviderTemplatePublic.apiKey + parse-back helpers"}
+{"file": ".trellis/spec/frontend/theming.md", "reason": "CSS layering (styles.css vs components.css) for the new .sbx-list rows"}
+{"file": ".trellis/spec/backend/model-config-guide.md", "reason": "Canonical /api/models/* contracts incl. discover/templates routes being modified"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "app/mgr discover stay in lockstep; mgr-web↔mgr↔app wire shapes"}

@@ -356,6 +356,26 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 .sbx-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .sbx-card-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbx-card-actions { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+/* Row-style provider list (10-13-models-config-ux R3): one provider per
+ * row, one config item per line — a long baseUrl truncates with a title
+ * tooltip instead of blowing out the card. Replaces the card GRID in the
+ * sandbox config panels (kept .sbx-cards for any other consumer). */
+.sbx-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.sbx-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--elev-ring);
+}
+.sbx-row.current { box-shadow: 0 0 0 2px var(--accent); }
+.sbx-row-main { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.sbx-row-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.sbx-row-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbx-row-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbx-row-url {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 100%;
+}
+.sbx-row-actions { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
 .sbx-editor {
   display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4); border-radius: var(--radius-lg);
@@ -365,6 +385,26 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 .sbx-model-line { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--space-2); align-items: center; }
 .sbx-source { display: flex; flex-direction: column; gap: var(--space-2); }
 .sbx-source-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+/* DiscoverModelsDialog (shared fetch-models multi-select, R5) */
+.discover-dialog { width: min(620px, calc(100vw - 32px)); }
+.discover-dialog .dialog-body { max-height: 72vh; overflow: auto; }
+.discover-toolbar { display: flex; align-items: center; gap: var(--space-2); }
+.discover-list {
+  display: flex; flex-direction: column; gap: 2px;
+  overflow: auto; min-height: 120px; max-height: 44vh;
+  padding: var(--space-1); border: 1px solid var(--border);
+  border-radius: var(--radius-md); background: var(--bg);
+}
+.discover-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md); cursor: pointer;
+}
+.discover-row:hover { background: var(--surface); }
+.discover-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Second file of a two-file agent (codex auth.json / pi settings.json). */
+.sbx-source-extra { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
 
 /* SourceCodeEditor */
 .sce-view, .sce-edit { display: flex; flex-direction: column; gap: var(--space-2); }

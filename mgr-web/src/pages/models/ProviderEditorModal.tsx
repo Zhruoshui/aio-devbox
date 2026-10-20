@@ -15,9 +15,10 @@
 // `headers`).
 
 import { useEffect, useRef, useState } from "react";
+import { DiscoverModelsDialog } from "../../components/DiscoverModelsDialog";
 import { useDialogChrome } from "../../components/Dialogs";
 import { Icon } from "../../icons";
-import { fmt, t, type Lang } from "../../i18n";
+import { t, type Lang } from "../../i18n";
 import { ModelRow } from "./ModelRow";
 import {
   API_PROTOCOLS,
@@ -310,94 +311,14 @@ export function ProviderEditorModal({
         </div>
       </div>
 
-      {/* discover overlay */}
+      {/* discover overlay (shared component, R5) */}
       {discover && (
-        <div className="overlay open" role="presentation">
-          <div
-            className="dialog discover-dialog"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="dialog-head">
-              <h2>{t(lang, "mcDiscoverTitle")}</h2>
-              <button
-                className="icon-btn"
-                aria-label={t(lang, "mcClose")}
-                onClick={() => onDiscoverSet(null)}
-              >
-                <Icon name="x" />
-              </button>
-            </div>
-            <div className="dialog-body">
-              {discover.loading && <p>{t(lang, "mcLoading")}</p>}
-              {discover.error && <p className="ml-msg err">{discover.error}</p>}
-              {!discover.loading && !discover.error && (
-                <>
-                  <p className="muted txs">
-                    {t(lang, "mcDiscoverEndpoint")}: {discover.endpoint}
-                  </p>
-                  <div className="field">
-                    <input
-                      className="input"
-                      placeholder={t(lang, "mcFilterPlaceholder")}
-                      value={discover.filter}
-                      onChange={(e) =>
-                        onDiscoverSet({ ...discover, filter: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="discover-list">
-                    {discover.models
-                      .filter(
-                        (m) =>
-                          !discover.filter ||
-                          m.id
-                            .toLowerCase()
-                            .includes(discover.filter.toLowerCase()),
-                      )
-                      .slice(0, 200)
-                      .map((m) => (
-                        <label key={m.id} className="discover-row">
-                          <input
-                            type="checkbox"
-                            checked={discover.selected.has(m.id)}
-                            onChange={(e) => {
-                              const next = new Set(discover.selected);
-                              if (e.target.checked) next.add(m.id);
-                              else next.delete(m.id);
-                              onDiscoverSet({ ...discover, selected: next });
-                            }}
-                          />
-                          <span className="mono">{m.id}</span>
-                          {m.name && <span className="muted"> — {m.name}</span>}
-                        </label>
-                      ))}
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="dialog-actions">
-              <span className="muted txs">
-                {fmt(lang, "mcDiscoverSelected", discover.selected.size)}
-              </span>
-              <span className="flex-spacer" />
-              <button
-                className="btn btn-secondary"
-                onClick={() => onDiscoverSet(null)}
-              >
-                {t(lang, "cancel")}
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={discover.selected.size === 0 || discover.loading}
-                onClick={onDiscoverAddSelected}
-              >
-                {t(lang, "mcDiscoverAdd")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DiscoverModelsDialog
+          discover={discover}
+          onSet={onDiscoverSet}
+          onConfirm={onDiscoverAddSelected}
+          lang={lang}
+        />
       )}
     </div>
   );

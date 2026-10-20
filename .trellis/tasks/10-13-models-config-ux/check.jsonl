@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-13-models-config-ux/prd.md", "reason": "AC1-AC7 are the check contract"}
+{"file": ".trellis/tasks/10-13-models-config-ux/research/findings.md", "reason": "Root-cause evidence to verify fixes against (F1 bigmodel, F2 cc-switch files)"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality gate (typecheck/build, no test framework)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust quality gate (cargo test scope, doc comments)"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Shared DiscoverModelsDialog + sourceFiles.ts extraction must not duplicate logic"}

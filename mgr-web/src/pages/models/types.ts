@@ -64,15 +64,18 @@ export interface ProviderLibrary {
   providers: Record<string, ProviderTemplate>;
 }
 
-/** One row of GET /api/models/templates — the public template list for
- * sandbox-side pickers. Same shape as ProviderTemplate but WITHOUT the
- * apiKey field at all (not even masked): the sandbox user pastes their own
- * key after copying the template. */
+/** One row of GET /api/models/templates — the template list for
+ * sandbox-side pickers. Carries the REAL apiKey (10-13-models-config-ux R2)
+ * so picking a template prefills the key too; panels fill only EMPTY key
+ * fields, never overwriting a user-typed value. */
 export interface ProviderTemplatePublic {
   id: string;
   name: string;
   baseUrl: string;
   api: string;
+  /** Real stored key (same trust domain as the provider editor); absent
+   *  when the library entry has no key configured. */
+  apiKey?: string;
   models: TemplateModelEntry[];
   websiteUrl?: string;
   category?: string;
@@ -260,7 +263,7 @@ export function decodeLibrary(json: unknown): ProviderLibrary {
   };
 }
 
-/** Decode GET /api/models/templates — the public template list (no apiKey). */
+/** Decode GET /api/models/templates — the template list (real apiKey). */
 export function decodeTemplates(json: unknown): TemplatesResponse {
   const o = isObj(json) ? json : {};
   const templates: ProviderTemplatePublic[] = [];
@@ -274,6 +277,7 @@ export function decodeTemplates(json: unknown): TemplatesResponse {
         name: parsed.name,
         baseUrl: parsed.baseUrl,
         api: parsed.api,
+        apiKey: typeof t.apiKey === "string" && t.apiKey !== "" ? t.apiKey : undefined,
         models: parsed.models,
         websiteUrl: parsed.websiteUrl,
         category: parsed.category,

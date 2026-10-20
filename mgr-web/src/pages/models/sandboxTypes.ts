@@ -32,12 +32,22 @@ export interface SwitchAgentConfig {
 
 // ── incremental-style agents (pi / opencode) ───────────────────────
 
+/** Cost per million tokens (USD) — pi's ModelCostSchema shape; the renderer
+ *  fills missing sub-fields with 0 when present (render/pi.rs). */
+export interface IncrementalCost {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface IncrementalModelEntry {
   id: string;
   name?: string;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
+  cost?: IncrementalCost;
 }
 
 export interface ProviderNode {
@@ -102,6 +112,20 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+function asIncrementalCost(v: unknown): IncrementalCost | undefined {
+  if (!isObj(v)) return undefined;
+  const num = (x: unknown): number | undefined =>
+    typeof x === "number" ? x : undefined;
+  const c: IncrementalCost = {
+    input: num(v.input),
+    output: num(v.output),
+    cacheRead: num(v.cacheRead),
+    cacheWrite: num(v.cacheWrite),
+  };
+  // All-absent cost is no cost.
+  return Object.values(c).every((x) => x === undefined) ? undefined : c;
+}
+
 function asIncrementalModel(v: unknown): IncrementalModelEntry | null {
   if (!isObj(v) || typeof v.id !== "string") return null;
   return {
@@ -110,6 +134,7 @@ function asIncrementalModel(v: unknown): IncrementalModelEntry | null {
     reasoning: typeof v.reasoning === "boolean" ? v.reasoning : undefined,
     contextWindow: typeof v.contextWindow === "number" ? v.contextWindow : undefined,
     maxTokens: typeof v.maxTokens === "number" ? v.maxTokens : undefined,
+    cost: asIncrementalCost(v.cost),
   };
 }
 
@@ -332,30 +357,19 @@ export function setAgent(
   return next;
 }
 
-/** Pretty-print the snapshot's settings_config for the source-code view.
- *  For codex the config.toml string stays raw (the `config` key), the rest is
- *  JSON-pretty — render.rs stores `{config: "<toml>", auth: {...}}`. */
-export function snapshotToSource(snapshot: ProviderSnapshot, agent: AgentId): string {
-  if (agent === "codex") {
-    const cfg = snapshot.settingsConfig.config;
-    return typeof cfg === "string" ? cfg : "";
-  }
+/** Pretty-print a CLAUDE snapshot's settings_config (the settings.json
+ *  body). Codex snapshots use the two-part codexSourceParts/
+ *  parseCodexSourceParts helpers in sourceFiles.ts instead (config.toml +
+ *  auth.json). */
+export function snapshotToSource(snapshot: ProviderSnapshot): string {
   return safeStringify(snapshot.settingsConfig, "{}");
 }
 
-/** Parse a source string back into a settings_config object (best effort —
- *  codex: `{config: text, auth: keep}`; others: JSON.parse). Returns null on
- *  unparseable input. `prev` is the snapshot being edited (auth preserved). */
+/** Parse a CLAUDE settings.json text back into a settings_config object.
+ *  Returns null on unparseable input. */
 export function sourceToSnapshotSettings(
   text: string,
-  agent: AgentId,
-  prev: ProviderSnapshot,
 ): Record<string, unknown> | null {
-  if (agent === "codex") {
-    if (text.trim() === "") return null;
-    const prevAuth = isObj(prev.settingsConfig.auth) ? prev.settingsConfig.auth : {};
-    return { config: text, auth: prevAuth };
-  }
   try {
     const v: unknown = JSON.parse(text);
     return isObj(v) ? v : null;

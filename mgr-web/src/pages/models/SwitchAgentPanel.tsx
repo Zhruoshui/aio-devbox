@@ -5,7 +5,9 @@
 // style); exactly one is `current` and gets rendered to the agent's native
 // config files on save/apply. Each snapshot's settings_config is opaque:
 // for claude it IS the ~/.claude/settings.json object (env block); for codex
-// it is `{ config: "<config.toml string>", auth: {...} }`.
+// it is `{ config: "<config.toml string>", auth: {...} }` — the source
+// editor edits BOTH files (config.toml + auth.json, 10-13 R6 cc-switch
+// alignment).
 //
 // Layout: provider card list (current badge + 设为当前/编辑/源码/删除) →
 // save bar → source view/editor. Editing a snapshot opens a small inline
@@ -28,6 +30,7 @@ import {
   type ProviderSnapshot,
   type SwitchAgentConfig,
 } from "./sandboxTypes";
+import { codexSourceParts, parseCodexSourceParts } from "./sourceFiles";
 
 /** claude's well-known settings.json env keys (edit form). */
 const CLAUDE_ENV_FIELDS = [
@@ -61,15 +64,34 @@ function genSnapshotId(agent: AgentId, existing: ProviderSnapshot[]): string {
   return `${agent}-${n}`;
 }
 
+/** The snapshot's base URL for the row list (claude: env; codex: first
+ *  base_url line of the toml). "—" when not set. */
+function snapshotBaseUrl(agent: AgentId, snap: ProviderSnapshot): string {
+  if (agent === "claude") {
+    const env = snap.settingsConfig.env as Record<string, unknown> | undefined;
+    const u = env?.ANTHROPIC_BASE_URL;
+    return typeof u === "string" && u !== "" ? u : "—";
+  }
+  const cfg = snap.settingsConfig.config;
+  if (typeof cfg === "string") {
+    const m = cfg.match(/^\s*base_url\s*=\s*"([^"]+)"/m);
+    if (m) return m[1];
+  }
+  return "—";
+}
+
 /** Default fields when a template prefills a NEW claude snapshot. */
 function claudeDefaultsFromTemplate(tp: {
   name: string;
   baseUrl: string;
   api: string;
+  apiKey?: string;
   models: { id: string }[];
 }): Record<string, unknown> {
   const env: Record<string, unknown> = { ANTHROPIC_BASE_URL: tp.baseUrl };
   if (tp.models[0]) env.ANTHROPIC_MODEL = tp.models[0].id;
+  // R2: carry the library key so the user doesn't re-paste it.
+  if (tp.apiKey) env.ANTHROPIC_AUTH_TOKEN = tp.apiKey;
   return { env };
 }
 
@@ -112,16 +134,21 @@ export function SwitchAgentPanel({
   // Snapshot editor state: which snapshot is being edited + the working copy.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProviderSnapshot | null>(null);
-  // Source view/editor state.
+  // Source view/editor state. For codex `sourceText` is config.toml and
+  // `sourceAuthText` is auth.json (the snapshot's two files).
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceEdit, setSourceEdit] = useState(false);
   const [sourceText, setSourceText] = useState("");
+  const [sourceAuthText, setSourceAuthText] = useState("");
   // Template picker target: "new" | snapshot id (prefill the editor draft).
   const [picking, setPicking] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const live = status?.live as Record<string, unknown> | undefined;
-  const applyTarget = agent === "claude" ? "~/.claude/settings.json" : "~/.codex/config.toml";
+  const applyTarget =
+    agent === "claude"
+      ? "~/.claude/settings.json"
+      : "~/.codex/config.toml + ~/.codex/auth.json";
 
   // ── snapshot CRUD (all on the DRAFT config; persisted via onSaveConfig) ──
 
@@ -145,6 +172,7 @@ export function SwitchAgentPanel({
     name: string;
     baseUrl: string;
     api: string;
+    apiKey?: string;
     models: { id: string }[];
   }) => {
     const id = genSnapshotId(agent, snapshots);
@@ -155,7 +183,12 @@ export function SwitchAgentPanel({
       snap.settingsConfig =
         agent === "claude"
           ? claudeDefaultsFromTemplate(fromTemplate)
-          : { ...snap.settingsConfig, config: codexTomlFromTemplate(fromTemplate) };
+          : {
+              ...snap.settingsConfig,
+              config: codexTomlFromTemplate(fromTemplate),
+              // R2: codex's key lives in auth.json's OPENAI_API_KEY.
+              auth: fromTemplate.apiKey ? { OPENAI_API_KEY: fromTemplate.apiKey } : snap.settingsConfig.auth,
+            };
     }
     const next: SwitchAgentConfig = {
       providers: [...snapshots, snap],
@@ -193,7 +226,13 @@ export function SwitchAgentPanel({
 
   const openSource = (snap: ProviderSnapshot, edit: boolean) => {
     setSourceId(snap.id);
-    setSourceText(snapshotToSource(snap, agent));
+    if (agent === "codex") {
+      const parts = codexSourceParts(snap);
+      setSourceText(parts.configText);
+      setSourceAuthText(parts.authText);
+    } else {
+      setSourceText(snapshotToSource(snap));
+    }
     setSourceEdit(edit);
     closeEditor();
   };
@@ -202,7 +241,10 @@ export function SwitchAgentPanel({
     if (sourceId === null) return;
     const snap = snapshots.find((s) => s.id === sourceId);
     if (!snap) return;
-    const settings = sourceToSnapshotSettings(sourceText, agent, snap);
+    const settings =
+      agent === "codex"
+        ? parseCodexSourceParts(sourceText, sourceAuthText)
+        : sourceToSnapshotSettings(sourceText);
     if (settings === null) return; // validator keeps the save button disabled
     patchDraftConfig({
       providers: snapshots.map((s) =>
@@ -213,6 +255,11 @@ export function SwitchAgentPanel({
     setSourceEdit(false);
   };
 
+  /** codex's save commits both files at once — disabled whenever either
+   *  fails its parse (auth.json must be a JSON object; toml passes verbatim). */
+  const codexSaveDisabled =
+    agent === "codex" && parseCodexSourceParts(sourceText, sourceAuthText) === null;
+
   // ── template picker ───────────────────────────────────────────────
 
   const onTemplatePicked = (tp: {
@@ -220,6 +267,7 @@ export function SwitchAgentPanel({
     name: string;
     baseUrl: string;
     api: string;
+    apiKey?: string;
     models: { id: string }[];
   }) => {
     const target = picking;
@@ -229,17 +277,22 @@ export function SwitchAgentPanel({
       return;
     }
     if (target !== null && draft && editingId === target) {
-      // Picked while editing: prefill the draft's core fields.
+      // Picked while editing: prefill the draft's EMPTY fields only —
+      // a user-typed key must survive a template pick (R2).
       const next = { ...draft };
       next.name = next.name || tp.name;
       if (agent === "claude") {
         const env = { ...((next.settingsConfig.env as Record<string, unknown>) ?? {}) };
         if (!env.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = tp.baseUrl;
         if (!env.ANTHROPIC_MODEL && tp.models[0]) env.ANTHROPIC_MODEL = tp.models[0].id;
+        if (!env.ANTHROPIC_AUTH_TOKEN && tp.apiKey) env.ANTHROPIC_AUTH_TOKEN = tp.apiKey;
         next.settingsConfig = { ...next.settingsConfig, env };
       } else {
+        const auth = { ...((next.settingsConfig.auth as Record<string, unknown>) ?? {}) };
+        if (!auth.OPENAI_API_KEY && tp.apiKey) auth.OPENAI_API_KEY = tp.apiKey;
         next.settingsConfig = {
           ...next.settingsConfig,
+          auth,
           config:
             typeof next.settingsConfig.config === "string" &&
             next.settingsConfig.config.trim() !== ""
@@ -304,24 +357,33 @@ export function SwitchAgentPanel({
         )}
       </div>
 
-      {/* snapshot card list */}
+      {/* snapshot list — row layout (R3): one config item per line so a long
+       *  base URL truncates (title tooltip) instead of overflowing. */}
       {snapshots.length === 0 ? (
         <p className="muted">{t(lang, "sbxNoSnapshots")}</p>
       ) : (
-        <div className="sbx-cards">
+        <div className="sbx-list">
           {snapshots.map((s) => (
             <div
               key={s.id}
-              className={`sbx-card${current === s.id ? " current" : ""}`}
+              className={`sbx-row${current === s.id ? " current" : ""}`}
             >
-              <div className="sbx-card-head">
-                <span className="sbx-card-name">{s.name || s.id}</span>
-                {current === s.id && (
-                  <span className="badge badge-info">{t(lang, "maCurrent")}</span>
-                )}
+              <div className="sbx-row-main">
+                <div className="sbx-row-title">
+                  <span className="sbx-row-name">{s.name || s.id}</span>
+                  {current === s.id && (
+                    <span className="badge badge-info">{t(lang, "maCurrent")}</span>
+                  )}
+                </div>
+                <span className="muted txs mono sbx-row-id">{s.id}</span>
+                <span
+                  className="muted txs mono sbx-row-url"
+                  title={snapshotBaseUrl(agent, s)}
+                >
+                  {snapshotBaseUrl(agent, s)}
+                </span>
               </div>
-              <span className="muted txs mono">{s.id}</span>
-              <div className="sbx-card-actions">
+              <div className="sbx-row-actions">
                 {current !== s.id && (
                   <button
                     className="btn btn-ghost btn-sm"
@@ -512,8 +574,23 @@ export function SwitchAgentPanel({
             onChange={setSourceText}
             onSave={onSourceSave}
             onCancel={() => setSourceEdit(false)}
+            saveDisabled={codexSaveDisabled}
             lang={lang}
           />
+          {agent === "codex" && (
+            <div className="sbx-source-extra">
+              <SourceCodeEditor
+                text={sourceAuthText}
+                language="json"
+                editMode={sourceEdit}
+                onChange={setSourceAuthText}
+                onSave={onSourceSave}
+                onCancel={() => setSourceEdit(false)}
+                saveDisabled={codexSaveDisabled}
+                lang={lang}
+              />
+            </div>
+          )}
         </div>
       )}
 

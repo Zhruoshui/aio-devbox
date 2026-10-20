@@ -3,9 +3,9 @@
 //
 // The sandbox-side agent panels open this when creating a provider so the
 // user can copy baseUrl/api/models from a library entry instead of typing
-// them. The library's apiKey is NEVER transmitted to the sandbox (the
-// /api/models/templates route strips it entirely — types.ts
-// ProviderTemplatePublic); the user pastes their own key after copying.
+// them. Since 10-13-models-config-ux R2 the template also carries the
+// library's REAL apiKey (/api/models/templates) so panels can prefill it;
+// they fill only EMPTY key fields, never overwriting a user-typed value.
 //
 // Chrome follows the project's Dialog contract (components/Dialogs.tsx
 // useDialogChrome): Escape / scrim close, focus moves to the search field.

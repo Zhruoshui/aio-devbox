@@ -6,7 +6,9 @@
 // reachable, so the dependency cannot be installed. Instead this is a
 // plain monospace <textarea> with:
 //   - a JSON validator for the JSON language (parse error surfaces inline,
-//     non-blocking — the draft keeps the last good parse), and
+//     non-blocking — the draft keeps the last good parse),
+//   - a JSONC validator (10-13-models-config-ux R6: comments stripped
+//     before the JSON parse — opencode's opencode.jsonc allows them), and
 //   - a pass-through mode for TOML (no parser available offline; the text is
 //     stored verbatim and the agent itself validates at runtime).
 // Theming is all CSS (.sce-* in components.css) so the swap to a real
@@ -14,20 +16,100 @@
 
 import { t, type Lang } from "../i18n";
 
-export type SourceLanguage = "json" | "toml";
+export type SourceLanguage = "json" | "jsonc" | "toml";
+
+/** Strip line (slash-slash) and block (slash-star) comments from JSONC
+ *  text (cc-switch jsonc_document semantics). A small state machine so a
+ *  double-slash INSIDE a string literal (e.g. an "https://…" url value)
+ *  survives; escapes inside strings are tracked so a quoted backslash or
+ *  quote doesn't flip the string state. */
+export function stripJsoncComments(text: string): string {
+  let out = "";
+  let i = 0;
+  // normal | string | escape | lineComment | blockComment
+  let state: "normal" | "string" | "escape" | "lineComment" | "blockComment" =
+    "normal";
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    switch (state) {
+      case "normal":
+        if (c === "/" && next === "/") {
+          state = "lineComment";
+          i += 2;
+        } else if (c === "/" && next === "*") {
+          state = "blockComment";
+          i += 2;
+        } else if (c === '"') {
+          state = "string";
+          out += c;
+          i++;
+        } else {
+          out += c;
+          i++;
+        }
+        break;
+      case "string":
+        if (c === "\\") {
+          state = "escape";
+          out += c;
+          i++;
+        } else if (c === '"') {
+          state = "normal";
+          out += c;
+          i++;
+        } else {
+          out += c;
+          i++;
+        }
+        break;
+      case "escape":
+        // Any escaped char (incl. \" and \\) stays literal.
+        state = "string";
+        out += c;
+        i++;
+        break;
+      case "lineComment":
+        if (c === "\n") {
+          state = "normal";
+          out += c; // keep the newline (line/col in errors stay honest)
+          i++;
+        } else {
+          i++;
+        }
+        break;
+      case "blockComment":
+        if (c === "*" && next === "/") {
+          state = "normal";
+          i += 2;
+        } else {
+          if (c === "\n") out += c; // keep newlines for error positions
+          i++;
+        }
+        break;
+    }
+  }
+  return out;
+}
 
 /** Validate a source string. Returns an error message ("" when valid).
- *  JSON is strictly parsed; TOML only rejects empty input (verbatim pass). */
+ *  JSON is strictly parsed; JSONC is comment-stripped then parsed; TOML
+ *  only rejects empty input (verbatim pass). */
 export function validateSource(text: string, language: SourceLanguage): string {
-  if (language === "json") {
+  if (language === "json" || language === "jsonc") {
     try {
-      JSON.parse(text);
+      JSON.parse(language === "jsonc" ? stripJsoncComments(text) : text);
       return "";
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
   }
   return text.trim() === "" ? "empty" : "";
+}
+
+/** The language chip label. */
+function langLabel(language: SourceLanguage): string {
+  return language === "json" ? "JSON" : language === "jsonc" ? "JSONC" : "TOML";
 }
 
 interface Props {
@@ -62,7 +144,7 @@ export function SourceCodeEditor({
     return (
       <div className="sce-view">
         <div className="sce-bar">
-          <span className="sce-lang">{language === "json" ? "JSON" : "TOML"}</span>
+          <span className="sce-lang">{langLabel(language)}</span>
           <span className="muted txs">{t(lang, "sceViewHint")}</span>
         </div>
         <pre className="sce-pre">{text}</pre>
@@ -73,7 +155,7 @@ export function SourceCodeEditor({
   return (
     <div className="sce-edit">
       <div className="sce-bar">
-        <span className="sce-lang">{language === "json" ? "JSON" : "TOML"}</span>
+        <span className="sce-lang">{langLabel(language)}</span>
         {error !== "" && (
           <span className="sce-err" role="alert">
             {t(lang, "sceParseError")}
