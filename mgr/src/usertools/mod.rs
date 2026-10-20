@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+pub mod recipe;
+pub mod render;
+
 /// Path of the single editable fragment inside the repo (`usertools/fragment.Dockerfile`).
 /// 修正 3 moved it out of `scenarios/` into a dedicated subtree so the mgr
 /// container can mount JUST this tree read-write (compose.yml) without opening
