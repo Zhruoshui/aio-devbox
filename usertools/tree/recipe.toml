@@ -1,0 +1,10 @@
+schema = 1
+name = "tree"
+description = "以树状图列出目录内容"
+category = "shell"
+version = "bookworm 源"
+homepage = "http://mama.indstate.edu/users/ice/tree/"
+
+[install]
+type = "apt"
+packages = ["tree"]

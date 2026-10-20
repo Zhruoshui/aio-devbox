@@ -1,0 +1,10 @@
+schema = 1
+name = "htop"
+description = "交互式进程监视器（top 的现代替代）"
+category = "shell"
+version = "bookworm 源"
+homepage = "https://htop.dev"
+
+[install]
+type = "apt"
+packages = ["htop"]
