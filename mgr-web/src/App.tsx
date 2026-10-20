@@ -83,7 +83,19 @@ const RAIL_NAV: { page: Page; icon: IconName; labelKey: StringKey }[] = [
 export function App(): JSX.Element {
   // The workspace is the default landing page: the sandbox manager is now
   // the single UI (prd D1/D2), the admin pages are secondary destinations.
-  const [page, setPage] = useState<Page>("workspace");
+  // A `#<page>` hash deep-links straight to an admin page (handy for
+  // bookmarks and headless screenshots): #usage / #models / #sandboxes …
+  const pageFromHash = (): Page => {
+    const h = window.location.hash.replace(/^#/, "");
+    return RAIL_NAV.some((n) => n.page === h) ? (h as Page) : "workspace";
+  };
+  const [page, setPage] = useState<Page>(pageFromHash);
+  useEffect(() => {
+    const onHash = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [sbxView, setSbxView] = useState<SbxView>({ view: "list" });
   // Sandbox the workspace should expand + highlight (goWorkspace from the
   // list page's "进入" button); null = plain workspace landing.

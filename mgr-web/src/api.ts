@@ -271,8 +271,8 @@ export function deleteProvider(id: string): Promise<{ ok: boolean; id: string }>
   return send(`/api/models/providers/${enc(id)}`, "DELETE");
 }
 
-/** GET /api/models/templates — the PUBLIC template list (apiKey stripped
- * entirely) for sandbox-side pickers. */
+/** GET /api/models/templates — the template list for sandbox-side pickers,
+ *  carrying the REAL apiKey (10-13 R2) so a pick prefills the key too. */
 export function getProviderTemplates(): Promise<TemplatesResponse> {
   return get<unknown>("/api/models/templates").then(decodeTemplates);
 }

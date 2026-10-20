@@ -130,24 +130,18 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
     const out: SandboxBarItem[] = [];
     if (totals) {
       for (const tb of totals) {
-        out.push({
-          label: tb.name,
-          value: tb.in + tb.out,
-          hasCost: tb.cost > 0,
-        });
+        out.push({ label: tb.name, value: tb.in + tb.out });
       }
     } else {
       for (const e of entries ?? []) {
         if (e.error || !e.usage) continue;
         let inT = 0;
         let outT = 0;
-        let hasCost = false;
         for (const r of e.usage.rows) {
           inT += r.in;
           outT += r.out;
-          if ((r.cost ?? 0) > 0) hasCost = true;
         }
-        out.push({ label: e.name, value: inT + outT, hasCost });
+        out.push({ label: e.name, value: inT + outT });
       }
     }
     return out.sort((a, b) => b.value - a.value);
@@ -281,7 +275,7 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
           ))}
           {generatedAt && (
             <span className="ml-usage-gen">
-              {t(lang, "mcUsageGeneratedAt")} {generatedAt}
+              {t(lang, "mcUsageGeneratedAt")} {fmtLocalTime(generatedAt)}
             </span>
           )}
         </div>
@@ -459,6 +453,16 @@ export function UsagePage({ lang }: { lang: Lang }): JSX.Element {
       )}
     </div>
   );
+}
+
+/** Localize the backend's ISO-8601 Zulu stamp to "YYYY-MM-DD HH:mm"
+ *  (follow-up #4: a raw UTC string read as noise, and a wrong clock, for
+ *  every user in UTC+8). */
+function fmtLocalTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function card(label: string, value: string): JSX.Element {

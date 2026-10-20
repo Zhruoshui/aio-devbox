@@ -385,6 +385,11 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 .sbx-model-line { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--space-2); align-items: center; }
 .sbx-source { display: flex; flex-direction: column; gap: var(--space-2); }
 .sbx-source-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+/* ProviderEditorModal: the base .dialog caps at 440px, which crams the
+ * name/id/protocol triple (field-row-3) until the protocol select truncates
+ * (10-13 follow-up #1). Widen to a comfortable form width. */
+.provider-editor-dialog { max-width: min(760px, calc(100vw - 32px)); }
+
 /* DiscoverModelsDialog (shared fetch-models multi-select, R5) */
 .discover-dialog { width: min(620px, calc(100vw - 32px)); }
 .discover-dialog .dialog-body { max-height: 72vh; overflow: auto; }
@@ -403,6 +408,15 @@ select.input { appearance: none; padding-right: 30px; background-image: url("dat
 .discover-row:hover { background: var(--surface); }
 .discover-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Per-file label above each whole-file editor block (10-13 follow-up #3:
+ * with two files each block needs its own path, not one merged header). */
+.sbx-file-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Second file of a two-file agent (codex auth.json / pi settings.json). */
 .sbx-source-extra { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
 

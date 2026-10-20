@@ -2572,7 +2572,9 @@ body {
 /* chart row: 1.4fr bar card + 1fr donut card, single column under 900px */
 .ml-charts {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  /* follow-up #4: equal cards — the old 1.4fr/1fr made the sandbox card
+   * visibly wider than its sibling for no data-driven reason. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
   align-items: start;
   margin-bottom: var(--space-4);
@@ -2785,16 +2787,6 @@ body {
 .ml-sbx-bar:hover .ml-bar-label {
   color: var(--accent);
 }
-/* cost-less sandbox bars fall back to the neutral track (AC4 degrade) */
-.ml-bar-fill-nocost {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--muted) 0 4px,
-    transparent 4px 8px
-  );
-  opacity: 0.6;
-}
-
 .ml-trend-card {
   grid-column: 1 / -1; /* the trend deserves full width under the bars */
 }

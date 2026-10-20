@@ -569,10 +569,6 @@ export function IncrementalAgentPanel({
           <div className="sbx-source-head">
             <span className="muted txs">
               {t(lang, "sbxWholeFile")}
-              <code className="mono">{NATIVE_FILE[agent]}</code>
-              {isPi && (
-                <code className="mono"> ~/.pi/agent/settings.json</code>
-              )}
               {sandboxName ? ` · ${sandboxName}` : ""}
             </span>
             {!sourceEdit && (
@@ -596,6 +592,7 @@ export function IncrementalAgentPanel({
           )}
           {sourceEdit ? (
             <>
+              <div className="sbx-file-label mono">{NATIVE_FILE[agent]}</div>
               <SourceCodeEditor
                 text={srcMain}
                 language={isPi ? "json" : "jsonc"}
@@ -608,6 +605,9 @@ export function IncrementalAgentPanel({
               />
               {isPi && (
                 <div className="sbx-source-extra">
+                  <div className="sbx-file-label mono">
+                    ~/.pi/agent/settings.json
+                  </div>
                   <SourceCodeEditor
                     text={srcSettings}
                     language="json"
@@ -623,6 +623,7 @@ export function IncrementalAgentPanel({
             </>
           ) : (
             <>
+              <div className="sbx-file-label mono">{NATIVE_FILE[agent]}</div>
               <SourceCodeEditor
                 text={isPi ? piModelsFileText(value) : opencodeFileText(value)}
                 language={isPi ? "json" : "jsonc"}
@@ -631,6 +632,9 @@ export function IncrementalAgentPanel({
               />
               {isPi && (
                 <div className="sbx-source-extra">
+                  <div className="sbx-file-label mono">
+                    ~/.pi/agent/settings.json
+                  </div>
                   <SourceCodeEditor
                     text={piSettingsFileText(value)}
                     language="json"

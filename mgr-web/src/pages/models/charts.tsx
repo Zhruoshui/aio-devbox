@@ -133,15 +133,18 @@ export function TokenBars({
 export interface SandboxBarItem {
   label: string;
   value: number;
-  /** Whether this sandbox has any cost data (drives the bar color, AC4). */
-  hasCost: boolean;
 }
 
 /**
  * Horizontal bar chart of total tokens per sandbox (S4, R1/AC1). Same
- * interaction as TokenBars but each row is a sandbox and CLICKABLE — clicking
- * a bar jumps to that sandbox's single-sandbox view. Bars with cost data use
- * the cost accent, cost-less sandboxes a neutral dotted bar (AC4 degrade).
+ * rendering as TokenBars (solid categorical bars — one visual language for
+ * every bar chart on the page) but each row is a sandbox and CLICKABLE —
+ * clicking a bar jumps to that sandbox's single-sandbox view.
+ *
+ * The old hasCost stripe degrade (10-13 follow-up #4) is gone: with
+ * per-token pricing at ~$0 the cost was 0 for EVERY sandbox, so the
+ * "degrade" texture had become the only style and read as a skeleton
+ * placeholder. Cost lives in the donut + table where it has context.
  */
 export function SandboxBars({
   items,
@@ -169,12 +172,10 @@ export function SandboxBars({
           </span>
           <div className="ml-bar-track">
             <div
-              className={`ml-bar-fill${it.hasCost ? "" : " ml-bar-fill-nocost"}`}
+              className="ml-bar-fill"
               style={{
                 width: `${max > 0 ? (it.value / max) * 100 : 0}%`,
-                background: it.hasCost
-                  ? KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length]
-                  : undefined,
+                background: KUMO_CATEGORICAL[i % KUMO_CATEGORICAL.length],
                 animationDelay: `${Math.min(i * 18, 180)}ms`,
               }}
             />

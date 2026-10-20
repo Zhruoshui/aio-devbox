@@ -567,6 +567,11 @@ export function SwitchAgentPanel({
               </button>
             )}
           </div>
+          <div className="sbx-file-label mono">
+            {agent === "claude"
+              ? "~/.claude/settings.json"
+              : "~/.codex/config.toml"}
+          </div>
           <SourceCodeEditor
             text={sourceText}
             language={agent === "claude" ? "json" : "toml"}
@@ -579,6 +584,7 @@ export function SwitchAgentPanel({
           />
           {agent === "codex" && (
             <div className="sbx-source-extra">
+              <div className="sbx-file-label mono">~/.codex/auth.json</div>
               <SourceCodeEditor
                 text={sourceAuthText}
                 language="json"

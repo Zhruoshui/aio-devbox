@@ -34,6 +34,7 @@ import {
   deriveProviderIdFromName,
   emptyProvider,
   genProviderId,
+  isMaskedKey,
   safeStringify,
   type DiscoverState,
   type ProviderLibrary,
@@ -236,13 +237,21 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
       selected: new Set(),
     });
     try {
-      // Probe with the DRAFT fields (the provider being edited, not yet
-      // saved) — the literal branch of /api/models/discover.
-      const body: { baseUrl: string; api: string; apiKey?: string } = {
-        baseUrl: editor.draft.baseUrl,
-        api: editor.draft.api,
-      };
-      if (editor.draft.apiKey) body.apiKey = editor.draft.apiKey;
+      // Probe split (follow-up #2): the draft's apiKey is the MASK when the
+      // user hasn't retyped it (GET providers masks) — a masked Bearer is a
+      // guaranteed 401. An untouched key on a SAVED provider probes ById so
+      // the backend resolves the stored REAL key; a freshly typed key (or a
+      // new provider) probes the literal draft fields.
+      const body: Parameters<typeof discoverModels>[0] =
+        !editor.isNew && isMaskedKey(editor.draft.apiKey)
+          ? { providerId: editor.id }
+          : {
+              baseUrl: editor.draft.baseUrl,
+              api: editor.draft.api,
+              ...(editor.draft.apiKey
+                ? { apiKey: editor.draft.apiKey }
+                : {}),
+            };
       const resp = await discoverModels(body);
       setDiscover({
         loading: false,
@@ -286,19 +295,19 @@ export function ModelsPage({ lang }: { lang: Lang }): JSX.Element {
     }));
     const start = performance.now();
     try {
-      // Probe with the DRAFT fields (the provider being edited, not yet
-      // saved) — the literal branch of /api/models/test.
-      const body: {
-        baseUrl: string;
-        api: string;
-        apiKey?: string;
-        modelId: string;
-      } = {
-        baseUrl: editor.draft.baseUrl,
-        api: editor.draft.api,
-        modelId,
-      };
-      if (editor.draft.apiKey) body.apiKey = editor.draft.apiKey;
+      // Same masked-key split as onFetchModels: untouched masked key on a
+      // saved provider → ById (backend resolves the stored REAL key).
+      const body: Parameters<typeof testModel>[0] =
+        !editor.isNew && isMaskedKey(editor.draft.apiKey)
+          ? { providerId: editor.id, modelId }
+          : {
+              baseUrl: editor.draft.baseUrl,
+              api: editor.draft.api,
+              ...(editor.draft.apiKey
+                ? { apiKey: editor.draft.apiKey }
+                : {}),
+              modelId,
+            };
       const resp = await testModel(body);
       const latencyMs = Math.round(performance.now() - start);
       setTestState((prev) => ({
