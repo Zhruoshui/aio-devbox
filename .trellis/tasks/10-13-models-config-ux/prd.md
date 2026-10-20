@@ -66,3 +66,5 @@ claude / codex / pi / opencode 四个配置页均支持手动编辑「原文件�
 
 - 研究证据与代码落点：`research/findings.md`。
 - R1 与 R6 是同一工作面（pi/opencode 整文件编辑），实现上合并交付。
+- 2026-10-20 用户走查后四项跟进（commit b20feb2）：①供应商编辑弹窗加宽至 760px；②拉取/检测 401 根因=掩码 key 被 literal 探测当 Bearer 发出，恢复 ById/literal 分流（isMaskedKey）；③pi/codex 多文件区每文件独立路径标签；④用量页各沙箱用量改实色分类条+图表卡等宽+时间戳本地化，附带 #<page> hash 深链。CDP 截图验证：用量页三处生效、弹窗三列完整、掩码 key 拉取 rows=11。
+- 验证通道备忘：aio-app-1 已手工接入 aio-mgr-net（vnc 共享其 netns），常驻 Chromium CDP :9222 + /tmp/cdpshot.py（容器内）可对 mgr-ui 做无头截图与点击验证；docker cp 在该容器失效需 base64 通道。
