@@ -1429,3 +1429,39 @@ Phase 6: 确认 mgr templates 路由已在 78064bb 落地; 清理 app discover.r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: mgr-web 模型配置六项改进 + 三轮跟进（10-13-models-config-ux）
+
+**Date**: 2026-10-20
+**Task**: mgr-web 模型配置六项改进 + 三轮跟进（10-13-models-config-ux）
+**Branch**: `main`
+
+### Summary
+
+六项主交付：①discover 2xx-无模型回退候选+错误壳不产幻影模型(app/mgr同源,bigmodel anthropic实测11模型) ②templates携真实apiKey+四面板空填key ③pi拆models/settings两文件、opencode JSONC、codex补auth.json整文件编辑(parse-back回结构化,渲染器零改动) ④provider卡片改行式列表防URL溢出 ⑤discover多选对话框共享化+全选/清空+增量面板拉取入口 ⑥掩码key 401根因修复(ById/literal分流,isMaskedKey)。跟进:供应商弹窗加宽760px/多文件逐个路径标签/用量页实色条形+等宽卡片+时间戳本地化/#+page>hash深链。收尾:三项语法校验(TOML轻量检查/JSON重复键/baseUrl形状),冒烟20/20。验证通道:vnc常驻Chromium CDP9222+aio-app-1接入aio-mgr-net,无头截图+点击验证;docker cp失效走base64。mgr镜像已重建部署三轮。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f2e386` | (see git log) |
+| `ccddbed` | (see git log) |
+| `b20feb2` | (see git log) |
+| `fffb316` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

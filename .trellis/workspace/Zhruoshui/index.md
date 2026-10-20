@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-10-10
+- **Total Sessions**: 9
+- **Last Active**: 2026-10-20
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1431 | Active |
+| `journal-1.md` | ~1467 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-10-20 | mgr-web 模型配置六项改进 + 三轮跟进（10-13-models-config-ux） | `8f2e386`, `ccddbed`, `b20feb2`, `fffb316` | `main` |
 | 8 | 2026-10-10 | 供应商库空库入口修复 + 沙箱模型配置迁工作区 pane | `16ca2ab`, `ec44352` | `main` |
 | 7 | 2026-10-10 | cc-switch 全栈干净重建验证 + composegen 残留清理 | `049c6a3`, `22f3fab` | `feat/model-config-cc-switch` |
 | 6 | 2026-10-06 | cc-switch 模型配置重构 Phase 4/6 收尾 | `4c51126`, `93ae163`, `a949589`, `680655b`, `4f9f9ad`, `200ea20` | `feat/model-config-cc-switch` |
