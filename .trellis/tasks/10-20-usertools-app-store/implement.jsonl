@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "mgr(aio-mgr)技术栈与代码位置总览;本任务主战场之一"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "新增 /api/usertools/store|tools|preview 端点须遵循的 API 契约约定"}
+{"file": ".trellis/spec/backend/sandbox-mgr-ops.md", "reason": "mgr 运维/状态面(usertools.json 退役、沙箱 env_json 引用扫描涉及其数据面约定)"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "删除保护 400+引用清单、409/405 等 API 错误形态的既有规范"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "mgr-web 单一 UI 架构;StorePage 替换 UserToolsPage 的落位背景"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "货架卡片/配方表单对话框/raw 编辑器组件写法规范"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "types.ts 新契约(recipe tagged union 五类型)的类型规范;tsc 是构建门"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "StorePage 数据流(目录扫描即事实、无缓存层)的状态管理约定"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "recipe→fragment→env_hash 跨层数据流一致性检查思维引导"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "render.rs 确定性/单测锚定(AC6)的 Rust 质量基线"}

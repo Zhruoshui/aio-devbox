@@ -125,45 +125,36 @@ scenario in the "系统路径 · apt / 官方源" rung of the L2 ladder (the
 mise-managed tools occupy the "mise 托管 · /opt/mise shims" rung). Build +
 verify as in Recipe 1.
 
-## Recipe 3b: user-tools — the user-editable escape hatch (non-mise)
+## Recipe 3b: custom tools — the mgr tool store (non-mise)
 
-For tools the user wants to add themselves WITHOUT authoring a new scenario
-directory. `scenarios/user-tools/` ships as an empty skeleton the user edits
-in place; it is a normal toggleable scenario with its own cacheable layer.
-Measured rebuild cost (2026-09-22): BuildKit's cache chain is positional —
-editing user-tools rebuilds that layer AND every layer after it (~27 layers,
-~50s at the current L2-middle position). Layers before it (head + earlier
-scenarios) stay cached. Keep the fragment lean and edit rarely.
+For tools you want WITHOUT authoring a new scenario directory. The old
+`scenarios/user-tools/` skeleton is RETIRED; custom tools now live in
+`usertools/<id>/` and are managed by the mgr-web **工具商店** (Tool store
+page, task 10-20-usertools-app-store).
 
 **Use case**: you want `htop`, or a compiled-from-source tool, or a custom
-tarball — anything mise doesn't manage — and you don't want to create a new
-`scenarios/<id>/` directory for it.
+tarball — anything mise doesn't manage.
 
-**Setup**: add `"user-tools"` to `.aio/enabled.toml` (or tick it in the mgr-web
-wizard), then edit `scenarios/user-tools/fragment.Dockerfile` in
-place. The file ships with the three hard rules and a complete htop example
-commented out — uncomment and adapt.
+**Workflow** (no Dockerfile knowledge needed):
+1. mgr-web → 工具商店 (Tool store). Pick from the recommended shelf
+   (one click) or hit 上架工具 (Publish) and fill the typed form: apt
+   packages, download URL, GitHub Release, install script, or a raw custom
+   fragment (the escape hatch).
+2. The form's live preview is server-rendered — it IS the fragment the save
+   writes. Install paths and the dual-channel self-check come from the
+   generator; writing `/root` is impossible by construction.
+3. Create or edit a sandbox and tick the tool under the 自定义工具 (L5)
+   layer. mgr assembles it into the per-sandbox Dockerfile.base and builds.
+   Removing a tool that sandboxes still reference asks before forcing.
 
-**Rebuild**:
-```bash
-make gen                          # re-assemble Dockerfile.base
-docker compose build app          # only the user-tools layer rebuilds
-docker compose up -d --force-recreate app
-```
-Do NOT `make build-base` here — that re-runs the whole build-base stage
-unconditionally (see Rebuild gotchas).
+**Files**: `usertools/<id>/recipe.toml` (metadata + install spec) +
+`fragment.Dockerfile` (GENERATED — never hand-edit for form tools).
+Recipe-less dirs are legacy/hand-written tools: raw-editable in the store.
 
-**The three hard rules** (also in the fragment's header):
-1. Install to `/usr/local/bin` (single binary) or `/opt/<tool>` (directory
-   tree). Never `/root` — the shared workspace volume masks it.
-2. Self-check in BOTH `bash -lc` and `bash -c` (WebUI terminal is login,
-   code-server is not). See Rule 2 in scenario-authoring.md.
-3. `apt-get update` first if you `apt-get install` (head cleared the lists).
-
-**Granularity tip**: one `RUN` per tool gives you per-tool rebuild
-granularity. Grouping several apt packages into one `RUN` is also fine if you
-always touch them together.
-
+**Repo-root `make gen` note**: the legacy single-file editor
+(`usertools/fragment.Dockerfile`) and the `user-tools` scenario are retired;
+`make gen` never included user tools anyway — only mgr's per-sandbox
+assembly does.
 ## Recipe 4: add an L4 AI agent with a WebUI button (e.g. aichat)
 
 A CLI agent you want both installed AND surfaced as a sidebar pane.

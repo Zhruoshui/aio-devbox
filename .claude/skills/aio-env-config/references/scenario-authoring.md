@@ -347,20 +347,14 @@ Both shell channels are checked (Rule 2): `bash -lc` for the terminal pane,
       scenario joins the CI full build automatically via the `["*"]` preset;
       the probe list is the only manual follow-up.
 
-## user-tools: the user-editable escape hatch
+## user-tools — RETIRED (now the mgr tool store)
 
-`scenarios/user-tools/` is NOT a template to copy — it's a real, toggleable
-scenario the user edits in place to add non-mise tools without authoring a
-new `<id>/` directory. See Recipe 3b in `recipes.md` for the full workflow.
-
-When touching `user-tools` itself (e.g. improving its skeleton comment):
-
-- [ ] Keep the three hard rules in the header: install to `/usr/local` or
-      `/opt` (never `/root`), self-check BOTH `bash -lc` and `bash -c`,
-      `make gen && docker compose build app` (NOT `make build-base`).
-- [ ] Keep at least one complete commented-out example (htop) so a new user
-      can uncomment-and-go.
-- [ ] The trailing `RUN echo "user-tools: no custom tools yet"` must stay
-      so an empty edit still produces a valid layer.
-- [ ] `category = "shell"`, `installer = "apt"`, `always_on = false` — these
-      three are load-bearing for layer ordering and TUI grouping.
+The `scenarios/user-tools/` escape hatch is gone. Custom tools live in
+`usertools/<id>/` and are managed by the mgr-web **工具商店** (Tool store,
+task 10-20): publish via a typed recipe form (apt / URL / GitHub Release /
+script / custom fragment) — the backend generator writes `recipe.toml` and
+`fragment.Dockerfile` with the three hard rules baked in. Select the tool at
+sandbox create/edit time (the L5 layer); mgr builds it into the per-sandbox
+image. Hand-written tools (fragment-only dirs) remain raw-editable in the
+store. Do NOT hand-edit `usertools/` for new tools — the form is the
+guaranteed-correct path.

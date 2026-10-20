@@ -321,6 +321,41 @@ adopted 行走 `compose_service_up_file` 变体(无 `-p`,契约 8)。前端 pane
 打开时探测可达(`probe?port=8200`)直接 iframe,否则 start → probe 轮询
 → iframe。profile 分裂规则见 [sandbox-mgr-ops.md 契约 4](./sandbox-mgr-ops.md)。
 
+## /api/usertools/* — 工具商店(10-20-usertools-app-store)
+
+### 1. Scope / Trigger
+
+mgr 控制面的自定义工具从单文件编辑面(`GET/PUT /api/user-tools`,已退役
+404)翻转为 per-tool 目录模型:`usertools/<id>/` 是唯一事实来源
+(`recipe.toml` + `fragment.Dockerfile`)。前端镜像 `mgr-web/src/types.ts`
+(`Recipe`/`Install`/`ToolCard`/`StoreShelf`)与 `api.ts`。
+
+### 2. 不变式(改前必读)
+
+- 构建侧 `envhash::assemble_with_tools` 只读
+  `usertools/<id>/fragment.Dockerfile`(mgr/src/envhash.rs)——商店全部
+  活动在该文件上游;动 envhash/jobs 需回 design 复核。
+- `render.rs` 是 recipe-owned fragment 的**唯一写入方**(三条硬规则由
+  构造保证:安装位 / 禁写 /root / 双通道自检)。前端永不复刻模板,
+  预览走 `POST /api/usertools/preview`(服务端单一事实)。
+- 纯元数据编辑(description/category/version/homepage)不得改变
+  fragment 字节(env_hash 稳定,AC6);name 在标记块里,改名会变哈希。
+
+### 3. 端点
+
+| 端点 | 契约 |
+|---|---|
+| `GET /api/usertools/store` | `{mine:[Card], builtin:[Card]}`;Card 含 `referenced_by`(扫 sandboxes env_json);builtin = 种子清单减已物化 id |
+| `POST /api/usertools/tools` | `{recipe}` 表单上架(id=slug(name))或 `{from_builtin}` 一键物化;冲突 409,字段错 400(zh) |
+| `PUT /api/usertools/tools/:id` | 全量替换 recipe → 重新生成 fragment;无 recipe 存量目录 405(走 raw 通道) |
+| `GET …/:id/fragment` | `{id, content, recipe|null}`;recipe null = 存量工具(SPA 路由到 raw 编辑器) |
+| `PUT …/:id/fragment` | raw 通道:validate(root 守卫)+ 恰好一个标记块;recipe 工具 409 |
+| `DELETE …/:id[?force=true]` | 有引用且无 force → 400,message 含沙箱名;force 删除后引用沙箱下次重建报缺片段(envhash 既有语义) |
+| `POST /api/usertools/preview` | `{id?, recipe}` → 将生成的 fragment;不写盘 |
+
+`GET /api/scenarios` 的 L5 条目(category "service")description 来自
+recipe,存量工具为空串(SPA 用 i18n 回退 `epLegacyTool`)。
+
 ## /api/sbx/:name/* — 沙箱代理路由组(unified Phase 1)
 
 **Owner**: `mgr/src/proxy.rs`(any-method catch-all)。mgr-web 的一切沙箱面

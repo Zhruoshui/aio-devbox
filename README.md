@@ -202,7 +202,6 @@ mask):
 | `mise` | L1 `os` | ✓ | — | mise **engine only** — binary + shims + the four redirect vars (`/opt/mise`) + `/etc/profile.d/mise.sh` activate. Installs **no tools** (~30MB); a build-time self-check asserts `installs/` is empty |
 | `shell` tools (×10, mise) | L2 `shell` | — | each has one version | `fzf` / `ripgrep` / `bat` / `fd` / `eza` / `zoxide` / `delta` / `starship` / `jq` / `yq` — one scenario each, `mise use -g` → `/opt/mise/installs`, shims on `/opt/mise/shims` |
 | `shell-tools` | L2 `shell` | — | — | wget / tree / less / file / zip / vim — the baseline set every distro ships (apt, system path). Complements the mise-managed modern replacements |
-| `user-tools` | L2 `shell` | — | — | empty skeleton the user edits in place; see Recipe 3b in the skill references |
 | `rust` / `go` / `uv` / `ruff` | L3 `lang` | — | one each | **mise school**. `rust` additionally needs the table-form spec (`profile = "default"`) + `rustup component add rust-analyzer` (without the latter, shim recursion) |
 | `c23` | L3 `lang` | — | — | **system school** — clang-22 (apt.llvm.org, full C23) + gcc-12 reuse + gdb / cmake / ninja / valgrind / cppcheck / strace; unversioned symlinks → `/usr/local/bin`. Kept on apt because mise's clang is the conda backend (foreign sysroot) and 7 of its tools aren't in the registry |
 | `opencode` / `claude-code` / `codex` | L4 `app` | — | one each | mise school AI-agent CLIs. Sidebar/agent buttons appear only when baked (command-exists detection). Scenario `claude-code` installs the **`claude`** binary |
@@ -309,7 +308,7 @@ tag) is built by GitHub Actions and published to GitHub Container Registry
 - `minimal` — the always-on baseline (Node + Python + the pi/pi-web workbench core).
 - `full` — every scenario fragment baked in (the `["*"]` wildcard expands to
   all selectable scenarios: the 10 L2 mise shell tools + the 2 L2 apt
-  scenarios (shell-tools / user-tools), the L3 toolchains in both
+  scenarios (shell-tools), the L3 toolchains in both
   schools, every L4 agent, plus c23 / pi / pi-web).
 
 ```sh

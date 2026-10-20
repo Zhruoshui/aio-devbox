@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "cargo test 全绿与单测锚定(AC6/AC8)的验收基线"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "tsc --noEmit && vite build 构建门与前端验收基线(AC8)"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查 recipe/fragment/env_hash/env_json 跨层一致性(AC3/AC5/AC6)"}
+{"file": ".trellis/spec/guides/commit-guidelines.md", "reason": "分步提交与最终 commit 文案规范"}

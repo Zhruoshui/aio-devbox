@@ -71,8 +71,8 @@ services:
       # socket, ro is enough)…
       - ${PWD:?}:${PWD:?}:ro
       # …except the user-tools subtree the WebUI WRITES (修正 3): /api/user-tools*
-      # edit usertools/fragment.Dockerfile AND create/remove usertools/<tool>/
-      # per-tool fragment dirs. The nested bind at the SAME host path (path
+      # write usertools/<tool>/{recipe.toml,fragment.Dockerfile} (the tool
+      # store, 10-20). The nested bind at the SAME host path (path
       # identity, contract 1) opens read-write for just this subtree - without
       # it every save 500s with the OS read-only error. The DIRECTORY is
       # mounted (not the single file) because saves are atomic temp+rename

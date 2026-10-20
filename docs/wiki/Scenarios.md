@@ -13,7 +13,7 @@
 | 层 | category | 定位 | 当前场景 |
 |---|---|---|---|
 | L1 OS / 基础 | `os` | 所有容器依赖的地基;版本化运行时 `always_on`;字体在 head,不进场景 | node、python、**mise engine** |
-| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | mise 派(十个独立条目):fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq;apt 派:shell-tools / user-tools |
+| L2 Shell 便利 | `shell` | 纯二进制 CLI 便利工具 | mise 派(十个独立条目):fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq;apt 派:shell-tools |
 | L3 语言工具链 | `lang` | 编译器 / 工具链 / 语言版本管理(**两派**) | **mise 派**:rust / go / uv / ruff;**系统派**:c23 |
 | L4 应用 / agent | `app` | 终端里的 CLI 应用 / AI agent | opencode / claude-code / codex / pi / pi-web |
 | L5 外部服务 | `service` | 自带端口 + 面板的 Web 服务 | 预留(code-server / vnc 目前走 compose profiles,不是场景) |
@@ -42,7 +42,7 @@
 | 字体(Noto) | L1 head | 必装 | — | Noto Sans CJK SC + Noto Sans Mono CJK SC + Noto Serif CJK SC + Noto Color Emoji(~102MB),硬编码在 `Dockerfile.base.head`;经 `/etc/fonts/local.conf` strong alias 钉为 mono/sans/serif 默认;**无 Nerd Font 图标**,终端 starship prompt 若有 NF 图标会显示豆腐块 |
 | shell 工具 ×10 | L2 | — | 各一个版本 | fzf / ripgrep / bat / fd / eza / zoxide / delta / starship / jq / yq——一工具一场景,`mise use -g` → `/opt/mise/installs`,shim 在 `/opt/mise/shims` |
 | `shell-tools` | L2 | — | — | wget / tree / less / file / zip / vim——各发行版通用基线(apt,系统路径)。与 mise 侧的现代替代品互补 |
-| `user-tools` | L2 | — | — | 空骨架,用户自由编辑 fragment 添加非 mise 工具。见 `.claude/skills/aio-env-config/references/recipes.md` Recipe 3b |
+| （已退役）`user-tools` | — | — | — | 自定义工具改走 mgr-web 工具商店(`usertools/<id>/`,任务 10-20);见 recipes.md Recipe 3b |
 | `rust` `go` `uv` `ruff` | L3 | — | 各一个版本 | **mise 派**。`rust` 需 table 形式 spec(`profile = "default"`)+ `rustup component add rust-analyzer`(缺后者 shim↔代理死循环) |
 | `c23` | L3 | — | — | **系统派**——clang-22(apt.llvm.org,完整 C23)+ gcc-12 + gdb / cmake / ninja / valgrind / cppcheck / strace。留 apt 的原因:mise 的 clang 走 conda 后端(异源 sysroot),且所需 7 个工具不在其 registry |
 | `opencode` `claude-code` `codex` | L4 | — | 各一个版本 | mise 派 AI agent CLI。场景 `claude-code` 装出的二进制是 **`claude`** |

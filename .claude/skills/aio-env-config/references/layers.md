@@ -10,7 +10,7 @@ the order `aio-config gen` assembles fragments into `Dockerfile.base`.
 | Layer | `category` | What lives here | always_on? | Members (2026-09-22) |
 |---|---|---|---|---|
 | L1 OS / 基础环境 | `os` | foundational infra + the toolchain manager + runtimes everything depends on | node, python, **mise** are | apt/ca-certs/fonts (in head); node, python, **mise engine** |
-| L2 Shell 便利 | `shell` | CLI convenience tools, pure binaries, no aliases | no | fzf, ripgrep, bat, fd, eza, zoxide, delta, starship, jq, yq (mise); shell-tools, user-tools (apt) |
+| L2 Shell 便利 | `shell` | CLI convenience tools, pure binaries, no aliases | no | fzf, ripgrep, bat, fd, eza, zoxide, delta, starship, jq, yq (mise); shell-tools (apt) |
 | L3 语言开发链路 | `lang` | language toolchains, in **two schools** | no | **mise-managed**: rust, go, uv, ruff — **system-managed**: c23 |
 | L4 应用 / AI agent | `app` | CLI applications and AI agents run from the terminal | no | opencode, claude-code, codex, pi, pi-web |
 | L5 外部服务 | `service` | containerized web services with their own port + pane | reserved/future | code-server, vnc (wired today as compose profiles, not scenarios) |
