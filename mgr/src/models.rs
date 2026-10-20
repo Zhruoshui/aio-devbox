@@ -16,8 +16,8 @@
 //   POST   /api/models/providers        — add one provider (body = template)
 //   PUT    /api/models/providers/:id    — update one provider
 //   DELETE /api/models/providers/:id    — remove one provider
-//   GET    /api/models/templates        — public template list (masked) for
-//                                          sandbox-side pickers
+//   GET    /api/models/templates        — template list (REAL apiKey — R2)
+//                                          for sandbox-side pickers
 //   POST   /api/models/discover         — provider probe (ById or Literal)
 //   POST   /api/models/test             — minimal completion probe
 //
@@ -513,10 +513,16 @@ fn validate_provider(id: &str, p: &ProviderTemplate) -> Result<(), ApiError> {
 
 // ── GET /api/models/templates ─────────────────────────────────────
 
-/// GET /api/models/templates — the PUBLIC template list for sandbox-side
-/// pickers. Same shape as /api/models/providers but WITHOUT the apiKey field
-/// at all (not even masked): the sandbox user is expected to paste their own
-/// key after copying the template.
+/// GET /api/models/templates — the template list for sandbox-side pickers,
+/// carrying the REAL apiKey (10-13-models-config-ux R2) so a picked template
+/// prefills the key alongside baseUrl/api/models.
+///
+/// This OVERTURNS 10-04's "never transmit the key to the sandbox" rule: the
+/// only consumer is mgr-web itself (the same admin console whose provider
+/// editor edits the real keys), so the templates route sits in the same
+/// trust domain as /api/models/providers — there is no sandbox-user boundary
+/// to defend. The stored library keeps its plaintext key; nothing here is
+/// masked.
 async fn get_templates(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, ApiError> {
@@ -533,6 +539,7 @@ async fn get_templates(
                 "name": p.name,
                 "baseUrl": p.base_url,
                 "api": p.api,
+                "apiKey": p.api_key,
                 "models": p.models,
                 "websiteUrl": p.website_url,
                 "category": p.category,
@@ -667,6 +674,10 @@ async fn discover(
     let deadline = Instant::now() + TOTAL_BUDGET;
     let mut tried: Vec<String> = Vec::new();
     let mut first_auth_failure: Option<(StatusCode, String)> = None;
+    // 2xx whose body parses to no models (gateways answer 200 + an error JSON
+    // on unknown paths — e.g. bigmodel's anthropic face on /models). Remember
+    // the first one; a later candidate may still be the real endpoint.
+    let mut no_models_err: Option<String> = None;
 
     for (idx, url) in candidates.iter().enumerate() {
         let remaining = deadline
@@ -706,14 +717,17 @@ async fn discover(
                             endpoint: url.clone(),
                         }));
                     }
-                    // 2xx but no parseable models -> treat as exhaustion.
-                    return Err(ApiError {
-                        status: StatusCode::BAD_GATEWAY,
-                        message: format!(
+                    // 2xx but no parseable models -> keep probing: the 200
+                    // may be a gateway error envelope on a wrong path, and
+                    // the next candidate (e.g. /v1/models) the real endpoint
+                    // (10-13-models-config-ux R4, bigmodel /api/anthropic).
+                    if no_models_err.is_none() {
+                        no_models_err = Some(format!(
                             "no models parsed from {url} (body truncated: {})",
                             truncate(&text, 500)
-                        ),
-                    });
+                        ));
+                    }
+                    continue;
                 }
                 // 401/403 from the FIRST candidate short-circuits: the key
                 // is wrong, fallback URLs would 401 too. From later
@@ -742,6 +756,14 @@ async fn discover(
     if let Some((status, msg)) = first_auth_failure {
         return Err(ApiError {
             status,
+            message: msg,
+        });
+    }
+    // Prefer the auth failure (wrong key) over the 2xx-no-models envelope
+    // (right key, wrong path) over the plain tried list.
+    if let Some(msg) = no_models_err {
+        return Err(ApiError {
+            status: StatusCode::BAD_GATEWAY,
             message: msg,
         });
     }
@@ -896,7 +918,11 @@ fn parse_discovered_models(body: &str) -> Vec<DiscoveredModel> {
                     .map(|s| s.to_string());
                 (id, name)
             }
-            (Some(k), Value::String(s)) => (k, Some(s)),
+            // (Some(key), scalar) — an object whose fields are plain
+            // strings/numbers — is an ERROR ENVELOPE ({"code":500,
+            // "msg":"404 NOT_FOUND","success":false}), not a model map:
+            // skip (10-13-models-config-ux R4; cc-switch's parser accepts
+            // only the {"data":[…]} array shape, no object-of-scalars).
             _ => continue,
         };
 
@@ -1640,10 +1666,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_templates_omits_api_key_entirely() {
-        // The template list is what sandbox-side pickers consume. The
-        // apiKey must NOT travel at all (not even masked): the sandbox user
-        // pastes their own key after copying.
+    async fn get_templates_carries_real_api_key() {
+        // The template list is what sandbox-side pickers consume. R2
+        // (10-13-models-config-ux): a picked template prefills the key too,
+        // so the REAL key travels (mgr-web is the same trust domain as the
+        // provider editor — see the route's doc comment).
         let state = mgr_state();
         {
             let conn = state.db.lock().unwrap();
@@ -1652,11 +1679,7 @@ mod tests {
         let Json(v) = get_templates(State(state)).await.unwrap();
         let templates = v["templates"].as_array().expect("templates array");
         assert_eq!(templates.len(), 1);
-        assert!(
-            templates[0].get("apiKey").is_none(),
-            "apiKey must be absent, not null: {}",
-            templates[0]
-        );
+        assert_eq!(templates[0]["apiKey"], "sk-secret");
         assert_eq!(templates[0]["name"], "Sample");
         assert_eq!(templates[0]["baseUrl"], "https://api.example.com/v1");
     }
@@ -1808,6 +1831,13 @@ mod tests {
 
         assert!(parse_discovered_models("not json").is_empty());
         assert!(parse_discovered_models(r#""hello""#).is_empty());
+
+        // Error envelope (bigmodel shape): flat scalar fields are NOT a
+        // model map — must parse empty so the candidate loop falls through.
+        assert!(parse_discovered_models(
+            r#"{"code":500,"msg":"404 NOT_FOUND","success":false}"#
+        )
+        .is_empty());
     }
 
     // --- test-route pure helpers (app parity) ---
@@ -1980,5 +2010,109 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.status, StatusCode::NOT_FOUND);
         assert!(err.message.contains("ghost"), "{}", err.message);
+    }
+
+    // --- handler: 2xx envelope fall-through (10-13-models-config-ux R4) ---
+
+    /// Minimal canned-response upstream on an ephemeral port: one connection
+    /// per request (Connection: close), answers by exact path (query
+    /// ignored). The routes.rs proxy-test pattern — no tower/httpmock
+    /// dev-dependency to do this more elegantly.
+    async fn mock_upstream(responses: Vec<(&str, u16, &str)>) -> String {
+        // Owned copies: the spawned task must be 'static.
+        let responses: Vec<(String, u16, String)> = responses
+            .into_iter()
+            .map(|(p, c, b)| (p.to_string(), c, b.to_string()))
+            .collect();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            loop {
+                let (mut sock, _) = match listener.accept().await {
+                    Ok(x) => x,
+                    Err(_) => return,
+                };
+                let mut buf = [0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = req
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("")
+                    .split('?')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                let (status, body) = match responses.iter().find(|(p, _, _)| *p == path) {
+                    Some((_, code, body)) => (*code, (*body).to_string()),
+                    None => (404, "{}".to_string()),
+                };
+                let reason = match status {
+                    200 => "OK",
+                    401 => "Unauthorized",
+                    403 => "Forbidden",
+                    _ => "Not Found",
+                };
+                let resp = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn discover_2xx_no_models_falls_through_to_next_candidate() {
+        // bigmodel shape: the derived primary path answers 200 + an error
+        // envelope; the real endpoint (/v1/models) is one candidate later.
+        let base = mock_upstream(vec![
+            (
+                "/api/anthropic/models",
+                200,
+                r#"{"code":500,"msg":"404 NOT_FOUND","success":false}"#,
+            ),
+            (
+                "/api/anthropic/v1/models",
+                200,
+                r#"{"data":[{"id":"glm-4.6","display_name":"GLM-4.6"}]}"#,
+            ),
+        ])
+        .await;
+        let req = DiscoverRequest::Literal {
+            baseUrl: format!("{base}/api/anthropic"),
+            api: "anthropic-messages".to_string(),
+            apiKey: Some("k".to_string()),
+        };
+        let r = discover(State(std::sync::Arc::new(AppState::new_for_test())), Json(req))
+            .await
+            .unwrap();
+        assert!(r.models.iter().any(|m| m.id == "glm-4.6"));
+        assert!(r.endpoint.ends_with("/api/anthropic/v1/models"));
+    }
+
+    #[tokio::test]
+    async fn discover_2xx_no_models_everywhere_reports_no_models() {
+        // Every candidate answers 200 + envelope: the exhaustion error must
+        // surface the no-models reason, not the bare tried list.
+        let base = mock_upstream(vec![(
+            "/api/anthropic/models",
+            200,
+            r#"{"code":500,"msg":"404 NOT_FOUND","success":false}"#,
+        )])
+        .await;
+        let req = DiscoverRequest::Literal {
+            baseUrl: format!("{base}/api/anthropic"),
+            api: "anthropic-messages".to_string(),
+            apiKey: Some("k".to_string()),
+        };
+        let err = discover(State(std::sync::Arc::new(AppState::new_for_test())), Json(req))
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_GATEWAY);
+        assert!(err.message.contains("no models parsed"), "got: {}", err.message);
     }
 }
